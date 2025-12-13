@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Example/Example.csproj" />
+  <Project Path="XTerm.NET/XTerm.NET.csproj" />
+</Solution>

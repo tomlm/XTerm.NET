@@ -1,0 +1,329 @@
+using System.Text;
+using XTerm.NET.Common;
+
+namespace XTerm.NET.Parser;
+
+/// <summary>
+/// VT100/ANSI escape sequence parser implementing a state machine.
+/// Based on Paul Williams' ANSI parser state machine.
+/// </summary>
+public class EscapeSequenceParser
+{
+    private ParserState _state;
+    private readonly Params _params;
+    private int _currentParam;
+    private readonly StringBuilder _collect;
+    private readonly StringBuilder _osc;
+    private readonly StringBuilder _dcs;
+    
+    // Parser handlers
+    public Action<string>? PrintHandler { get; set; }
+    public Action<int>? ExecuteHandler { get; set; }
+    public Action<string, Params>? CsiHandler { get; set; }
+    public Action<string, string>? EscHandler { get; set; }
+    public Action<string>? OscHandler { get; set; }
+    public Action<string, Params>? DcsHandler { get; set; }
+
+    public EscapeSequenceParser()
+    {
+        _state = ParserState.Ground;
+        _params = new Params();
+        _currentParam = 0;
+        _collect = new StringBuilder();
+        _osc = new StringBuilder();
+        _dcs = new StringBuilder();
+    }
+
+    /// <summary>
+    /// Parses input data byte by byte.
+    /// </summary>
+    public void Parse(string data)
+    {
+        for (int i = 0; i < data.Length; i++)
+        {
+            var code = (int)data[i];
+            ParseChar(code);
+        }
+    }
+
+    /// <summary>
+    /// Parses a single character/code point.
+    /// </summary>
+    private void ParseChar(int code)
+    {
+        var currentState = _state;
+
+        // C0/C1 control characters
+        if (code < 0x20 || (code >= 0x80 && code < 0xA0))
+        {
+            switch (currentState)
+            {
+                case ParserState.Ground:
+                case ParserState.Escape:
+                case ParserState.CsiEntry:
+                case ParserState.CsiParam:
+                case ParserState.CsiIntermediate:
+                case ParserState.CsiIgnore:
+                    Execute(code);
+                    if (code == 0x1B) // ESC
+                    {
+                        Transition(ParserState.Escape);
+                    }
+                    return;
+
+                case ParserState.OscString:
+                    if (code == 0x1B || code == 0x07) // ESC or BEL
+                    {
+                        DispatchOsc();
+                        Transition(code == 0x1B ? ParserState.Escape : ParserState.Ground);
+                    }
+                    else if (code >= 0x20)
+                    {
+                        OscPut(code);
+                    }
+                    return;
+            }
+        }
+
+        // Normal state machine processing
+        switch (_state)
+        {
+            case ParserState.Ground:
+                if (code >= 0x20)
+                {
+                    Print(code);
+                }
+                break;
+
+            case ParserState.Escape:
+                switch (code)
+                {
+                    case 0x5B: // [
+                        Transition(ParserState.CsiEntry);
+                        break;
+                    case 0x5D: // ]
+                        Transition(ParserState.OscString);
+                        break;
+                    case 0x50: // P
+                        Transition(ParserState.DcsEntry);
+                        break;
+                    case 0x5E: // ^
+                    case 0x5F: // _
+                    case 0x58: // X
+                        Transition(ParserState.SosPmApcString);
+                        break;
+                    case >= 0x20 and < 0x30:
+                        Collect(code);
+                        Transition(ParserState.EscapeIntermediate);
+                        break;
+                    case >= 0x30 and < 0x7F:
+                        DispatchEsc(code);
+                        Transition(ParserState.Ground);
+                        break;
+                    default:
+                        Transition(ParserState.Ground);
+                        break;
+                }
+                break;
+
+            case ParserState.EscapeIntermediate:
+                if (code >= 0x20 && code < 0x30)
+                {
+                    Collect(code);
+                }
+                else if (code >= 0x30 && code < 0x7F)
+                {
+                    DispatchEsc(code);
+                    Transition(ParserState.Ground);
+                }
+                break;
+
+            case ParserState.CsiEntry:
+                if (code >= 0x30 && code < 0x40)
+                {
+                    Param(code);
+                    Transition(ParserState.CsiParam);
+                }
+                else if (code >= 0x40 && code < 0x7F)
+                {
+                    DispatchCsi(code);
+                    Transition(ParserState.Ground);
+                }
+                else if (code >= 0x20 && code < 0x30)
+                {
+                    Collect(code);
+                    Transition(ParserState.CsiIntermediate);
+                }
+                break;
+
+            case ParserState.CsiParam:
+                if (code >= 0x30 && code < 0x40)
+                {
+                    Param(code);
+                }
+                else if (code >= 0x40 && code < 0x7F)
+                {
+                    DispatchCsi(code);
+                    Transition(ParserState.Ground);
+                }
+                else if (code >= 0x20 && code < 0x30)
+                {
+                    Collect(code);
+                    Transition(ParserState.CsiIntermediate);
+                }
+                else if (code == 0x3A) // :
+                {
+                    // Sub-parameter separator
+                    Transition(ParserState.CsiIgnore);
+                }
+                break;
+
+            case ParserState.CsiIntermediate:
+                if (code >= 0x20 && code < 0x30)
+                {
+                    Collect(code);
+                }
+                else if (code >= 0x40 && code < 0x7F)
+                {
+                    DispatchCsi(code);
+                    Transition(ParserState.Ground);
+                }
+                break;
+
+            case ParserState.CsiIgnore:
+                if (code >= 0x40 && code < 0x7F)
+                {
+                    Transition(ParserState.Ground);
+                }
+                break;
+
+            case ParserState.OscString:
+                OscPut(code);
+                break;
+
+            case ParserState.DcsEntry:
+            case ParserState.DcsParam:
+            case ParserState.DcsIgnore:
+            case ParserState.DcsPassthrough:
+                // DCS handling (simplified)
+                if (code == 0x9C || code == 0x1B) // ST or ESC
+                {
+                    Transition(ParserState.Ground);
+                }
+                break;
+        }
+    }
+
+    private void Transition(ParserState newState)
+    {
+        // Exit actions
+        switch (_state)
+        {
+            case ParserState.CsiEntry:
+            case ParserState.CsiParam:
+            case ParserState.CsiIntermediate:
+            case ParserState.CsiIgnore:
+                if (newState != ParserState.CsiParam && newState != ParserState.CsiIntermediate && newState != ParserState.CsiIgnore)
+                {
+                    _params.Reset();
+                    _collect.Clear();
+                    _currentParam = 0;
+                }
+                break;
+        }
+
+        _state = newState;
+
+        // Entry actions
+        switch (newState)
+        {
+            case ParserState.CsiEntry:
+            case ParserState.DcsEntry:
+                _params.Reset();
+                _collect.Clear();
+                _currentParam = 0;
+                _params.AddParam(0);
+                break;
+
+            case ParserState.OscString:
+                _osc.Clear();
+                break;
+        }
+    }
+
+    private void Print(int code)
+    {
+        PrintHandler?.Invoke(char.ConvertFromUtf32(code));
+    }
+
+    private void Execute(int code)
+    {
+        ExecuteHandler?.Invoke(code);
+    }
+
+    private void Collect(int code)
+    {
+        _collect.Append((char)code);
+    }
+
+    private void Param(int code)
+    {
+        if (code == 0x3B) // ;
+        {
+            _params.AddParam(0);
+            _currentParam = 0;
+        }
+        else if (code >= 0x30 && code <= 0x39) // 0-9
+        {
+            var digit = code - 0x30;
+            var currentValue = _params.GetParam(_params.Length - 1, 0);
+            _params.AddParam(currentValue * 10 + digit);
+            if (_params.Length > 1)
+            {
+                // Remove the old value, we just updated it
+                var temp = _params.ToArray();
+                _params.Reset();
+                for (int i = 0; i < temp.Length - 2; i++)
+                {
+                    _params.AddParam(temp[i]);
+                }
+                _params.AddParam(currentValue * 10 + digit);
+            }
+        }
+    }
+
+    private void DispatchCsi(int code)
+    {
+        var finalChar = ((char)code).ToString();
+        CsiHandler?.Invoke(finalChar + _collect.ToString(), _params);
+    }
+
+    private void DispatchEsc(int code)
+    {
+        var finalChar = ((char)code).ToString();
+        EscHandler?.Invoke(finalChar, _collect.ToString());
+    }
+
+    private void OscPut(int code)
+    {
+        _osc.Append((char)code);
+    }
+
+    private void DispatchOsc()
+    {
+        OscHandler?.Invoke(_osc.ToString());
+    }
+
+    /// <summary>
+    /// Resets the parser to initial state.
+    /// </summary>
+    public void Reset()
+    {
+        _state = ParserState.Ground;
+        _params.Reset();
+        _currentParam = 0;
+        _collect.Clear();
+        _osc.Clear();
+        _dcs.Clear();
+    }
+}
