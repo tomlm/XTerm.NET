@@ -33,6 +33,9 @@ public class Terminal
     public bool ReverseWraparound { get; set; }
     public bool SendFocusEvents { get; set; }
     public string Title { get; set; }
+    public string? CurrentDirectory { get; set; }
+    public string? CurrentHyperlink { get; set; }
+    public string? HyperlinkId { get; set; }
 
     // Events
     public EventEmitter<string> OnData { get; }
@@ -42,6 +45,8 @@ public class Terminal
     public EventEmitter OnScroll { get; }
     public EventEmitter<string> OnLineFeed { get; }
     public EventEmitter OnCursorMove { get; }
+    public EventEmitter<string> OnDirectoryChange { get; }
+    public EventEmitter<string> OnHyperlink { get; } // New event for hyperlinks
 
     public Terminal(TerminalOptions? options = null)
     {
@@ -75,6 +80,8 @@ public class Terminal
         OnScroll = new EventEmitter();
         OnLineFeed = new EventEmitter<string>();
         OnCursorMove = new EventEmitter();
+        OnDirectoryChange = new EventEmitter<string>();
+        OnHyperlink = new EventEmitter<string>(); // Initialize new event
 
         InsertMode = false;
         ApplicationCursorKeys = false;
@@ -328,5 +335,6 @@ public class Terminal
         OnScroll.Clear();
         OnLineFeed.Clear();
         OnCursorMove.Clear();
+        OnDirectoryChange.Clear();
     }
 }

@@ -76,6 +76,39 @@ public static class CoreModes
 }
 
 /// <summary>
+/// OSC (Operating System Command) sequence identifiers.
+/// </summary>
+public static class OscCommands
+{
+    public const string SET_ICON_AND_TITLE = "0";      // Set icon name and window title
+    public const string SET_ICON_NAME = "1";           // Set icon name
+    public const string SET_WINDOW_TITLE = "2";        // Set window title
+    public const string SET_X_PROPERTY = "3";          // Set X property
+    public const string CHANGE_COLOR = "4";            // Change color palette
+    public const string CHANGE_SPECIAL_COLOR = "5";    // Change special color
+    public const string ENABLE_SPECIAL_COLOR = "6";    // Enable special color
+    public const string CURRENT_DIRECTORY = "7";       // Current working directory
+    public const string HYPERLINK = "8";               // Hyperlink
+    public const string GROWL_NOTIFICATION = "9";      // iTerm2 growl notification
+    public const string FOREGROUND_COLOR = "10";       // Set/query foreground color
+    public const string BACKGROUND_COLOR = "11";       // Set/query background color
+    public const string CURSOR_COLOR = "12";           // Set/query cursor color
+    public const string MOUSE_FOREGROUND = "13";       // Set/query mouse foreground
+    public const string MOUSE_BACKGROUND = "14";       // Set/query mouse background
+    public const string TEKTRONIX_FOREGROUND = "15";   // Tektronix foreground
+    public const string TEKTRONIX_BACKGROUND = "16";   // Tektronix background
+    public const string HIGHLIGHT_BACKGROUND = "17";   // Highlight background
+    public const string TEKTRONIX_CURSOR = "18";       // Tektronix cursor color
+    public const string HIGHLIGHT_FOREGROUND = "19";   // Highlight foreground
+    public const string CLIPBOARD = "52";              // Clipboard operations
+    public const string RESET_COLOR = "104";           // Reset color palette
+    public const string RESET_SPECIAL_COLOR = "105";   // Reset special color
+    public const string RESET_FOREGROUND = "110";      // Reset foreground color
+    public const string RESET_BACKGROUND = "111";      // Reset background color
+    public const string RESET_CURSOR = "112";          // Reset cursor color
+}
+
+/// <summary>
 /// Character set handling modes.
 /// </summary>
 public enum CharsetMode

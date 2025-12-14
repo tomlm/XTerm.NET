@@ -262,19 +262,206 @@ public class InputHandler
     public void HandleOsc(string data)
     {
         var parts = data.Split(new[] { ';' }, 2);
-        if (parts.Length < 2)
+        if (parts.Length == 0)
             return;
 
         var command = parts[0];
-        var arg = parts[1];
+        var arg = parts.Length > 1 ? parts[1] : string.Empty;
 
         switch (command)
         {
-            case "0": // Set window title and icon
-            case "2": // Set window title
+            case OscCommands.SET_ICON_AND_TITLE: // OSC 0
+            case OscCommands.SET_WINDOW_TITLE:   // OSC 2
                 _terminal.Title = arg;
+                _terminal.OnTitleChange.Fire(arg);
+                break;
+
+            case OscCommands.SET_ICON_NAME: // OSC 1
+                // Icon name - not typically supported in modern terminals
+                break;
+
+            case OscCommands.CHANGE_COLOR: // OSC 4 - Change color palette
+                HandleColorPaletteChange(arg);
+                break;
+
+            case OscCommands.CURRENT_DIRECTORY: // OSC 7 - Set current working directory
+                HandleCurrentDirectory(arg);
+                break;
+
+            case OscCommands.HYPERLINK: // OSC 8 - Hyperlink
+                HandleHyperlink(arg);
+                break;
+
+            case OscCommands.FOREGROUND_COLOR: // OSC 10 - Set/query foreground color
+                HandleColorQuery(OscCommands.FOREGROUND_COLOR, arg);
+                break;
+
+            case OscCommands.BACKGROUND_COLOR: // OSC 11 - Set/query background color
+                HandleColorQuery(OscCommands.BACKGROUND_COLOR, arg);
+                break;
+
+            case OscCommands.CURSOR_COLOR: // OSC 12 - Set/query cursor color
+                HandleColorQuery(OscCommands.CURSOR_COLOR, arg);
+                break;
+
+            case OscCommands.CLIPBOARD: // OSC 52 - Clipboard operations
+                HandleClipboard(arg);
+                break;
+
+            case OscCommands.RESET_COLOR: // OSC 104 - Reset color palette
+                HandleColorReset(arg);
+                break;
+
+            case OscCommands.RESET_FOREGROUND: // OSC 110 - Reset foreground color
+            case OscCommands.RESET_BACKGROUND: // OSC 111 - Reset background color
+            case OscCommands.RESET_CURSOR:     // OSC 112 - Reset cursor color
+                // Color resets - would reset to default colors
                 break;
         }
+    }
+
+    private void HandleColorPaletteChange(string data)
+    {
+        // OSC 4 ; index ; colorspec ST
+        // Example: OSC 4;1;rgb:ff/00/00 ST (set color 1 to red)
+        // For now, we just acknowledge but don't actually change colors
+        // A full implementation would parse the color and store it
+        var parts = data.Split(';');
+        if (parts.Length >= 2)
+        {
+            // Color index in parts[0], color spec in parts[1]
+            // TODO: Implement actual color storage and management
+        }
+    }
+
+    private void HandleCurrentDirectory(string data)
+    {
+        // OSC 7 ; file://hostname/path ST
+        // Example: OSC 7;file://localhost/home/user ST
+        if (data.StartsWith("file://"))
+        {
+            // Extract path from file:// URL
+            var uri = data.Substring(7); // Remove "file://"
+            var slashIndex = uri.IndexOf('/');
+            if (slashIndex >= 0)
+            {
+                var path = uri.Substring(slashIndex);
+                _terminal.CurrentDirectory = Uri.UnescapeDataString(path);
+                _terminal.OnDirectoryChange.Fire(_terminal.CurrentDirectory);
+            }
+        }
+    }
+
+    private void HandleHyperlink(string data)
+    {
+        // OSC 8 ; params ; URI ST
+        // Example: OSC 8;;http://example.com ST (start link)
+        //          OSC 8;; ST (end link)
+        var parts = data.Split(new[] { ';' }, 2);
+        
+        if (parts.Length >= 2)
+        {
+            var params_ = parts[0];
+            var uri = parts[1];
+
+            if (string.IsNullOrEmpty(uri))
+            {
+                // End hyperlink
+                _terminal.CurrentHyperlink = null;
+                _terminal.HyperlinkId = null;
+            }
+            else
+            {
+                // Start hyperlink
+                _terminal.CurrentHyperlink = uri;
+                
+                // Parse params for id= parameter
+                if (!string.IsNullOrEmpty(params_))
+                {
+                    var paramParts = params_.Split(':');
+                    foreach (var p in paramParts)
+                    {
+                        if (p.StartsWith("id="))
+                        {
+                            _terminal.HyperlinkId = p.Substring(3);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void HandleColorQuery(string colorType, string data)
+    {
+        // OSC 10/11/12 with ? queries the color
+        // OSC 10/11/12 with color spec sets the color
+        if (data == "?")
+        {
+            // Query color - respond with current color
+            // Format: OSC colorType ; rgb:rr/gg/bb ST
+            // For now, return a default response
+            string response = colorType switch
+            {
+                OscCommands.FOREGROUND_COLOR => $"\x1B]{colorType};rgb:ff/ff/ff\x07",
+                OscCommands.BACKGROUND_COLOR => $"\x1B]{colorType};rgb:00/00/00\x07",
+                OscCommands.CURSOR_COLOR => $"\x1B]{colorType};rgb:ff/ff/ff\x07",
+                _ => string.Empty
+            };
+            
+            if (!string.IsNullOrEmpty(response))
+            {
+                _terminal.OnData.Fire(response);
+            }
+        }
+        else if (!string.IsNullOrEmpty(data))
+        {
+            // Set color - would parse and apply the color
+            // TODO: Implement actual color setting
+        }
+    }
+
+    private void HandleClipboard(string data)
+    {
+        // OSC 52 ; c ; data ST
+        // Example: OSC 52;c;base64data ST
+        var parts = data.Split(new[] { ';' }, 2);
+        
+        if (parts.Length >= 2)
+        {
+            var target = parts[0]; // Usually 'c' for clipboard, 'p' for primary
+            var clipdata = parts[1];
+
+            if (clipdata == "?")
+            {
+                // Query clipboard - respond with clipboard content
+                // Format: OSC 52 ; c ; base64data ST
+                // For security, many terminals don't support this
+                // We'll send an empty response
+                _terminal.OnData.Fire($"\x1B]52;{target};\x07");
+            }
+            else
+            {
+                // Set clipboard
+                try
+                {
+                    var decoded = Convert.FromBase64String(clipdata);
+                    var text = System.Text.Encoding.UTF8.GetString(decoded);
+                    // TODO: Integrate with system clipboard
+                    // For now, we just acknowledge receipt
+                }
+                catch
+                {
+                    // Invalid base64 or encoding
+                }
+            }
+        }
+    }
+
+    private void HandleColorReset(string data)
+    {
+        // OSC 104 ; index ST (reset specific color)
+        // OSC 104 ST (reset all colors)
+        // TODO: Implement color reset functionality
     }
 
     // CSI Handler Implementations
