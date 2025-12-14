@@ -2,6 +2,7 @@ using System.Text;
 using XTerm.NET.Buffer;
 using XTerm.NET.Common;
 using XTerm.NET.Parser;
+using XTerm.NET.Input;
 
 namespace XTerm.NET;
 
@@ -981,15 +982,35 @@ public class InputHandler
                     
                 case CoreModes.SEND_FOCUS_EVENTS:
                     _terminal.SendFocusEvents = true;
+                    _terminal.GetMouseTracker().FocusEvents = true;
                     break;
                     
                 case CoreModes.MOUSE_REPORT_CLICK:
+                    _terminal.GetMouseTracker().TrackingMode = MouseTrackingMode.X10;
+                    break;
+                    
                 case CoreModes.MOUSE_REPORT_NORMAL:
+                    _terminal.GetMouseTracker().TrackingMode = MouseTrackingMode.VT200;
+                    break;
+                    
                 case CoreModes.MOUSE_REPORT_BTN_EVENT:
+                    _terminal.GetMouseTracker().TrackingMode = MouseTrackingMode.ButtonEvent;
+                    break;
+                    
                 case CoreModes.MOUSE_REPORT_ANY_EVENT:
+                    _terminal.GetMouseTracker().TrackingMode = MouseTrackingMode.AnyEvent;
+                    break;
+                    
+                case CoreModes.MOUSE_REPORT_UTF8:
+                    _terminal.GetMouseTracker().Encoding = MouseEncoding.Utf8;
+                    break;
+                    
                 case CoreModes.MOUSE_REPORT_SGR:
-                    // Mouse modes - not yet implemented
-                    // TODO: Implement mouse tracking
+                    _terminal.GetMouseTracker().Encoding = MouseEncoding.SGR;
+                    break;
+                    
+                case CoreModes.MOUSE_REPORT_URXVT:
+                    _terminal.GetMouseTracker().Encoding = MouseEncoding.URXVT;
                     break;
             }
         }
@@ -1066,15 +1087,20 @@ public class InputHandler
                     
                 case CoreModes.SEND_FOCUS_EVENTS:
                     _terminal.SendFocusEvents = false;
+                    _terminal.GetMouseTracker().FocusEvents = false;
                     break;
                     
                 case CoreModes.MOUSE_REPORT_CLICK:
                 case CoreModes.MOUSE_REPORT_NORMAL:
                 case CoreModes.MOUSE_REPORT_BTN_EVENT:
                 case CoreModes.MOUSE_REPORT_ANY_EVENT:
+                    _terminal.GetMouseTracker().TrackingMode = MouseTrackingMode.None;
+                    break;
+                    
+                case CoreModes.MOUSE_REPORT_UTF8:
                 case CoreModes.MOUSE_REPORT_SGR:
-                    // Mouse modes - not yet implemented
-                    // TODO: Implement mouse tracking
+                case CoreModes.MOUSE_REPORT_URXVT:
+                    _terminal.GetMouseTracker().Encoding = MouseEncoding.Default;
                     break;
             }
         }

@@ -15,6 +15,7 @@ public class Terminal
     private readonly EscapeSequenceParser _parser;
     private readonly InputHandler _inputHandler;
     private readonly KeyboardInputGenerator _keyboardInput;
+    private readonly MouseTracker _mouseTracker;
     private Buffer.Buffer _buffer;
     private Buffer.Buffer? _normalBuffer;
     private Buffer.Buffer? _altBuffer;
@@ -66,7 +67,8 @@ public class Terminal
         // Initialize parser and input handler
         _parser = new EscapeSequenceParser();
         _inputHandler = new InputHandler(this);
-        _keyboardInput = new KeyboardInputGenerator(this); // Initialize keyboard input generator
+        _keyboardInput = new KeyboardInputGenerator(this);
+        _mouseTracker = new MouseTracker(this); // Initialize mouse tracker
 
         // Wire up parser handlers
         _parser.PrintHandler = data => _inputHandler.Print(data);
@@ -260,6 +262,45 @@ public class Terminal
     {
         return _keyboardInput.GenerateCharSequence(c, modifiers);
     }
+
+    /// <summary>
+    /// Generates an escape sequence for a mouse event.
+    /// </summary>
+    /// <param name="button">The mouse button</param>
+    /// <param name="x">The column position (0-based)</param>
+    /// <param name="y">The row position (0-based)</param>
+    /// <param name="eventType">The type of mouse event</param>
+    /// <param name="modifiers">Modifier keys held during the event</param>
+    /// <returns>The escape sequence string to send to the application</returns>
+    public string GenerateMouseEvent(MouseButton button, int x, int y, MouseEventType eventType, KeyModifiers modifiers = KeyModifiers.None)
+    {
+        return _mouseTracker.GenerateMouseEvent(button, x, y, eventType, modifiers);
+    }
+
+    /// <summary>
+    /// Generates an escape sequence for a focus event (focus in/out).
+    /// </summary>
+    /// <param name="focused">True if focused, false if lost focus</param>
+    /// <returns>The escape sequence string to send to the application</returns>
+    public string GenerateFocusEvent(bool focused)
+    {
+        return _mouseTracker.GenerateFocusEvent(focused);
+    }
+
+    /// <summary>
+    /// Gets the current mouse tracking mode.
+    /// </summary>
+    public MouseTrackingMode MouseTrackingMode => _mouseTracker.TrackingMode;
+
+    /// <summary>
+    /// Gets the current mouse encoding format.
+    /// </summary>
+    public MouseEncoding MouseEncoding => _mouseTracker.Encoding;
+
+    /// <summary>
+    /// Gets the mouse tracker (internal use for mode setting).
+    /// </summary>
+    internal MouseTracker GetMouseTracker() => _mouseTracker;
 
     /// <summary>
     /// Switches to the alternate buffer.
