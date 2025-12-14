@@ -74,7 +74,7 @@ public class KeyboardInputTests
         Assert.Equal("\x1B[1;3A", terminal.GenerateKeyInput(Key.UpArrow, KeyModifiers.Alt));
     }
 
-    [Fact(Skip = "Need to investigate modifier encoding")]
+    [Fact]
     public void ArrowKeys_WithMultipleModifiers_GenerateCorrectCode()
     {
         // Arrange
