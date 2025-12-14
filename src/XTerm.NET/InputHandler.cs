@@ -144,6 +144,9 @@ public class InputHandler
             case "f": // HVP - Horizontal Vertical Position
                 CursorPosition(parameters);
                 break;
+            case "I": // CHT - Cursor Forward Tabulation
+                CursorForwardTab(parameters);
+                break;
             case "J": // ED - Erase in Display
                 EraseInDisplay(parameters);
                 break;
@@ -168,11 +171,29 @@ public class InputHandler
             case "X": // ECH - Erase Characters
                 EraseChars(parameters);
                 break;
+            case "Z": // CBT - Cursor Backward Tabulation
+                CursorBackwardTab(parameters);
+                break;
+            case "c": // DA - Primary Device Attributes
+                DeviceAttributes(parameters, isPrivate);
+                break;
+            case "d": // VPA - Line Position Absolute
+                LinePositionAbsolute(parameters);
+                break;
             case "m": // SGR - Select Graphic Rendition
                 CharAttributes(parameters);
                 break;
+            case "n": // DSR - Device Status Report
+                DeviceStatusReport(parameters, isPrivate);
+                break;
             case "r": // DECSTBM - Set Top and Bottom Margins
                 SetScrollRegion(parameters);
+                break;
+            case "s": // SCP - Save Cursor Position (ANSI)
+                SaveCursorAnsi();
+                break;
+            case "u": // RCP - Restore Cursor Position (ANSI)
+                RestoreCursorAnsi();
                 break;
             case "h": // SM - Set Mode / DECSET
                 if (isPrivate)
@@ -442,6 +463,145 @@ public class InputHandler
     {
         var count = Math.Max(parameters.GetParam(0, 1), 1);
         _buffer.ScrollDown(count);
+    }
+
+    private void SaveCursorAnsi()
+    {
+        // ANSI save cursor (CSI s) - same as DEC DECSC but simpler
+        SaveCursor();
+    }
+
+    private void RestoreCursorAnsi()
+    {
+        // ANSI restore cursor (CSI u) - same as DEC DECRC but simpler
+        RestoreCursor();
+    }
+
+    private void LinePositionAbsolute(Params parameters)
+    {
+        // VPA - Line Position Absolute (CSI d)
+        var row = Math.Max(parameters.GetParam(0, 1), 1) - 1;
+        
+        // Respect origin mode
+        if (_terminal.OriginMode)
+        {
+            row = Math.Clamp(row, _buffer.ScrollTop, _buffer.ScrollBottom);
+        }
+        else
+        {
+            row = Math.Clamp(row, 0, _terminal.Rows - 1);
+        }
+        
+        _buffer.SetCursor(_buffer.X, row);
+    }
+
+    private void CursorForwardTab(Params parameters)
+    {
+        // CHT - Cursor Forward Tabulation (CSI I)
+        var count = Math.Max(parameters.GetParam(0, 1), 1);
+        var tabWidth = _terminal.Options.TabStopWidth;
+        
+        for (int i = 0; i < count; i++)
+        {
+            var nextTabStop = ((_buffer.X / tabWidth) + 1) * tabWidth;
+            _buffer.SetCursor(Math.Min(nextTabStop, _terminal.Cols - 1), _buffer.Y);
+        }
+    }
+
+    private void CursorBackwardTab(Params parameters)
+    {
+        // CBT - Cursor Backward Tabulation (CSI Z)
+        var count = Math.Max(parameters.GetParam(0, 1), 1);
+        var tabWidth = _terminal.Options.TabStopWidth;
+        
+        for (int i = 0; i < count; i++)
+        {
+            if (_buffer.X == 0)
+                break;
+                
+            var prevTabStop = ((_buffer.X - 1) / tabWidth) * tabWidth;
+            _buffer.SetCursor(Math.Max(prevTabStop, 0), _buffer.Y);
+        }
+    }
+
+    private void DeviceAttributes(Params parameters, bool isPrivate)
+    {
+        // DA - Device Attributes (CSI c or CSI > c)
+        if (isPrivate)
+        {
+            // Secondary DA (CSI > c) - Report terminal ID and version
+            // Response: CSI > 0 ; version ; 0 c
+            // We report as VT100-compatible
+            _terminal.OnData.Fire("\x1B[>0;10;0c");
+        }
+        else
+        {
+            // Primary DA (CSI c) - Report device attributes
+            // Response: CSI ? 1 ; 2 c (VT100 with AVO)
+            // More complete: CSI ? 1 ; 2 ; 6 ; 9 c
+            // 1 = 132 columns, 2 = Printer, 6 = Selective erase, 9 = National replacement character sets
+            _terminal.OnData.Fire("\x1B[?1;2c");
+        }
+    }
+
+    private void DeviceStatusReport(Params parameters, bool isPrivate)
+    {
+        // DSR - Device Status Report (CSI n or CSI ? n)
+        var report = parameters.GetParam(0, 0);
+        
+        if (isPrivate)
+        {
+            // DEC-specific DSR
+            switch (report)
+            {
+                case 6: // DECXCPR - Extended Cursor Position Report
+                    // Report cursor position: CSI ? row ; col R
+                    var row = _buffer.Y + 1; // 1-based
+                    var col = _buffer.X + 1; // 1-based
+                    _terminal.OnData.Fire($"\x1B[?{row};{col}R");
+                    break;
+                    
+                case 15: // Printer status
+                    // Report no printer: CSI ? 1 3 n
+                    _terminal.OnData.Fire("\x1B[?13n");
+                    break;
+                    
+                case 25: // UDK status
+                    // Report UDK locked: CSI ? 2 1 n
+                    _terminal.OnData.Fire("\x1B[?21n");
+                    break;
+                    
+                case 26: // Keyboard status
+                    // Report keyboard ready: CSI ? 2 7 ; 1 ; 0 ; 0 n
+                    _terminal.OnData.Fire("\x1B[?27;1;0;0n");
+                    break;
+            }
+        }
+        else
+        {
+            // Standard ANSI DSR
+            switch (report)
+            {
+                case 5: // Operating status
+                    // Report OK: CSI 0 n
+                    _terminal.OnData.Fire("\x1B[0n");
+                    break;
+                    
+                case 6: // CPR - Cursor Position Report
+                    // Report cursor position: CSI row ; col R
+                    var row = _buffer.Y + 1; // 1-based
+                    var col = _buffer.X + 1; // 1-based
+                    
+                    // Adjust for origin mode
+                    if (_terminal.OriginMode)
+                    {
+                        row = row - _buffer.ScrollTop;
+                    }
+                    
+                    _terminal.OnData.Fire($"\x1B[{row};{col}R");
+                    break;
+            }
+        }
     }
 
     private void CharAttributes(Params parameters)

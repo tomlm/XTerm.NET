@@ -139,7 +139,11 @@ public class EscapeSequenceParser
                 break;
 
             case ParserState.CsiEntry:
-                if (code >= 0x30 && code < 0x40)
+                if (code >= 0x3C && code <= 0x3F) // Private parameter markers (<, =, >, ?)
+                {
+                    Collect(code);
+                }
+                else if (code >= 0x30 && code < 0x3C) // 0-9, :, ;
                 {
                     Param(code);
                     Transition(ParserState.CsiParam);
@@ -289,7 +293,8 @@ public class EscapeSequenceParser
         var finalChar = ((char)code).ToString();
         // Clone params so handlers get their own copy
         var paramsClone = _params.Clone();
-        CsiHandler?.Invoke(finalChar + _collect.ToString(), paramsClone);
+        // Collected characters come BEFORE the final character (e.g., "?" before "h" gives "?h")
+        CsiHandler?.Invoke(_collect.ToString() + finalChar, paramsClone);
     }
 
     private void DispatchEsc(int code)
