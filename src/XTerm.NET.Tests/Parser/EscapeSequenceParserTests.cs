@@ -1,7 +1,7 @@
-using XTerm.NET.Parser;
+using XTerm.Parser;
 using System.Text;
 
-namespace XTerm.NET.Tests.Parser;
+namespace XTerm.Tests.Parser;
 
 public class EscapeSequenceParserTests
 {

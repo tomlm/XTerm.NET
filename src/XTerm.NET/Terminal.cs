@@ -1,10 +1,10 @@
-using XTerm.NET.Buffer;
-using XTerm.NET.Common;
-using XTerm.NET.Parser;
-using XTerm.NET.Options;
-using XTerm.NET.Input;
+using XTerm.Buffer;
+using XTerm.Common;
+using XTerm.Parser;
+using XTerm.Options;
+using XTerm.Input;
 
-namespace XTerm.NET;
+namespace XTerm;
 
 /// <summary>
 /// Main terminal class - the core of xterm.js functionality.
@@ -16,13 +16,13 @@ public class Terminal
     private readonly InputHandler _inputHandler;
     private readonly KeyboardInputGenerator _keyboardInput;
     private readonly MouseTracker _mouseTracker;
-    private Buffer.Buffer _buffer;
-    private Buffer.Buffer? _normalBuffer;
-    private Buffer.Buffer? _altBuffer;
+    private Buffer.TerminalBuffer _buffer;
+    private Buffer.TerminalBuffer? _normalBuffer;
+    private Buffer.TerminalBuffer? _altBuffer;
     private bool _usingAltBuffer;
 
     public TerminalOptions Options { get; }
-    public Buffer.Buffer Buffer => _buffer;
+    public Buffer.TerminalBuffer Buffer => _buffer;
     public int Cols { get; private set; }
     public int Rows { get; private set; }
 
@@ -59,8 +59,8 @@ public class Terminal
         Title = string.Empty;
 
         // Initialize buffers
-        _normalBuffer = new Buffer.Buffer(Cols, Rows, Options.Scrollback);
-        _altBuffer = new Buffer.Buffer(Cols, Rows, 0); // Alt buffer has no scrollback
+        _normalBuffer = new Buffer.TerminalBuffer(Cols, Rows, Options.Scrollback);
+        _altBuffer = new Buffer.TerminalBuffer(Cols, Rows, 0); // Alt buffer has no scrollback
         _buffer = _normalBuffer;
         _usingAltBuffer = false;
 

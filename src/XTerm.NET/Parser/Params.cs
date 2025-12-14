@@ -1,4 +1,4 @@
-namespace XTerm.NET.Parser;
+namespace XTerm.Parser;
 
 /// <summary>
 /// Manages parameters for escape sequences.

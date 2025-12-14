@@ -1,6 +1,6 @@
-using XTerm.NET.Common;
+using XTerm.Common;
 
-namespace XTerm.NET.Events;
+namespace XTerm.Events;
 
 /// <summary>
 /// Terminal event data and handlers.

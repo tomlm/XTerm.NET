@@ -1,7 +1,7 @@
-using XTerm.NET.Buffer;
-using XTerm.NET.Common;
+using XTerm.Buffer;
+using XTerm.Common;
 
-namespace XTerm.NET.Renderer;
+namespace XTerm.Renderer;
 
 /// <summary>
 /// Dimensions for rendering.
@@ -221,7 +221,7 @@ public class TerminalLink
 public abstract class BaseRenderLayer : IRenderLayer
 {
     protected Terminal Terminal { get; }
-    protected Buffer.Buffer Buffer => Terminal.Buffer;
+    protected Buffer.TerminalBuffer Buffer => Terminal.Buffer;
     protected int Cols => Terminal.Cols;
     protected int Rows => Terminal.Rows;
 

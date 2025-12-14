@@ -1,6 +1,6 @@
-using XTerm.NET.Common;
+using XTerm.Common;
 
-namespace XTerm.NET.Tests.Common;
+namespace XTerm.Tests.Common;
 
 public class EventEmitterTests
 {

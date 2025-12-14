@@ -1,7 +1,7 @@
 using System.Text;
-using XTerm.NET.Common;
+using XTerm.Common;
 
-namespace XTerm.NET.Parser;
+namespace XTerm.Parser;
 
 /// <summary>
 /// VT100/ANSI escape sequence parser implementing a state machine.

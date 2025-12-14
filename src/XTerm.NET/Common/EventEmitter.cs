@@ -1,4 +1,4 @@
-namespace XTerm.NET.Common;
+namespace XTerm.Common;
 
 /// <summary>
 /// Generic event emitter for terminal events.

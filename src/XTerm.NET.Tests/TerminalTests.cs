@@ -1,7 +1,7 @@
-using XTerm.NET;
-using XTerm.NET.Options;
+using XTerm;
+using XTerm.Options;
 
-namespace XTerm.NET.Tests;
+namespace XTerm.Tests;
 
 public class TerminalTests
 {

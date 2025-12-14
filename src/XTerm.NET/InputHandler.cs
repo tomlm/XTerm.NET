@@ -1,10 +1,10 @@
 using System.Text;
-using XTerm.NET.Buffer;
-using XTerm.NET.Common;
-using XTerm.NET.Parser;
-using XTerm.NET.Input;
+using XTerm.Buffer;
+using XTerm.Common;
+using XTerm.Parser;
+using XTerm.Input;
 
-namespace XTerm.NET;
+namespace XTerm;
 
 /// <summary>
 /// Handles input escape sequences and updates the terminal buffer.
@@ -13,7 +13,7 @@ namespace XTerm.NET;
 public class InputHandler
 {
     private readonly Terminal _terminal;
-    private Buffer.Buffer _buffer;
+    private Buffer.TerminalBuffer _buffer;
     private AttributeData _curAttr;
     private readonly Dictionary<CharsetMode, Dictionary<char, string>?> _charsets;
     private CharsetMode _currentCharset;
@@ -1272,7 +1272,7 @@ public class InputHandler
         return width;
     }
 
-    public void SetBuffer(Buffer.Buffer buffer)
+    public void SetBuffer(Buffer.TerminalBuffer buffer)
     {
         _buffer = buffer;
     }

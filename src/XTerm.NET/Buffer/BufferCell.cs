@@ -1,7 +1,7 @@
 using System.Text;
-using XTerm.NET.Common;
+using XTerm.Common;
 
-namespace XTerm.NET.Buffer;
+namespace XTerm.Buffer;
 
 /// <summary>
 /// Represents a single cell in the terminal buffer.

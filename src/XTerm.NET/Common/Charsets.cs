@@ -1,4 +1,4 @@
-namespace XTerm.NET.Common;
+namespace XTerm.Common;
 
 /// <summary>
 /// Character set definitions for VT100/xterm terminals.

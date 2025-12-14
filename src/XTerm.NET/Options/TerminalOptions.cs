@@ -1,6 +1,6 @@
-using XTerm.NET.Common;
+using XTerm.Common;
 
-namespace XTerm.NET.Options;
+namespace XTerm.Options;
 
 /// <summary>
 /// Terminal configuration options.

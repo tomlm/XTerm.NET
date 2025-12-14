@@ -1,4 +1,4 @@
-namespace XTerm.NET.Input;
+namespace XTerm.Input;
 
 /// <summary>
 /// Represents keyboard keys that can generate input sequences.

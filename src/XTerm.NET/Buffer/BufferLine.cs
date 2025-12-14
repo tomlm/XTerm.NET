@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace XTerm.NET.Buffer;
+namespace XTerm.Buffer;
 
 /// <summary>
 /// Represents a single line in the terminal buffer.

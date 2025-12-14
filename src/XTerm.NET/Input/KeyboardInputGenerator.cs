@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace XTerm.NET.Input;
+namespace XTerm.Input;
 
 /// <summary>
 /// Generates escape sequences for keyboard input based on terminal state.

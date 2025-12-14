@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace XTerm.NET.Charset;
+namespace XTerm.Charset;
 
 /// <summary>
 /// Character set translation tables for VT100 special graphics and other charsets.

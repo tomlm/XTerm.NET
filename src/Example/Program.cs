@@ -1,9 +1,9 @@
 ﻿// See https://aka.ms/new-console-template for more information
-using XTerm.NET;
-using XTerm.NET.Options;
-using XTerm.NET.Renderer;
+using XTerm;
+using XTerm.Options;
+using XTerm.Renderer;
 
-namespace XTerm.NET.Examples;
+namespace XTerm.Examples;
 
 /// <summary>
 /// Example usage of XTerm.NET library.

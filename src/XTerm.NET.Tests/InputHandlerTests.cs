@@ -1,9 +1,9 @@
-using XTerm.NET;
-using XTerm.NET.Buffer;
-using XTerm.NET.Options;
-using XTerm.NET.Parser;
+using XTerm;
+using XTerm.Buffer;
+using XTerm.Options;
+using XTerm.Parser;
 
-namespace XTerm.NET.Tests;
+namespace XTerm.Tests;
 
 public class InputHandlerTests
 {
@@ -424,7 +424,7 @@ public class InputHandlerTests
         // Arrange
         var terminal = CreateTerminal();
         var handler = new InputHandler(terminal);
-        var newBuffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var newBuffer = new TerminalBuffer(80, 24, 1000);
 
         // Act
         handler.SetBuffer(newBuffer);

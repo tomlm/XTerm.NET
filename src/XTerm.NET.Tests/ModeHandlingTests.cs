@@ -1,8 +1,8 @@
-using XTerm.NET;
-using XTerm.NET.Common;
-using XTerm.NET.Options;
+using XTerm;
+using XTerm.Common;
+using XTerm.Options;
 
-namespace XTerm.NET.Tests;
+namespace XTerm.Tests;
 
 public class ModeHandlingTests
 {

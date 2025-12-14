@@ -1,7 +1,7 @@
-using XTerm.NET.Buffer;
-using XTerm.NET.Common;
+using XTerm.Buffer;
+using XTerm.Common;
 
-namespace XTerm.NET.Selection;
+namespace XTerm.Selection;
 
 /// <summary>
 /// Selection mode for text selection.

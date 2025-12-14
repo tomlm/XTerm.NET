@@ -1,6 +1,6 @@
-using XTerm.NET.Buffer;
+using XTerm.Buffer;
 
-namespace XTerm.NET.Tests.Buffer;
+namespace XTerm.Tests.Buffer;
 
 public class CircularListTests
 {

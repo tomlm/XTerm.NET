@@ -1,8 +1,8 @@
-using XTerm.NET;
-using XTerm.NET.Input;
-using XTerm.NET.Options;
+using XTerm;
+using XTerm.Input;
+using XTerm.Options;
 
-namespace XTerm.NET.Tests;
+namespace XTerm.Tests;
 
 public class KeyboardInputTests
 {

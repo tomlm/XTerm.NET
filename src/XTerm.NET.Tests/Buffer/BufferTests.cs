@@ -1,7 +1,7 @@
-using XTerm.NET.Buffer;
-using XTerm.NET.Common;
+using XTerm.Buffer;
+using XTerm.Common;
 
-namespace XTerm.NET.Tests.Buffer;
+namespace XTerm.Tests.Buffer;
 
 public class BufferTests
 {
@@ -9,7 +9,7 @@ public class BufferTests
     public void Constructor_InitializesBuffer()
     {
         // Arrange & Act
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
 
         // Assert
         Assert.Equal(0, buffer.YDisp);
@@ -26,7 +26,7 @@ public class BufferTests
     public void Constructor_CreatesLinesForRows()
     {
         // Arrange & Act
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
 
         // Assert
         Assert.True(buffer.Lines.Length >= 24);
@@ -36,7 +36,7 @@ public class BufferTests
     public void SetCursor_SetsCursorPosition()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
 
         // Act
         buffer.SetCursor(10, 5);
@@ -50,7 +50,7 @@ public class BufferTests
     public void SetCursor_ClampsToBufferBounds()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
 
         // Act
         buffer.SetCursor(-5, -3);
@@ -71,7 +71,7 @@ public class BufferTests
     public void MoveCursor_MovesCursorWithoutClamping()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
 
         // Act
         buffer.MoveCursor(10, 5);
@@ -85,7 +85,7 @@ public class BufferTests
     public void GetLine_ReturnsLine()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
 
         // Act
         var line = buffer.GetLine(0);
@@ -99,7 +99,7 @@ public class BufferTests
     public void GetBlankLine_ReturnsBlankLine()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
         var attr = AttributeData.Default;
 
         // Act
@@ -115,7 +115,7 @@ public class BufferTests
     public void GetBlankLine_WithWrapped_SetsWrapped()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
         var attr = AttributeData.Default;
 
         // Act
@@ -129,7 +129,7 @@ public class BufferTests
     public void ScrollUp_ScrollsBuffer()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
         var initialYBase = buffer.YBase;
 
         // Act
@@ -143,7 +143,7 @@ public class BufferTests
     public void ScrollUp_MultipleLines_ScrollsMultipleTimes()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
         var initialYBase = buffer.YBase;
 
         // Act
@@ -157,7 +157,7 @@ public class BufferTests
     public void ScrollDown_ScrollsBufferDown()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
         buffer.ScrollUp(3); // Scroll up first to have content to scroll down
 
         // Act
@@ -171,7 +171,7 @@ public class BufferTests
     public void ScrollDisp_ScrollsDisplay()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
         buffer.ScrollUp(5); // Create scrollback
         var initialYDisp = buffer.YDisp;
 
@@ -186,7 +186,7 @@ public class BufferTests
     public void ScrollDisp_ClampsToYBase()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
         buffer.ScrollUp(3);
 
         // Act
@@ -200,7 +200,7 @@ public class BufferTests
     public void ScrollDisp_ClampsToZero()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
         buffer.ScrollUp(3);
         buffer.ScrollDisp(2);
 
@@ -215,7 +215,7 @@ public class BufferTests
     public void ScrollToBottom_ScrollsToBottom()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
         buffer.ScrollUp(5);
         buffer.ScrollDisp(-3); // Scroll up in display
 
@@ -230,7 +230,7 @@ public class BufferTests
     public void ScrollToTop_ScrollsToTop()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
         buffer.ScrollUp(5);
 
         // Act
@@ -244,7 +244,7 @@ public class BufferTests
     public void SetScrollRegion_SetsRegion()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
 
         // Act
         buffer.SetScrollRegion(5, 20);
@@ -258,7 +258,7 @@ public class BufferTests
     public void SetScrollRegion_ClampsToBufferBounds()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
 
         // Act
         buffer.SetScrollRegion(-5, 100);
@@ -272,7 +272,7 @@ public class BufferTests
     public void SetScrollRegion_TopGreaterThanBottom_ClampsCorrectly()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
 
         // Act
         buffer.SetScrollRegion(20, 5);
@@ -286,7 +286,7 @@ public class BufferTests
     public void ResetScrollRegion_ResetsToFullScreen()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
         buffer.SetScrollRegion(5, 20);
 
         // Act
@@ -301,7 +301,7 @@ public class BufferTests
     public void GetAbsoluteY_ReturnsAbsolutePosition()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
         buffer.ScrollUp(5); // YBase becomes 5
 
         // Act
@@ -315,7 +315,7 @@ public class BufferTests
     public void Resize_ResizesBuffer()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
 
         // Act
         buffer.Resize(100, 30);
@@ -333,7 +333,7 @@ public class BufferTests
     public void SavedCursorState_InitializesCorrectly()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
 
         // Assert
         Assert.NotNull(buffer.SavedCursorState);
@@ -347,7 +347,7 @@ public class BufferTests
     public void SavedCursorState_CanBeModified()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
 
         // Act
         buffer.SavedCursorState.X = 10;
@@ -374,7 +374,7 @@ public class BufferTests
     public void Constructor_VariousSizes_WorksCorrectly(int cols, int rows, int scrollback)
     {
         // Act
-        var buffer = new XTerm.NET.Buffer.Buffer(cols, rows, scrollback);
+        var buffer = new TerminalBuffer(cols, rows, scrollback);
 
         // Assert
         Assert.NotNull(buffer);
@@ -386,7 +386,7 @@ public class BufferTests
     public void ScrollUp_WithWrapped_SetsWrappedFlag()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
 
         // Act
         buffer.ScrollUp(1, isWrapped: true);
@@ -404,7 +404,7 @@ public class BufferTests
     public void Lines_Property_IsAccessible()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
 
         // Act
         var lines = buffer.Lines;
@@ -418,7 +418,7 @@ public class BufferTests
     public void MultipleScrollOperations_MaintainConsistency()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
 
         // Act
         buffer.ScrollUp(2);
@@ -436,7 +436,7 @@ public class BufferTests
     public void CursorMovement_ComplexScenario()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
 
         // Act
         buffer.SetCursor(40, 12);
@@ -464,7 +464,7 @@ public class BufferTests
     public void ScrollRegion_AffectsScrolling()
     {
         // Arrange
-        var buffer = new XTerm.NET.Buffer.Buffer(80, 24, 1000);
+        var buffer = new TerminalBuffer(80, 24, 1000);
         buffer.SetScrollRegion(5, 15);
 
         // Act

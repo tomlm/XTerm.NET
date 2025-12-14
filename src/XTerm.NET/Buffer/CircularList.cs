@@ -1,4 +1,4 @@
-namespace XTerm.NET.Buffer;
+namespace XTerm.Buffer;
 
 /// <summary>
 /// Circular list implementation for terminal buffer lines.

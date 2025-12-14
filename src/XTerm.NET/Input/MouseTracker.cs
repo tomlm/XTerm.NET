@@ -1,4 +1,4 @@
-namespace XTerm.NET.Input;
+namespace XTerm.Input;
 
 /// <summary>
 /// Tracks mouse state and generates mouse event sequences.

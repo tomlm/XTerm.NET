@@ -1,6 +1,6 @@
-using XTerm.NET.Parser;
+using XTerm.Parser;
 
-namespace XTerm.NET.Tests.Parser;
+namespace XTerm.Tests.Parser;
 
 public class ParamsTests
 {

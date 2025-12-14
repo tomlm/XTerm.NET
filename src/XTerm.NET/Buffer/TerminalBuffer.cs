@@ -1,11 +1,11 @@
-using XTerm.NET.Common;
+using XTerm.Common;
 
-namespace XTerm.NET.Buffer;
+namespace XTerm.Buffer;
 
 /// <summary>
 /// Main terminal buffer that manages the active screen and scrollback.
 /// </summary>
-public class Buffer
+public class TerminalBuffer
 {
     private readonly CircularList<BufferLine> _lines;
     private int _yDisp;
@@ -48,7 +48,7 @@ public class Buffer
 
     public SavedCursor SavedCursorState { get; set; }
 
-    public Buffer(int cols, int rows, int scrollback)
+    public TerminalBuffer(int cols, int rows, int scrollback)
     {
         _cols = cols;
         _rows = rows;

@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace XTerm.NET.Buffer;
+namespace XTerm.Buffer;
 
 /// <summary>
 /// Represents attribute data for a cell in the terminal buffer.

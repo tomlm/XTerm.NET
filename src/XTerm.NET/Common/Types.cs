@@ -1,4 +1,4 @@
-namespace XTerm.NET.Common;
+namespace XTerm.Common;
 
 /// <summary>
 /// Cursor style for the terminal.
