@@ -141,10 +141,7 @@ public class KeyboardInputGenerator
         return key switch
         {
             Key.Space => "\u0000",      // Ctrl+Space = NUL
-            Key.LeftArrow => GetArrowKey('D', KeyModifiers.Control),
-            Key.RightArrow => GetArrowKey('C', KeyModifiers.Control),
-            Key.UpArrow => GetArrowKey('A', KeyModifiers.Control),
-            Key.DownArrow => GetArrowKey('B', KeyModifiers.Control),
+            // Arrow keys are handled by GetArrowKey which already supports all modifiers
             _ => null
         };
     }
