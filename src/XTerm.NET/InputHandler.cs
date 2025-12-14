@@ -15,7 +15,7 @@ public class InputHandler
     private readonly Terminal _terminal;
     private Buffer.Buffer _buffer;
     private AttributeData _curAttr;
-    private readonly Dictionary<string, Func<string>?> _charsets;
+    private readonly Dictionary<CharsetMode, Dictionary<char, string>?> _charsets;
     private CharsetMode _currentCharset;
 
     public InputHandler(Terminal terminal)
@@ -23,8 +23,17 @@ public class InputHandler
         _terminal = terminal;
         _buffer = terminal.Buffer;
         _curAttr = AttributeData.Default;
-        _charsets = new Dictionary<string, Func<string>?>();
-        _currentCharset = CharsetMode.G0;
+        
+        // Initialize charset tables - all start as ASCII
+        _charsets = new Dictionary<CharsetMode, Dictionary<char, string>?>
+        {
+            { CharsetMode.G0, Charsets.ASCII },
+            { CharsetMode.G1, Charsets.ASCII },
+            { CharsetMode.G2, Charsets.ASCII },
+            { CharsetMode.G3, Charsets.ASCII }
+        };
+        
+        _currentCharset = CharsetMode.G0; // G0 is active by default
     }
 
     /// <summary>
@@ -63,16 +72,24 @@ public class InputHandler
             line.IsWrapped = true;
         }
 
+        // Translate character through active charset
+        var translatedData = data;
+        if (data.Length == 1)
+        {
+            var charset = _charsets.GetValueOrDefault(_currentCharset);
+            translatedData = Charsets.TranslateChar(data[0], charset);
+        }
+
         // Get character width
-        var width = GetStringCellWidth(data);
+        var width = GetStringCellWidth(translatedData);
 
         // Create cell
         var cell = new BufferCell
         {
-            Content = data,
+            Content = translatedData,
             Width = width,
             Attributes = _curAttr.Clone(),
-            CodePoint = data.Length > 0 ? char.ConvertToUtf32(data, 0) : 0
+            CodePoint = translatedData.Length > 0 ? char.ConvertToUtf32(translatedData, 0) : 0
         };
 
         // Insert mode handling
@@ -237,7 +254,7 @@ public class InputHandler
         switch (finalChar)
         {
             case "D": // IND - Index
-                Index();
+                IndexDown();
                 break;
             case "E": // NEL - Next Line
                 NextLine();
@@ -246,7 +263,7 @@ public class InputHandler
                 ReverseIndex();
                 break;
             case "c": // RIS - Reset to Initial State
-                Reset();
+                ResetTerminal();
                 break;
             case "7": // DECSC - Save Cursor
                 SaveCursor();
@@ -255,6 +272,61 @@ public class InputHandler
                 RestoreCursor();
                 break;
         }
+        
+        // Charset designation sequences
+        if (collected.Length > 0)
+        {
+            var intermediateChar = collected[0];
+            switch (intermediateChar)
+            {
+                case '(': // Designate G0 character set
+                    SetCharset(CharsetMode.G0, finalChar);
+                    break;
+                case ')': // Designate G1 character set
+                    SetCharset(CharsetMode.G1, finalChar);
+                    break;
+                case '*': // Designate G2 character set
+                    SetCharset(CharsetMode.G2, finalChar);
+                    break;
+                case '+': // Designate G3 character set
+                    SetCharset(CharsetMode.G3, finalChar);
+                    break;
+            }
+        }
+    }
+
+    private void SetCharset(CharsetMode mode, string charsetId)
+    {
+        var charset = Charsets.GetCharset(charsetId);
+        _charsets[mode] = charset;
+    }
+
+    /// <summary>
+    /// Shift Out - Select G1 character set (SO, 0x0E).
+    /// </summary>
+    public void ShiftOut()
+    {
+        _currentCharset = CharsetMode.G1;
+    }
+
+    /// <summary>
+    /// Shift In - Select G0 character set (SI, 0x0F).
+    /// </summary>
+    public void ShiftIn()
+    {
+        _currentCharset = CharsetMode.G0;
+    }
+
+    /// <summary>
+    /// Resets charset state to defaults.
+    /// </summary>
+    public void ResetCharsets()
+    {
+        _charsets[CharsetMode.G0] = Charsets.ASCII;
+        _charsets[CharsetMode.G1] = Charsets.ASCII;
+        _charsets[CharsetMode.G2] = Charsets.ASCII;
+        _charsets[CharsetMode.G3] = Charsets.ASCII;
+        _currentCharset = CharsetMode.G0;
     }
 
     /// <summary>
@@ -403,9 +475,9 @@ public class InputHandler
             // For now, return a default response
             string response = colorType switch
             {
-                OscCommands.FOREGROUND_COLOR => $"\x1B]{colorType};rgb:ff/ff/ff\x07",
-                OscCommands.BACKGROUND_COLOR => $"\x1B]{colorType};rgb:00/00/00\x07",
-                OscCommands.CURSOR_COLOR => $"\x1B]{colorType};rgb:ff/ff/ff\x07",
+                OscCommands.FOREGROUND_COLOR => $"\u001b]{colorType};rgb:ff/ff/ff\u0007",
+                OscCommands.BACKGROUND_COLOR => $"\u001b]{colorType};rgb:00/00/00\u0007",
+                OscCommands.CURSOR_COLOR => $"\u001b]{colorType};rgb:ff/ff/ff\u0007",
                 _ => string.Empty
             };
             
@@ -438,7 +510,7 @@ public class InputHandler
                 // Format: OSC 52 ; c ; base64data ST
                 // For security, many terminals don't support this
                 // We'll send an empty response
-                _terminal.OnData.Fire($"\x1B]52;{target};\x07");
+                _terminal.OnData.Fire($"\u001b]52;{target};\u0007");
             }
             else
             {
@@ -720,7 +792,7 @@ public class InputHandler
             // Secondary DA (CSI > c) - Report terminal ID and version
             // Response: CSI > 0 ; version ; 0 c
             // We report as VT100-compatible
-            _terminal.OnData.Fire("\x1B[>0;10;0c");
+            _terminal.OnData.Fire("\u001b[>0;10;0c");
         }
         else
         {
@@ -728,7 +800,7 @@ public class InputHandler
             // Response: CSI ? 1 ; 2 c (VT100 with AVO)
             // More complete: CSI ? 1 ; 2 ; 6 ; 9 c
             // 1 = 132 columns, 2 = Printer, 6 = Selective erase, 9 = National replacement character sets
-            _terminal.OnData.Fire("\x1B[?1;2c");
+            _terminal.OnData.Fire("\u001b[?1;2c");
         }
     }
 
@@ -746,22 +818,22 @@ public class InputHandler
                     // Report cursor position: CSI ? row ; col R
                     var row = _buffer.Y + 1; // 1-based
                     var col = _buffer.X + 1; // 1-based
-                    _terminal.OnData.Fire($"\x1B[?{row};{col}R");
+                    _terminal.OnData.Fire($"\u001b[?{row};{col}R");
                     break;
                     
                 case 15: // Printer status
                     // Report no printer: CSI ? 1 3 n
-                    _terminal.OnData.Fire("\x1B[?13n");
+                    _terminal.OnData.Fire("\u001b[?13n");
                     break;
                     
                 case 25: // UDK status
                     // Report UDK locked: CSI ? 2 1 n
-                    _terminal.OnData.Fire("\x1B[?21n");
+                    _terminal.OnData.Fire("\u001b[?21n");
                     break;
                     
                 case 26: // Keyboard status
                     // Report keyboard ready: CSI ? 2 7 ; 1 ; 0 ; 0 n
-                    _terminal.OnData.Fire("\x1B[?27;1;0;0n");
+                    _terminal.OnData.Fire("\u001b[?27;1;0;0n");
                     break;
             }
         }
@@ -772,7 +844,7 @@ public class InputHandler
             {
                 case 5: // Operating status
                     // Report OK: CSI 0 n
-                    _terminal.OnData.Fire("\x1B[0n");
+                    _terminal.OnData.Fire("\u001b[0n");
                     break;
                     
                 case 6: // CPR - Cursor Position Report
@@ -786,7 +858,7 @@ public class InputHandler
                         row = row - _buffer.ScrollTop;
                     }
                     
-                    _terminal.OnData.Fire($"\x1B[{row};{col}R");
+                    _terminal.OnData.Fire($"\u001b[{row};{col}R");
                     break;
             }
         }
@@ -1122,7 +1194,7 @@ public class InputHandler
 
     // ESC Handler Implementations
 
-    private void Index()
+    private void IndexDown()
     {
         if (_buffer.Y == _buffer.ScrollBottom)
         {
@@ -1136,7 +1208,7 @@ public class InputHandler
 
     private void NextLine()
     {
-        Index();
+        IndexDown();
         _buffer.SetCursor(0, _buffer.Y);
     }
 
@@ -1152,7 +1224,7 @@ public class InputHandler
         }
     }
 
-    private void Reset()
+    private void ResetTerminal()
     {
         _terminal.Reset();
     }

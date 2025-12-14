@@ -364,8 +364,11 @@ public class Terminal
                 break;
 
             case 0x0E: // SO - Shift Out (select G1 charset)
+                _inputHandler.ShiftOut();
+                break;
+                
             case 0x0F: // SI - Shift In (select G0 charset)
-                // Character set handling
+                _inputHandler.ShiftIn();
                 break;
         }
     }

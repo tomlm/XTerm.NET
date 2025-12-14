@@ -311,7 +311,7 @@ public class KeyboardInputTests
         Assert.Equal("\x7F", terminal.GenerateCharInput('?', KeyModifiers.Control)); // Ctrl+? = DEL
     }
 
-    [Fact(Skip = "Need to investigate Alt prefix generation")]
+    [Fact]
     public void CharInput_WithAlt_GeneratesEscapePrefix()
     {
         // Arrange
