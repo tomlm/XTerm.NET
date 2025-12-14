@@ -39,11 +39,13 @@ public class BasicExample
             Scrollback = 1000
         });
 
+        var renderer = new ConsoleRenderer(terminal);
+
         terminal.Write("Hello, XTerm.NET!\n");
         terminal.Write("This is a terminal emulator.\n");
         terminal.Write("It supports VT100/ANSI escape sequences.\n");
 
-        PrintTerminalContent(terminal);
+        RenderTerminal(terminal, renderer);
     }
 
     static void ColoredOutputExample()
@@ -51,6 +53,7 @@ public class BasicExample
         Console.WriteLine("\n=== Colored Output Example ===\n");
 
         var terminal = new Terminal();
+        var renderer = new ConsoleRenderer(terminal);
 
         // Standard colors
         terminal.Write("\x1b[31mRed text\x1b[0m\n");
@@ -72,7 +75,7 @@ public class BasicExample
         // True color (RGB)
         terminal.Write("\x1b[38;2;255;100;200mPink text (RGB)\x1b[0m\n");
 
-        PrintTerminalContent(terminal);
+        RenderTerminal(terminal, renderer);
     }
 
     static void CursorMovementExample()
@@ -80,6 +83,7 @@ public class BasicExample
         Console.WriteLine("\n=== Cursor Movement Example ===\n");
 
         var terminal = new Terminal(new TerminalOptions { Cols = 40, Rows = 10 });
+        var renderer = new ConsoleRenderer(terminal);
 
         // Write at different positions
         terminal.Write("Top left");
@@ -89,11 +93,11 @@ public class BasicExample
         terminal.Write("Bottom left");
 
         // Draw a box
-        terminal.Write("\x1b[2;2H????????????");
-        terminal.Write("\x1b[3;2H?  Box     ?");
-        terminal.Write("\x1b[4;2H????????????");
+        terminal.Write("\x1b[2;2H+----------+");
+        terminal.Write("\x1b[3;2H|  Box     |");
+        terminal.Write("\x1b[4;2H+----------+");
 
-        PrintTerminalContent(terminal);
+        RenderTerminal(terminal, renderer);
     }
 
     static void BufferAccessExample()
@@ -101,6 +105,7 @@ public class BasicExample
         Console.WriteLine("\n=== Buffer Access Example ===\n");
 
         var terminal = new Terminal(new TerminalOptions { Cols = 30, Rows = 5 });
+        var renderer = new ConsoleRenderer(terminal);
 
         terminal.Write("Line 1\n");
         terminal.Write("\x1b[1;31mRed Line 2\x1b[0m\n");
@@ -129,7 +134,7 @@ public class BasicExample
             Console.WriteLine($"  FG Color: {c.Attributes.GetFgColor()}");
         }
 
-        PrintTerminalContent(terminal);
+        RenderTerminal(terminal, renderer);
     }
 
     static void EventHandlingExample()
@@ -137,6 +142,7 @@ public class BasicExample
         Console.WriteLine("\n=== Event Handling Example ===\n");
 
         var terminal = new Terminal();
+        var renderer = new ConsoleRenderer(terminal);
 
         // Subscribe to events
         terminal.OnTitleChange.Event(title =>
@@ -160,89 +166,18 @@ public class BasicExample
         terminal.Write("\x07"); // Bell
         terminal.Write("Line 2\n");
 
-        PrintTerminalContent(terminal);
+        RenderTerminal(terminal, renderer);
     }
 
-    static void PrintTerminalContent(Terminal terminal)
+    static void RenderTerminal(Terminal terminal, ConsoleRenderer renderer)
     {
         Console.WriteLine("\nTerminal output:");
         Console.WriteLine(new string('-', terminal.Cols));
 
-        var lines = terminal.GetVisibleLines();
-        foreach (var line in lines)
-        {
-            if (!string.IsNullOrWhiteSpace(line))
-            {
-                Console.WriteLine(line);
-            }
-        }
+        // Use the ConsoleRenderer to render the terminal content
+        renderer.Render(0, terminal.Rows);
 
         Console.WriteLine(new string('-', terminal.Cols));
         Console.WriteLine();
     }
-}
-
-/// <summary>
-/// Example of implementing a custom renderer.
-/// </summary>
-public class ConsoleRenderer : IRenderer
-{
-    private readonly Terminal _terminal;
-
-    public RenderDimensions Dimensions { get; private set; }
-
-    public ConsoleRenderer(Terminal terminal)
-    {
-        _terminal = terminal;
-        Dimensions = new RenderDimensions
-        {
-            Scaled = new Renderer.Dimensions
-            {
-                CellWidth = 10,
-                CellHeight = 20,
-                CanvasWidth = terminal.Cols * 10,
-                CanvasHeight = terminal.Rows * 20
-            },
-            Actual = new Renderer.Dimensions
-            {
-                CellWidth = 10,
-                CellHeight = 20,
-                CanvasWidth = terminal.Cols * 10,
-                CanvasHeight = terminal.Rows * 20
-            },
-            DevicePixelRatio = 1.0
-        };
-    }
-
-    public void Render(int start, int end)
-    {
-        Console.Clear();
-        var buffer = _terminal.Buffer;
-
-        for (int y = start; y < end && y < _terminal.Rows; y++)
-        {
-            var line = buffer.Lines[buffer.YDisp + y];
-            if (line != null)
-            {
-                Console.WriteLine(line.TranslateToString(true));
-            }
-        }
-    }
-
-    public void RenderCursor(int x, int y, CursorRenderOptions options)
-    {
-        // Position cursor in console
-        if (y < Console.WindowHeight && x < Console.WindowWidth)
-        {
-            Console.SetCursorPosition(x, y);
-        }
-    }
-
-    public void OnResize(int cols, int rows) { }
-    public void OnDevicePixelRatioChange() { }
-    public void Clear() => Console.Clear();
-    public void RegisterCharacterAtlas(ICharAtlas atlas) { }
-    public void OnColorChange() { }
-    public void OnOptionsChange() { }
-    public void Dispose() { }
 }
