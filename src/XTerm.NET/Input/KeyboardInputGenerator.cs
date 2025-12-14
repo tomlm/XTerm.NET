@@ -32,9 +32,9 @@ public class KeyboardInputGenerator
         {
             // Control keys
             Key.Enter => "\r",
-            Key.Tab => (modifiers & KeyModifiers.Shift) != 0 ? "\x1B[Z" : "\t",
-            Key.Backspace => "\x7F", // DEL (127)
-            Key.Escape => "\x1B",
+            Key.Tab => (modifiers & KeyModifiers.Shift) != 0 ? "\u001b[Z" : "\t",
+            Key.Backspace => "\u007f", // DEL (127)
+            Key.Escape => "\u001b",
             Key.Space => " ",
 
             // Arrow keys
@@ -112,14 +112,14 @@ public class KeyboardInputGenerator
             // Special control characters
             return c switch
             {
-                ' ' => "\x00", // Ctrl+Space = NUL
-                '@' => "\x00", // Ctrl+@ = NUL
-                '[' => "\x1B", // Ctrl+[ = ESC
-                '\\' => "\x1C", // Ctrl+\ = FS
-                ']' => "\x1D", // Ctrl+] = GS
-                '^' => "\x1E", // Ctrl+^ = RS
-                '_' => "\x1F", // Ctrl+_ = US
-                '?' => "\x7F", // Ctrl+? = DEL
+                ' ' => "\u0000", // Ctrl+Space = NUL
+                '@' => "\u0000", // Ctrl+@ = NUL
+                '[' => "\u001b", // Ctrl+[ = ESC
+                '\\' => "\u001c", // Ctrl+\ = FS
+                ']' => "\u001d", // Ctrl+] = GS
+                '^' => "\u001e", // Ctrl+^ = RS
+                '_' => "\u001f", // Ctrl+_ = US
+                '?' => "\u007f", // Ctrl+? = DEL
                 _ => c.ToString()
             };
         }
@@ -140,7 +140,7 @@ public class KeyboardInputGenerator
         // Control key combinations
         return key switch
         {
-            Key.Space => "\x00",      // Ctrl+Space = NUL
+            Key.Space => "\u0000",      // Ctrl+Space = NUL
             Key.LeftArrow => GetArrowKey('D', KeyModifiers.Control),
             Key.RightArrow => GetArrowKey('C', KeyModifiers.Control),
             Key.UpArrow => GetArrowKey('A', KeyModifiers.Control),
@@ -157,38 +157,38 @@ public class KeyboardInputGenerator
         if (modifiers == KeyModifiers.None)
         {
             // Normal arrow keys
-            return appMode ? $"\x1BO{direction}" : $"\x1B[{direction}";
+            return appMode ? $"\u001bO{direction}" : $"\u001b[{direction}";
         }
 
         // Modified arrow keys use CSI 1 ; modifier ; direction format
         var modCode = GetModifierCode(modifiers);
-        return $"\x1B[1;{modCode}{direction}";
+        return $"\u001b[1;{modCode}{direction}";
     }
 
     private string GetNavigationKey(char key, KeyModifiers modifiers)
     {
         if (modifiers == KeyModifiers.None)
         {
-            return $"\x1B[{key}";
+            return $"\u001b[{key}";
         }
 
         // Modified navigation keys
         var modCode = GetModifierCode(modifiers);
-        return $"\x1B[1;{modCode}{key}";
+        return $"\u001b[1;{modCode}{key}";
     }
 
     private string GetModifiedSequence(string sequence, KeyModifiers modifiers)
     {
         if (modifiers == KeyModifiers.None)
         {
-            return $"\x1B[{sequence}";
+            return $"\u001b[{sequence}";
         }
 
         // Insert modifier code before the final character
         var modCode = GetModifierCode(modifiers);
         var lastChar = sequence[^1];
         var prefix = sequence[..^1];
-        return $"\x1B[{prefix};{modCode}{lastChar}";
+        return $"\u001b[{prefix};{modCode}{lastChar}";
     }
 
     private string GetFunctionKey(int number, KeyModifiers modifiers)
@@ -199,12 +199,12 @@ public class KeyboardInputGenerator
             var code = (char)('P' + number - 1);
             if (modifiers == KeyModifiers.None)
             {
-                return $"\x1BO{code}";
+                return $"\u001bO{code}";
             }
             else
             {
                 var modCode = GetModifierCode(modifiers);
-                return $"\x1B[1;{modCode}{code}";
+                return $"\u001b[1;{modCode}{code}";
             }
         }
 
@@ -235,12 +235,12 @@ public class KeyboardInputGenerator
 
         if (modifiers == KeyModifiers.None)
         {
-            return $"\x1B[{seqNumber}~";
+            return $"\u001b[{seqNumber}~";
         }
         else
         {
             var modCode = GetModifierCode(modifiers);
-            return $"\x1B[{seqNumber};{modCode}~";
+            return $"\u001b[{seqNumber};{modCode}~";
         }
     }
 
@@ -249,7 +249,7 @@ public class KeyboardInputGenerator
         // Keypad keys respect ApplicationKeypad mode
         if (_terminal.ApplicationKeypad)
         {
-            return $"\x1BO{appChar}";
+            return $"\u001bO{appChar}";
         }
         else
         {

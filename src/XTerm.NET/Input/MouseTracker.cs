@@ -51,7 +51,7 @@ public class MouseTracker
         if (!FocusEvents)
             return string.Empty;
 
-        return focused ? "\x1B[I" : "\x1B[O";
+        return focused ? "\u001b[I" : "\u001b[O";
     }
 
     private bool ShouldReportEvent(MouseButton button, MouseEventType eventType)
@@ -99,7 +99,7 @@ public class MouseTracker
         cx = Math.Clamp(cx, 32, 255);
         cy = Math.Clamp(cy, 32, 255);
 
-        return $"\x1B[M{(char)cb}{(char)cx}{(char)cy}";
+        return $"\u001b[M{(char)cb}{(char)cx}{(char)cy}";
     }
 
     private string GenerateUTF8Sequence(MouseButton button, int x, int y, MouseEventType eventType, KeyModifiers modifiers)
@@ -109,7 +109,7 @@ public class MouseTracker
         int cx = x + 1 + 32;
         int cy = y + 1 + 32;
 
-        return $"\x1B[M{(char)cb}{EncodeUTF8Coord(cx)}{EncodeUTF8Coord(cy)}";
+        return $"\u001b[M{(char)cb}{EncodeUTF8Coord(cx)}{EncodeUTF8Coord(cy)}";
     }
 
     private string GenerateSGRSequence(MouseButton button, int x, int y, MouseEventType eventType, KeyModifiers modifiers)
@@ -124,7 +124,7 @@ public class MouseTracker
 
         char terminator = (eventType == MouseEventType.Up) ? 'm' : 'M';
 
-        return $"\x1B[<{cb};{cx};{cy}{terminator}";
+        return $"\u001b[<{cb};{cx};{cy}{terminator}";
     }
 
     private string GenerateURXVTSequence(MouseButton button, int x, int y, MouseEventType eventType, KeyModifiers modifiers)
@@ -134,7 +134,7 @@ public class MouseTracker
         int cx = x + 1; // 1-based
         int cy = y + 1; // 1-based
 
-        return $"\x1B[{cb};{cx};{cy}M";
+        return $"\u001b[{cb};{cx};{cy}M";
     }
 
     private int EncodeButton(MouseButton button, MouseEventType eventType, KeyModifiers modifiers)
