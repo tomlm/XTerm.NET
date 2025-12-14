@@ -30,6 +30,10 @@ public class BasicExample
         // Example 5: Event handling
         EventHandlingExample();
         Console.ReadKey();
+        
+        // Example 6: Window manipulation events
+        WindowManipulationExample();
+        Console.ReadKey();
     }
 
     static void BasicTerminalExample()
@@ -144,9 +148,9 @@ public class BasicExample
 
     static void EventHandlingExample()
     {
-        Console.WriteLine("\r\n=== Event Handling Example ===\r\n");
+        Console.WriteLine("\n=== Event Handling Example ===\n");
 
-        var terminal = new Terminal(new TerminalOptions { });
+        var terminal = new Terminal(new TerminalOptions { ConvertEol = true });
         var renderer = new ConsoleRenderer(terminal);
 
         // Subscribe to events
@@ -167,9 +171,90 @@ public class BasicExample
 
         // Trigger events
         terminal.Write("\x1b]0;My Terminal Title\x07"); // Set title
-        terminal.Write("Line 1\r\n"); // Trigger line feed
+        terminal.Write("Line 1\n"); // Trigger line feed
         terminal.Write("\x07"); // Bell
-        terminal.Write("Line 2\r\n");
+        terminal.Write("Line 2\n");
+
+        RenderTerminal(terminal, renderer);
+    }
+
+    static void WindowManipulationExample()
+    {
+        Console.WriteLine("\n=== Window Manipulation Example ===\n");
+
+        var terminal = new Terminal(new TerminalOptions
+        {
+            ConvertEol = true,
+            WindowOptions = new WindowOptions
+            {
+                // Enable window manipulation permissions
+                SetWinPosition = true,
+                SetWinSizePixels = true,
+                SetWinSizeChars = true,
+                GetWinTitle = true,
+                GetWinSizeChars = true,
+                MinimizeWin = true,
+                MaximizeWin = true,
+                RestoreWin = true,
+                RaiseWin = true,
+                LowerWin = true
+            }
+        });
+
+        var renderer = new ConsoleRenderer(terminal);
+
+        // Subscribe to window manipulation events
+        terminal.OnWindowMove.Event(pos =>
+        {
+            Console.WriteLine($"[WINDOW EVENT] Move window to: ({pos.x}, {pos.y})");
+        });
+
+        terminal.OnWindowResize.Event(size =>
+        {
+            Console.WriteLine($"[WINDOW EVENT] Resize window to: {size.width}x{size.height} pixels");
+        });
+
+        terminal.OnWindowMinimize.Event(() =>
+        {
+            Console.WriteLine("[WINDOW EVENT] Minimize window");
+        });
+
+        terminal.OnWindowMaximize.Event(() =>
+        {
+            Console.WriteLine("[WINDOW EVENT] Maximize window");
+        });
+
+        terminal.OnWindowRestore.Event(() =>
+        {
+            Console.WriteLine("[WINDOW EVENT] Restore window");
+        });
+
+        terminal.OnWindowRaise.Event(() =>
+        {
+            Console.WriteLine("[WINDOW EVENT] Raise window to front");
+        });
+
+        terminal.OnWindowLower.Event(() =>
+        {
+            Console.WriteLine("[WINDOW EVENT] Lower window to back");
+        });
+
+        terminal.OnWindowInfoRequest.Event(request =>
+        {
+            Console.WriteLine($"[WINDOW EVENT] Information requested: {request}");
+        });
+
+        // Send window manipulation commands
+        terminal.Write("Sending window manipulation commands...\n");
+        terminal.Write("\x1b[3;100;200t"); // Move window to (100, 200)
+        terminal.Write("\x1b[4;600;800t"); // Resize window to 800x600 pixels
+        terminal.Write("\x1b[2t");         // Minimize window
+        terminal.Write("\x1b[9;1t");       // Maximize window
+        terminal.Write("\x1b[9;0t");       // Restore window
+        terminal.Write("\x1b[5t");         // Raise window
+        terminal.Write("\x1b[6t");         // Lower window
+        terminal.Write("\x1b[21t");        // Query window title
+        terminal.Write("\x1b[18t");        // Query text area size
 
         RenderTerminal(terminal, renderer);
     }

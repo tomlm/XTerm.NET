@@ -236,3 +236,49 @@ public enum ParserAction
     DcsPut = 13,
     DcsUnhook = 14
 }
+
+/// <summary>
+/// Window information request types for OSC window queries.
+/// </summary>
+public enum WindowInfoRequest
+{
+    /// <summary>
+    /// Request window position (x, y coordinates).
+    /// </summary>
+    Position,
+    
+    /// <summary>
+    /// Request window size in pixels.
+    /// </summary>
+    SizePixels,
+    
+    /// <summary>
+    /// Request window size in characters (columns x rows).
+    /// </summary>
+    SizeCharacters,
+    
+    /// <summary>
+    /// Request screen size in pixels.
+    /// </summary>
+    ScreenSizePixels,
+    
+    /// <summary>
+    /// Request cell size in pixels.
+    /// </summary>
+    CellSizePixels,
+    
+    /// <summary>
+    /// Request window title.
+    /// </summary>
+    Title,
+    
+    /// <summary>
+    /// Request icon title.
+    /// </summary>
+    IconTitle,
+    
+    /// <summary>
+    /// Request window state (normal, minimized, maximized, fullscreen).
+    /// </summary>
+    State
+}

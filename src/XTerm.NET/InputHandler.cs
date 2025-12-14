@@ -213,6 +213,9 @@ public class InputHandler
             case "u": // RCP - Restore Cursor Position (ANSI)
                 RestoreCursorAnsi();
                 break;
+            case "t": // XTWINOPS - Window manipulation
+                WindowManipulation(parameters);
+                break;
             case "h": // SM - Set Mode / DECSET
                 if (isPrivate)
                 {
@@ -993,6 +996,201 @@ public class InputHandler
         var top = Math.Max(parameters.GetParam(0, 1), 1) - 1;
         var bottom = Math.Max(parameters.GetParam(1, _terminal.Rows), 1) - 1;
         _buffer.SetScrollRegion(top, bottom);
+    }
+
+    private void WindowManipulation(Params parameters)
+    {
+        // CSI Ps ; Ps ; Ps t - Window manipulation (XTWINOPS)
+        // Check WindowOptions permissions before firing events
+        var operation = parameters.GetParam(0, 0);
+        
+        switch (operation)
+        {
+            case 1: // De-iconify window (restore from minimized)
+                if (_terminal.Options.WindowOptions.RestoreWin)
+                {
+                    _terminal.OnWindowRestore.Fire();
+                }
+                break;
+                
+            case 2: // Iconify window (minimize)
+                if (_terminal.Options.WindowOptions.MinimizeWin)
+                {
+                    _terminal.OnWindowMinimize.Fire();
+                }
+                break;
+                
+            case 3: // Move window to x, y
+                if (_terminal.Options.WindowOptions.SetWinPosition)
+                {
+                    var x = parameters.GetParam(1, 0);
+                    var y = parameters.GetParam(2, 0);
+                    _terminal.OnWindowMove.Fire((x, y));
+                }
+                break;
+                
+            case 4: // Resize window to height, width pixels
+                if (_terminal.Options.WindowOptions.SetWinSizePixels)
+                {
+                    var height = parameters.GetParam(1, 0);
+                    var width = parameters.GetParam(2, 0);
+                    _terminal.OnWindowResize.Fire((width, height));
+                }
+                break;
+                
+            case 5: // Raise window to front
+                if (_terminal.Options.WindowOptions.RaiseWin)
+                {
+                    _terminal.OnWindowRaise.Fire();
+                }
+                break;
+                
+            case 6: // Lower window to back
+                if (_terminal.Options.WindowOptions.LowerWin)
+                {
+                    _terminal.OnWindowLower.Fire();
+                }
+                break;
+                
+            case 7: // Refresh window
+                if (_terminal.Options.WindowOptions.RefreshWin)
+                {
+                    _terminal.OnWindowRefresh.Fire();
+                }
+                break;
+                
+            case 8: // Resize text area to height, width characters
+                if (_terminal.Options.WindowOptions.SetWinSizeChars)
+                {
+                    var rows = parameters.GetParam(1, 0);
+                    var cols = parameters.GetParam(2, 0);
+                    if (rows > 0 && cols > 0)
+                    {
+                        _terminal.Resize(cols, rows);
+                    }
+                }
+                break;
+                
+            case 9: // Maximize/restore operations
+                var subOp = parameters.GetParam(1, 0);
+                if (subOp == 0 && _terminal.Options.WindowOptions.RestoreWin)
+                {
+                    // Restore maximized window
+                    _terminal.OnWindowRestore.Fire();
+                }
+                else if (subOp == 1 && _terminal.Options.WindowOptions.MaximizeWin)
+                {
+                    // Maximize window
+                    _terminal.OnWindowMaximize.Fire();
+                }
+                break;
+                
+            case 10: // Full-screen operations
+                subOp = parameters.GetParam(1, 0);
+                if (subOp == 0 && _terminal.Options.WindowOptions.FullscreenWin)
+                {
+                    // Exit full-screen
+                    _terminal.OnWindowFullscreen.Fire();
+                }
+                else if (subOp == 1 && _terminal.Options.WindowOptions.FullscreenWin)
+                {
+                    // Enter full-screen
+                    _terminal.OnWindowFullscreen.Fire();
+                }
+                else if (subOp == 2 && _terminal.Options.WindowOptions.FullscreenWin)
+                {
+                    // Toggle full-screen
+                    _terminal.OnWindowFullscreen.Fire();
+                }
+                break;
+                
+            case 11: // Report window state (iconified or not)
+                if (_terminal.Options.WindowOptions.GetWinState)
+                {
+                    _terminal.OnWindowInfoRequest.Fire(WindowInfoRequest.State);
+                    // Response: CSI 1 t (not iconified) or CSI 2 t (iconified)
+                    // Application should call terminal.OnData.Fire to respond
+                }
+                break;
+                
+            case 13: // Report window position
+                if (_terminal.Options.WindowOptions.GetWinPosition)
+                {
+                    _terminal.OnWindowInfoRequest.Fire(WindowInfoRequest.Position);
+                    // Response: CSI 3 ; x ; y t
+                }
+                break;
+                
+            case 14: // Report window size in pixels
+                if (_terminal.Options.WindowOptions.GetWinSizePixels)
+                {
+                    _terminal.OnWindowInfoRequest.Fire(WindowInfoRequest.SizePixels);
+                    // Response: CSI 4 ; height ; width t
+                }
+                break;
+                
+            case 15: // Report screen size in pixels
+                if (_terminal.Options.WindowOptions.GetScreenSizePixels)
+                {
+                    _terminal.OnWindowInfoRequest.Fire(WindowInfoRequest.ScreenSizePixels);
+                    // Response: CSI 5 ; height ; width t
+                }
+                break;
+                
+            case 16: // Report character cell size in pixels
+                if (_terminal.Options.WindowOptions.GetCellSizePixels)
+                {
+                    _terminal.OnWindowInfoRequest.Fire(WindowInfoRequest.CellSizePixels);
+                    // Response: CSI 6 ; height ; width t
+                }
+                break;
+                
+            case 18: // Report text area size in characters
+                if (_terminal.Options.WindowOptions.GetWinSizeChars)
+                {
+                    _terminal.OnWindowInfoRequest.Fire(WindowInfoRequest.SizeCharacters);
+                    // Response: CSI 8 ; rows ; cols t
+                    // Or respond directly:
+                    _terminal.OnData.Fire($"\u001b[8;{_terminal.Rows};{_terminal.Cols}t");
+                }
+                break;
+                
+            case 19: // Report screen size in characters
+                if (_terminal.Options.WindowOptions.GetScreenSizePixels)
+                {
+                    // This is typically the same as window size for terminal apps
+                    _terminal.OnData.Fire($"\u001b[9;{_terminal.Rows};{_terminal.Cols}t");
+                }
+                break;
+                
+            case 20: // Report icon label
+                if (_terminal.Options.WindowOptions.GetIconTitle)
+                {
+                    _terminal.OnWindowInfoRequest.Fire(WindowInfoRequest.IconTitle);
+                    // Response: OSC L label ST
+                }
+                break;
+                
+            case 21: // Report window title
+                if (_terminal.Options.WindowOptions.GetWinTitle)
+                {
+                    _terminal.OnWindowInfoRequest.Fire(WindowInfoRequest.Title);
+                    // Response: OSC l title ST or just return current title
+                    if (!string.IsNullOrEmpty(_terminal.Title))
+                    {
+                        _terminal.OnData.Fire($"\u001b]l{_terminal.Title}\u0007");
+                    }
+                }
+                break;
+                
+            case 22: // Save window title
+                // Push title onto stack (not typically implemented)
+                break;
+                
+            case 23: // Restore window title
+                // Pop title from stack (not typically implemented)
+                break;
+        }
     }
 
     private void SetMode(Params parameters)

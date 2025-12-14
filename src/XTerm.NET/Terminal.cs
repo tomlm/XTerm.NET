@@ -51,6 +51,18 @@ public class Terminal
     public EventEmitter<string> OnDirectoryChange { get; }
     public EventEmitter<string> OnHyperlink { get; } // New event for hyperlinks
 
+    // Window manipulation events
+    public EventEmitter<(int x, int y)> OnWindowMove { get; }
+    public EventEmitter<(int width, int height)> OnWindowResize { get; }
+    public EventEmitter OnWindowMinimize { get; }
+    public EventEmitter OnWindowMaximize { get; }
+    public EventEmitter OnWindowRestore { get; }
+    public EventEmitter OnWindowRaise { get; }
+    public EventEmitter OnWindowLower { get; }
+    public EventEmitter OnWindowRefresh { get; }
+    public EventEmitter OnWindowFullscreen { get; }
+    public EventEmitter<WindowInfoRequest> OnWindowInfoRequest { get; }
+
     public Terminal(TerminalOptions? options = null)
     {
         Options = options ?? new TerminalOptions();
@@ -86,7 +98,19 @@ public class Terminal
         OnLineFeed = new EventEmitter<string>();
         OnCursorMove = new EventEmitter();
         OnDirectoryChange = new EventEmitter<string>();
-        OnHyperlink = new EventEmitter<string>(); // Initialize new event
+        OnHyperlink = new EventEmitter<string>();
+        
+        // Initialize window manipulation events
+        OnWindowMove = new EventEmitter<(int x, int y)>();
+        OnWindowResize = new EventEmitter<(int width, int height)>();
+        OnWindowMinimize = new EventEmitter();
+        OnWindowMaximize = new EventEmitter();
+        OnWindowRestore = new EventEmitter();
+        OnWindowRaise = new EventEmitter();
+        OnWindowLower = new EventEmitter();
+        OnWindowRefresh = new EventEmitter();
+        OnWindowFullscreen = new EventEmitter();
+        OnWindowInfoRequest = new EventEmitter<WindowInfoRequest>();
 
         InsertMode = false;
         ApplicationCursorKeys = false;
@@ -411,5 +435,18 @@ public class Terminal
         OnLineFeed.Clear();
         OnCursorMove.Clear();
         OnDirectoryChange.Clear();
+        OnHyperlink.Clear();
+        
+        // Clear window manipulation events
+        OnWindowMove.Clear();
+        OnWindowResize.Clear();
+        OnWindowMinimize.Clear();
+        OnWindowMaximize.Clear();
+        OnWindowRestore.Clear();
+        OnWindowRaise.Clear();
+        OnWindowLower.Clear();
+        OnWindowRefresh.Clear();
+        OnWindowFullscreen.Clear();
+        OnWindowInfoRequest.Clear();
     }
 }
