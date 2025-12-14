@@ -29,6 +29,9 @@ public class Terminal
     public bool ApplicationKeypad { get; set; }
     public bool BracketedPasteMode { get; set; }
     public bool OriginMode { get; set; }
+    public bool CursorVisible { get; set; }
+    public bool ReverseWraparound { get; set; }
+    public bool SendFocusEvents { get; set; }
     public string Title { get; set; }
 
     // Events
@@ -78,6 +81,9 @@ public class Terminal
         ApplicationKeypad = false;
         BracketedPasteMode = false;
         OriginMode = false;
+        CursorVisible = true;
+        ReverseWraparound = false;
+        SendFocusEvents = false;
     }
 
     /// <summary>
@@ -141,6 +147,9 @@ public class Terminal
         ApplicationKeypad = false;
         BracketedPasteMode = false;
         OriginMode = false;
+        CursorVisible = true;
+        ReverseWraparound = false;
+        SendFocusEvents = false;
 
         // Reset cursor
         _buffer.SetCursor(0, 0);

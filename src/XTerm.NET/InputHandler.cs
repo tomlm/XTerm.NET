@@ -110,7 +110,11 @@ public class InputHandler
     /// </summary>
     public void HandleCsi(string identifier, Params parameters)
     {
-        switch (identifier)
+        // Check for DEC private mode sequences (CSI ? ...)
+        bool isPrivate = identifier.StartsWith("?");
+        string command = isPrivate ? identifier.Substring(1) : identifier;
+        
+        switch (command)
         {
             case "@": // ICH - Insert Characters
                 InsertChars(parameters);
@@ -170,11 +174,35 @@ public class InputHandler
             case "r": // DECSTBM - Set Top and Bottom Margins
                 SetScrollRegion(parameters);
                 break;
-            case "h": // SM - Set Mode
-                SetMode(parameters);
+            case "h": // SM - Set Mode / DECSET
+                if (isPrivate)
+                {
+                    // DEC Private Mode Set (CSI ? Pm h)
+                    for (int i = 0; i < parameters.Length; i++)
+                    {
+                        var mode = parameters.GetParam(i, 0);
+                        SetModeInternal(mode, isPrivate: true);
+                    }
+                }
+                else
+                {
+                    SetMode(parameters);
+                }
                 break;
-            case "l": // RM - Reset Mode
-                ResetMode(parameters);
+            case "l": // RM - Reset Mode / DECRST
+                if (isPrivate)
+                {
+                    // DEC Private Mode Reset (CSI ? Pm l)
+                    for (int i = 0; i < parameters.Length; i++)
+                    {
+                        var mode = parameters.GetParam(i, 0);
+                        ResetModeInternal(mode, isPrivate: true);
+                    }
+                }
+                else
+                {
+                    ResetMode(parameters);
+                }
                 break;
         }
     }
@@ -552,7 +580,85 @@ public class InputHandler
         for (int i = 0; i < parameters.Length; i++)
         {
             var mode = parameters.GetParam(i, 0);
-            // Mode handling would go here
+            SetModeInternal(mode, isPrivate: false);
+        }
+    }
+    
+    private void SetModeInternal(int mode, bool isPrivate)
+    {
+        if (isPrivate)
+        {
+            // DEC Private Modes (DECSET)
+            switch (mode)
+            {
+                case CoreModes.APP_CURSOR_KEYS:
+                    _terminal.ApplicationCursorKeys = true;
+                    break;
+                    
+                case CoreModes.ORIGIN:
+                    _terminal.OriginMode = true;
+                    _buffer.SetCursor(0, 0);
+                    break;
+                    
+                case CoreModes.WRAPAROUND:
+                    _terminal.Options.Wraparound = true;
+                    break;
+                    
+                case CoreModes.SHOW_CURSOR:
+                    _terminal.CursorVisible = true;
+                    break;
+                    
+                case CoreModes.APP_KEYPAD:
+                    _terminal.ApplicationKeypad = true;
+                    break;
+                    
+                case CoreModes.BRACKETED_PASTE_MODE:
+                    _terminal.BracketedPasteMode = true;
+                    break;
+                    
+                case CoreModes.ALT_BUFFER:
+                    _terminal.SwitchToAltBuffer();
+                    break;
+                    
+                case CoreModes.ALT_BUFFER_CURSOR:
+                    SaveCursor();
+                    _terminal.SwitchToAltBuffer();
+                    break;
+                    
+                case CoreModes.ALT_BUFFER_FULL:
+                    SaveCursor();
+                    _terminal.SwitchToAltBuffer();
+                    _buffer.SetCursor(0, 0);
+                    EraseInDisplay(new Params()); // Clear screen
+                    break;
+                    
+                case CoreModes.SEND_FOCUS_EVENTS:
+                    _terminal.SendFocusEvents = true;
+                    break;
+                    
+                case CoreModes.MOUSE_REPORT_CLICK:
+                case CoreModes.MOUSE_REPORT_NORMAL:
+                case CoreModes.MOUSE_REPORT_BTN_EVENT:
+                case CoreModes.MOUSE_REPORT_ANY_EVENT:
+                case CoreModes.MOUSE_REPORT_SGR:
+                    // Mouse modes - not yet implemented
+                    // TODO: Implement mouse tracking
+                    break;
+            }
+        }
+        else
+        {
+            // ANSI Modes (SM)
+            switch (mode)
+            {
+                case CoreModes.INSERT_MODE:
+                    _terminal.InsertMode = true;
+                    break;
+                    
+                case CoreModes.AUTO_WRAP_MODE:
+                    _terminal.Options.Wraparound = true;
+                    break;
+            }
         }
     }
 
@@ -561,7 +667,83 @@ public class InputHandler
         for (int i = 0; i < parameters.Length; i++)
         {
             var mode = parameters.GetParam(i, 0);
-            // Mode handling would go here
+            ResetModeInternal(mode, isPrivate: false);
+        }
+    }
+    
+    private void ResetModeInternal(int mode, bool isPrivate)
+    {
+        if (isPrivate)
+        {
+            // DEC Private Modes (DECRST)
+            switch (mode)
+            {
+                case CoreModes.APP_CURSOR_KEYS:
+                    _terminal.ApplicationCursorKeys = false;
+                    break;
+                    
+                case CoreModes.ORIGIN:
+                    _terminal.OriginMode = false;
+                    _buffer.SetCursor(0, 0);
+                    break;
+                    
+                case CoreModes.WRAPAROUND:
+                    _terminal.Options.Wraparound = false;
+                    break;
+                    
+                case CoreModes.SHOW_CURSOR:
+                    _terminal.CursorVisible = false;
+                    break;
+                    
+                case CoreModes.APP_KEYPAD:
+                    _terminal.ApplicationKeypad = false;
+                    break;
+                    
+                case CoreModes.BRACKETED_PASTE_MODE:
+                    _terminal.BracketedPasteMode = false;
+                    break;
+                    
+                case CoreModes.ALT_BUFFER:
+                    _terminal.SwitchToNormalBuffer();
+                    break;
+                    
+                case CoreModes.ALT_BUFFER_CURSOR:
+                    _terminal.SwitchToNormalBuffer();
+                    RestoreCursor();
+                    break;
+                    
+                case CoreModes.ALT_BUFFER_FULL:
+                    _terminal.SwitchToNormalBuffer();
+                    RestoreCursor();
+                    break;
+                    
+                case CoreModes.SEND_FOCUS_EVENTS:
+                    _terminal.SendFocusEvents = false;
+                    break;
+                    
+                case CoreModes.MOUSE_REPORT_CLICK:
+                case CoreModes.MOUSE_REPORT_NORMAL:
+                case CoreModes.MOUSE_REPORT_BTN_EVENT:
+                case CoreModes.MOUSE_REPORT_ANY_EVENT:
+                case CoreModes.MOUSE_REPORT_SGR:
+                    // Mouse modes - not yet implemented
+                    // TODO: Implement mouse tracking
+                    break;
+            }
+        }
+        else
+        {
+            // ANSI Modes (RM)
+            switch (mode)
+            {
+                case CoreModes.INSERT_MODE:
+                    _terminal.InsertMode = false;
+                    break;
+                    
+                case CoreModes.AUTO_WRAP_MODE:
+                    _terminal.Options.Wraparound = false;
+                    break;
+            }
         }
     }
 

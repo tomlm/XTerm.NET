@@ -37,13 +37,42 @@ public enum UnderlineStyle
 /// </summary>
 public static class CoreModes
 {
-    public const int INSERT_MODE = 4;
-    public const int AUTO_WRAP_MODE = 7;
-    public const int SHOW_CURSOR = 25;
-    public const int APP_CURSOR_KEYS = 1;
-    public const int APP_KEYPAD = 66;
-    public const int BRACKETED_PASTE_MODE = 2004;
-    public const int ORIGIN = 6;
+    // ANSI Modes (SM/RM - Set Mode / Reset Mode)
+    public const int INSERT_MODE = 4;           // IRM - Insert/Replace Mode
+    public const int AUTO_WRAP_MODE = 7;        // DECAWM - Automatic Wrap
+    
+    // DEC Private Modes (DECSET/DECRST - CSI ? Pm h / CSI ? Pm l)
+    public const int APP_CURSOR_KEYS = 1;       // DECCKM - Application Cursor Keys
+    public const int ANSI_VT52 = 2;            // DECANM - ANSI/VT52 Mode
+    public const int COLUMN_MODE = 3;          // DECCOLM - Column Mode (80/132)
+    public const int SMOOTH_SCROLL = 4;        // DECSCLM - Smooth Scroll
+    public const int ORIGIN = 6;               // DECOM - Origin Mode
+    public const int WRAPAROUND = 7;           // DECAWM - Wraparound Mode
+    public const int AUTO_REPEAT = 8;          // DECARM - Auto Repeat
+    public const int SHOW_CURSOR = 25;         // DECTCEM - Text Cursor Enable
+    public const int APP_KEYPAD = 66;          // DECNKM - Application Keypad
+    public const int BACKSPACE_KEY = 67;       // DECBKM - Backarrow Key
+    public const int BRACKETED_PASTE_MODE = 2004; // Bracketed Paste Mode
+    
+    // Buffer Switching Modes
+    public const int ALT_BUFFER = 47;          // Use Alternate Screen Buffer
+    public const int ALT_BUFFER_CURSOR = 1047; // Use Alternate Screen Buffer (with cursor save/restore)
+    public const int ALT_BUFFER_FULL = 1049;   // Save cursor and use Alternate Screen Buffer
+    
+    // Mouse Tracking Modes
+    public const int MOUSE_REPORT_CLICK = 9;       // X10 Mouse Mode
+    public const int MOUSE_REPORT_NORMAL = 1000;   // VT200 Mouse Mode
+    public const int MOUSE_REPORT_HIGHLIGHT = 1001; // Highlight Mouse Mode
+    public const int MOUSE_REPORT_BTN_EVENT = 1002; // Button Event Mouse Mode
+    public const int MOUSE_REPORT_ANY_EVENT = 1003; // Any Event Mouse Mode
+    public const int MOUSE_REPORT_FOCUS = 1004;    // Focus Event Mode
+    public const int MOUSE_REPORT_UTF8 = 1005;     // UTF-8 Extended Mode
+    public const int MOUSE_REPORT_SGR = 1006;      // SGR Extended Mode
+    public const int MOUSE_REPORT_URXVT = 1015;    // URXVT Extended Mode
+    public const int MOUSE_REPORT_PIXEL = 1016;    // Pixel Position Mode
+    
+    // Other Modes
+    public const int SEND_FOCUS_EVENTS = 1004; // Focus In/Out Events
 }
 
 /// <summary>
