@@ -127,8 +127,8 @@ public class KeyboardInputGenerator
         // Alt + character
         if ((modifiers & KeyModifiers.Alt) != 0)
         {
-            // Alt sends ESC prefix
-            return $"\x1B{c}";
+            // Alt sends ESC prefix - use \u format to avoid interpolation issues
+            return $"\u001b{c}";
         }
 
         // Shift is implicit in the character itself (uppercase vs lowercase)

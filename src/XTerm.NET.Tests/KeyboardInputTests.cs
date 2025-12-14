@@ -318,13 +318,13 @@ public class KeyboardInputTests
         var terminal = CreateTerminal();
 
         // Act & Assert
-        var expected = "\x1Ba";
+        var expected = "\u001ba";
         Assert.Equal(expected, terminal.GenerateCharInput('a', KeyModifiers.Alt)); // Alt+a
         
-        expected = "\x1BX";
+        expected = "\u001bX";
         Assert.Equal(expected, terminal.GenerateCharInput('X', KeyModifiers.Alt)); // Alt+X
         
-        expected = "\x1B1";
+        expected = "\u001b1";
         Assert.Equal(expected, terminal.GenerateCharInput('1', KeyModifiers.Alt)); // Alt+1
     }
 
