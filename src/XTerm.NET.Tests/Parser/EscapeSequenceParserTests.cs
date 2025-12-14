@@ -376,8 +376,8 @@ public class EscapeSequenceParserTests
         parser.EscHandler = (f, c) => escCalls.Add(f);
 
         // Act
-        parser.Parse("\x1B7"); // Save cursor
-        parser.Parse("\x1B8"); // Restore cursor
+        parser.Parse("\x1B" + "7"); // Save cursor - ESC followed by '7'
+        parser.Parse("\x1B" + "8"); // Restore cursor - ESC followed by '8'
 
         // Assert
         Assert.Equal(2, escCalls.Count);

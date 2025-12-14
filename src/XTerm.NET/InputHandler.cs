@@ -31,36 +31,35 @@ public class InputHandler
     /// </summary>
     public void Print(string data)
     {
-        var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
-        if (line == null)
-            return;
-
         // Handle autowrap
         if (_buffer.X >= _terminal.Cols)
         {
             if (_terminal.Options.Wraparound)
             {
-                _buffer.SetCursor(0, _buffer.Y);
-                
                 if (_buffer.Y == _buffer.ScrollBottom)
                 {
+                    _buffer.SetCursor(0, _buffer.Y);
                     _buffer.ScrollUp(1, true);
                 }
                 else
                 {
-                    _buffer.MoveCursor(_buffer.X, _buffer.Y + 1);
-                }
-                
-                line = _buffer.Lines[_buffer.Y + _buffer.YBase];
-                if (line != null)
-                {
-                    line.IsWrapped = true;
+                    _buffer.SetCursor(0, _buffer.Y + 1);
                 }
             }
             else
             {
                 return; // Don't print beyond line edge
             }
+        }
+        
+        var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
+        if (line == null)
+            return;
+
+        // Mark line as wrapped if we just wrapped
+        if (_buffer.X == 0 && line != null)
+        {
+            line.IsWrapped = true;
         }
 
         // Get character width
@@ -102,7 +101,8 @@ public class InputHandler
             }
         }
 
-        _buffer.SetCursor(_buffer.X + width, _buffer.Y);
+        // Use MoveCursor to allow X to be one past the last column (pending wrap)
+        _buffer.MoveCursor(_buffer.X + width, _buffer.Y);
     }
 
     /// <summary>
