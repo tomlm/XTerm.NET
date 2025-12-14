@@ -40,6 +40,21 @@ public class Params
     }
 
     /// <summary>
+    /// Updates the last parameter value.
+    /// </summary>
+    public void UpdateLastParam(int value)
+    {
+        if (_params.Count > 0)
+        {
+            _params[_params.Count - 1] = value;
+        }
+        else
+        {
+            _params.Add(value);
+        }
+    }
+
+    /// <summary>
     /// Adds a sub-parameter.
     /// </summary>
     public void AddSubParam(int value)

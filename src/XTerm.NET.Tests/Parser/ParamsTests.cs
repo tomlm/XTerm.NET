@@ -401,4 +401,34 @@ public class ParamsTests
         // Assert
         Assert.Equal(0, value); // Zero is a valid value, not default
     }
+
+    [Fact]
+    public void UpdateLastParam_UpdatesParameter()
+    {
+        // Arrange
+        var params_ = new Params();
+        params_.AddParam(0);
+
+        // Act
+        params_.UpdateLastParam(5);
+
+        // Assert
+        Assert.Equal(5, params_.GetParam(0));
+    }
+
+    [Fact]
+    public void UpdateLastParam_BuildsNumberFromDigits()
+    {
+        // Arrange
+        var params_ = new Params();
+        params_.AddParam(0);
+
+        // Act
+        params_.UpdateLastParam(1);   // 1
+        params_.UpdateLastParam(12);  // 12
+        params_.UpdateLastParam(123); // 123
+
+        // Assert
+        Assert.Equal(123, params_.GetParam(0));
+    }
 }

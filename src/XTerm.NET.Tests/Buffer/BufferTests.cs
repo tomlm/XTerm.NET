@@ -352,7 +352,12 @@ public class BufferTests
         // Act
         buffer.SavedCursorState.X = 10;
         buffer.SavedCursorState.Y = 5;
-        buffer.SavedCursorState.Attr.SetBold(true);
+        
+        // To modify a struct field, we need to get it, modify it, and set it back
+        var attr = buffer.SavedCursorState.Attr;
+        attr.SetBold(true);
+        buffer.SavedCursorState.Attr = attr;
+        
         buffer.SavedCursorState.Charset = CharsetMode.G1;
 
         // Assert

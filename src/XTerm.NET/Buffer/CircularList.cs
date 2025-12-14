@@ -94,13 +94,17 @@ public class CircularList<T> where T : class
         {
             if (_length < MaxLength)
             {
-                // Shift items right
-                for (int i = _length; i > start; i--)
+                // First increase length
+                _length++;
+
+                // Then shift items right from the end
+                for (int i = _length - 1; i > start; i--)
                 {
                     this[i] = this[i - 1];
                 }
+
+                // Now insert the item
                 this[start] = item;
-                _length++;
                 start++;
             }
             else

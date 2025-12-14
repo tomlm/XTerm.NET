@@ -200,6 +200,9 @@ public class Terminal
     /// </summary>
     public string GetLine(int line)
     {
+        if (line < 0 || line >= _buffer.Lines.Length)
+            return string.Empty;
+            
         var bufferLine = _buffer.Lines[line];
         return bufferLine?.TranslateToString(true) ?? string.Empty;
     }

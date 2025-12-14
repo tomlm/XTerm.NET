@@ -276,26 +276,20 @@ public class EscapeSequenceParser
         else if (code >= 0x30 && code <= 0x39) // 0-9
         {
             var digit = code - 0x30;
+            
+            // Get current value of last parameter and update it
             var currentValue = _params.GetParam(_params.Length - 1, 0);
-            _params.AddParam(currentValue * 10 + digit);
-            if (_params.Length > 1)
-            {
-                // Remove the old value, we just updated it
-                var temp = _params.ToArray();
-                _params.Reset();
-                for (int i = 0; i < temp.Length - 2; i++)
-                {
-                    _params.AddParam(temp[i]);
-                }
-                _params.AddParam(currentValue * 10 + digit);
-            }
+            var newValue = currentValue * 10 + digit;
+            _params.UpdateLastParam(newValue);
         }
     }
 
     private void DispatchCsi(int code)
     {
         var finalChar = ((char)code).ToString();
-        CsiHandler?.Invoke(finalChar + _collect.ToString(), _params);
+        // Clone params so handlers get their own copy
+        var paramsClone = _params.Clone();
+        CsiHandler?.Invoke(finalChar + _collect.ToString(), paramsClone);
     }
 
     private void DispatchEsc(int code)
