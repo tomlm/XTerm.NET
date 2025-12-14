@@ -1,5 +1,6 @@
 ﻿// See https://aka.ms/new-console-template for more information
 using XTerm.Renderer;
+using System.Text;
 
 namespace XTerm.Examples;
 
@@ -45,6 +46,9 @@ public class ConsoleRenderer : IRenderer
             var line = buffer.Lines[buffer.YDisp + y];
             if (line != null)
             {
+                var sb = new StringBuilder();
+                XTerm.Buffer.AttributeData? previousAttributes = null;
+                
                 // Render each cell with its attributes
                 for (int x = 0; x < line.Length && x < _terminal.Cols; x++)
                 {
@@ -52,33 +56,43 @@ public class ConsoleRenderer : IRenderer
                     
                     // Skip rendering invisible cells
                     if (cell.Attributes.IsInvisible())
+                    {
+                        sb.Append(' ');
                         continue;
+                    }
                     
-                    // Apply attributes to console
-                    ApplyAttributes(cell.Attributes);
+                    // Only emit ANSI codes if attributes changed
+                    if (previousAttributes == null || !cell.Attributes.Equals(previousAttributes.Value))
+                    {
+                        BuildAnsiSequence(sb, cell.Attributes);
+                        previousAttributes = cell.Attributes;
+                    }
                     
                     // Write the character
                     var content = cell.Content;
                     if (string.IsNullOrEmpty(content) || cell.IsNull())
                     {
-                        Console.Write(' ');
+                        sb.Append(' ');
                     }
                     else
                     {
-                        Console.Write(content);
+                        sb.Append(content);
                     }
-                    
-                    // Reset attributes after each cell to avoid carryover
-                    Console.ResetColor();
                 }
                 
-                Console.WriteLine(); // Move to next line
+                // Reset attributes at end of line
+                sb.Append("\x1b[0m");
+                
+                // Write the complete line to console
+                Console.WriteLine(sb.ToString());
             }
         }
     }
 
-    private void ApplyAttributes(XTerm.Buffer.AttributeData attributes)
+    private void BuildAnsiSequence(StringBuilder sb, XTerm.Buffer.AttributeData attributes)
     {
+        var sequences = new List<string>();
+        
         // Get foreground and background colors
         var fgColor = attributes.GetFgColor();
         var bgColor = attributes.GetBgColor();
@@ -86,134 +100,126 @@ public class ConsoleRenderer : IRenderer
         var bgMode = attributes.GetBgColorMode();
         
         // Handle inverse attribute (swap fg/bg)
-        if (attributes.IsInverse())
+        bool isInverse = attributes.IsInverse();
+        if (isInverse)
         {
             (fgColor, bgColor) = (bgColor, fgColor);
             (fgMode, bgMode) = (bgMode, fgMode);
         }
         
-        // Set foreground color
+        // Text attributes
+        if (attributes.IsBold())
+            sequences.Add("1");
+        
+        if (attributes.IsDim())
+            sequences.Add("2");
+        
+        if (attributes.IsItalic())
+            sequences.Add("3");
+        
+        if (attributes.IsUnderline())
+            sequences.Add("4");
+        
+        if (attributes.IsBlink())
+            sequences.Add("5");
+        
+        if (attributes.IsInverse())
+            sequences.Add("7");
+        
+        if (attributes.IsInvisible())
+            sequences.Add("8");
+        
+        if (attributes.IsStrikethrough())
+            sequences.Add("9");
+        
+        // Foreground color
         if (fgColor != 256) // 256 is default
         {
-            Console.ForegroundColor = MapToConsoleColor(fgColor, fgMode, attributes.IsBold());
+            sequences.Add(GetForegroundColorSequence(fgColor, fgMode));
+        }
+        else
+        {
+            sequences.Add("39"); // Default foreground
         }
         
-        // Set background color
+        // Background color
         if (bgColor != 257) // 257 is default
         {
-            Console.BackgroundColor = MapToConsoleColor(bgColor, bgMode, false);
+            sequences.Add(GetBackgroundColorSequence(bgColor, bgMode));
+        }
+        else
+        {
+            sequences.Add("49"); // Default background
+        }
+        
+        // Build the complete escape sequence
+        if (sequences.Count > 0)
+        {
+            sb.Append("\x1b[");
+            sb.Append(string.Join(";", sequences));
+            sb.Append('m');
         }
     }
 
-    private ConsoleColor MapToConsoleColor(int color, int mode, bool isBold)
+    private string GetForegroundColorSequence(int color, int mode)
     {
-        // Mode 0 = 256 color palette, Mode 1 = RGB
         if (mode == 1)
         {
-            // RGB mode - convert to nearest console color
+            // RGB mode - use true color
             var r = (color >> 16) & 0xFF;
             var g = (color >> 8) & 0xFF;
             var b = color & 0xFF;
-            return MapRgbToConsoleColor(r, g, b);
+            return $"38;2;{r};{g};{b}";
         }
         else
         {
             // 256 color palette mode
             if (color < 8)
             {
-                // Standard colors (0-7)
-                return color switch
-                {
-                    0 => ConsoleColor.Black,
-                    1 => ConsoleColor.DarkRed,
-                    2 => ConsoleColor.DarkGreen,
-                    3 => ConsoleColor.DarkYellow,
-                    4 => ConsoleColor.DarkBlue,
-                    5 => ConsoleColor.DarkMagenta,
-                    6 => ConsoleColor.DarkCyan,
-                    7 => ConsoleColor.Gray,
-                    _ => ConsoleColor.Gray
-                };
+                // Standard colors (30-37)
+                return (30 + color).ToString();
             }
             else if (color < 16)
             {
-                // Bright colors (8-15)
-                return color switch
-                {
-                    8 => ConsoleColor.DarkGray,
-                    9 => ConsoleColor.Red,
-                    10 => ConsoleColor.Green,
-                    11 => ConsoleColor.Yellow,
-                    12 => ConsoleColor.Blue,
-                    13 => ConsoleColor.Magenta,
-                    14 => ConsoleColor.Cyan,
-                    15 => ConsoleColor.White,
-                    _ => ConsoleColor.White
-                };
-            }
-            else if (color < 232)
-            {
-                // 216 color cube (16-231)
-                // Convert to RGB and then to console color
-                var index = color - 16;
-                var r = (index / 36) * 51;
-                var g = ((index % 36) / 6) * 51;
-                var b = (index % 6) * 51;
-                return MapRgbToConsoleColor(r, g, b);
-            }
-            else if (color < 256)
-            {
-                // Grayscale (232-255)
-                var gray = 8 + (color - 232) * 10;
-                return MapRgbToConsoleColor(gray, gray, gray);
+                // Bright colors (90-97)
+                return (90 + (color - 8)).ToString();
             }
             else
             {
-                // Default colors
-                return isBold ? ConsoleColor.White : ConsoleColor.Gray;
+                // 256 color palette (38;5;n)
+                return $"38;5;{color}";
             }
         }
     }
 
-    private ConsoleColor MapRgbToConsoleColor(int r, int g, int b)
+    private string GetBackgroundColorSequence(int color, int mode)
     {
-        // Simple RGB to console color mapping
-        // Calculate luminance and hue to pick closest console color
-        var luminance = (0.299 * r + 0.587 * g + 0.114 * b);
-        
-        // Dark colors
-        if (luminance < 85)
+        if (mode == 1)
         {
-            if (r > g && r > b) return ConsoleColor.DarkRed;
-            if (g > r && g > b) return ConsoleColor.DarkGreen;
-            if (b > r && b > g) return ConsoleColor.DarkBlue;
-            if (r > 128 && g > 128) return ConsoleColor.DarkYellow;
-            if (r > 128 && b > 128) return ConsoleColor.DarkMagenta;
-            if (g > 128 && b > 128) return ConsoleColor.DarkCyan;
-            return ConsoleColor.Black;
+            // RGB mode - use true color
+            var r = (color >> 16) & 0xFF;
+            var g = (color >> 8) & 0xFF;
+            var b = color & 0xFF;
+            return $"48;2;{r};{g};{b}";
         }
-        // Medium colors
-        else if (luminance < 170)
-        {
-            if (r > g && r > b) return ConsoleColor.DarkRed;
-            if (g > r && g > b) return ConsoleColor.DarkGreen;
-            if (b > r && b > g) return ConsoleColor.DarkBlue;
-            if (r > 100 && g > 100 && b < 100) return ConsoleColor.DarkYellow;
-            if (r > 100 && b > 100 && g < 100) return ConsoleColor.DarkMagenta;
-            if (g > 100 && b > 100 && r < 100) return ConsoleColor.DarkCyan;
-            return ConsoleColor.DarkGray;
-        }
-        // Bright colors
         else
         {
-            if (r > 200 && g < 100 && b < 100) return ConsoleColor.Red;
-            if (g > 200 && r < 100 && b < 100) return ConsoleColor.Green;
-            if (b > 200 && r < 100 && g < 100) return ConsoleColor.Blue;
-            if (r > 200 && g > 200 && b < 100) return ConsoleColor.Yellow;
-            if (r > 200 && b > 200 && g < 100) return ConsoleColor.Magenta;
-            if (g > 200 && b > 200 && r < 100) return ConsoleColor.Cyan;
-            if (r > 200 && g > 200 && b > 200) return ConsoleColor.White;
-            return ConsoleColor.Gray;
+            // 256 color palette mode
+            if (color < 8)
+            {
+                // Standard colors (40-47)
+                return (40 + color).ToString();
+            }
+            else if (color < 16)
+            {
+                // Bright colors (100-107)
+                return (100 + (color - 8)).ToString();
+            }
+            else
+            {
+                // 256 color palette (48;5;n)
+                return $"48;5;{color}";
+            }
         }
     }
 

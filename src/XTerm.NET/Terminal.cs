@@ -389,6 +389,12 @@ public class Terminal
             _buffer.SetCursor(_buffer.X, _buffer.Y + 1);
         }
 
+        // If ConvertEol is enabled, also do a carriage return (move to column 0)
+        if (Options.ConvertEol)
+        {
+            _buffer.SetCursor(0, _buffer.Y);
+        }
+
         OnLineFeed.Fire("\n");
     }
 

@@ -14,18 +14,22 @@ public class BasicExample
     {
         // Example 1: Basic terminal usage
         BasicTerminalExample();
-
+        Console.ReadKey();
         // Example 2: Colored output
         ColoredOutputExample();
+        Console.ReadKey();
 
         // Example 3: Cursor movement
         CursorMovementExample();
+        Console.ReadKey();
 
         // Example 4: Buffer access
         BufferAccessExample();
+        Console.ReadKey();
 
         // Example 5: Event handling
         EventHandlingExample();
+        Console.ReadKey();
     }
 
     static void BasicTerminalExample()
@@ -36,7 +40,8 @@ public class BasicExample
         {
             Cols = 80,
             Rows = 24,
-            Scrollback = 1000
+            Scrollback = 1000,
+            ConvertEol = true  // Enable EOL conversion so \n behaves like \r\n
         });
 
         var renderer = new ConsoleRenderer(terminal);
@@ -52,7 +57,7 @@ public class BasicExample
     {
         Console.WriteLine("\n=== Colored Output Example ===\n");
 
-        var terminal = new Terminal();
+        var terminal = new Terminal(new TerminalOptions { ConvertEol = true });
         var renderer = new ConsoleRenderer(terminal);
 
         // Standard colors
@@ -82,7 +87,7 @@ public class BasicExample
     {
         Console.WriteLine("\n=== Cursor Movement Example ===\n");
 
-        var terminal = new Terminal(new TerminalOptions { Cols = 40, Rows = 10 });
+        var terminal = new Terminal(new TerminalOptions { Cols = 40, Rows = 10, ConvertEol = true });
         var renderer = new ConsoleRenderer(terminal);
 
         // Write at different positions
@@ -104,7 +109,7 @@ public class BasicExample
     {
         Console.WriteLine("\n=== Buffer Access Example ===\n");
 
-        var terminal = new Terminal(new TerminalOptions { Cols = 30, Rows = 5 });
+        var terminal = new Terminal(new TerminalOptions { Cols = 30, Rows = 5, ConvertEol = true });
         var renderer = new ConsoleRenderer(terminal);
 
         terminal.Write("Line 1\n");
@@ -141,7 +146,7 @@ public class BasicExample
     {
         Console.WriteLine("\n=== Event Handling Example ===\n");
 
-        var terminal = new Terminal();
+        var terminal = new Terminal(new TerminalOptions { ConvertEol = true });
         var renderer = new ConsoleRenderer(terminal);
 
         // Subscribe to events
