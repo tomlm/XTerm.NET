@@ -34,60 +34,60 @@ public class BasicExample
 
     static void BasicTerminalExample()
     {
-        Console.WriteLine("=== Basic Terminal Example ===\n");
+        Console.WriteLine("=== Basic Terminal Example ===\r\n");
 
         var terminal = new Terminal(new TerminalOptions
         {
             Cols = 80,
             Rows = 24,
             Scrollback = 1000,
-            ConvertEol = true  // Enable EOL conversion so \n behaves like \r\n
+             // Enable EOL conversion so \r\n behaves like \r\r\n
         });
 
         var renderer = new ConsoleRenderer(terminal);
 
-        terminal.Write("Hello, XTerm.NET!\n");
-        terminal.Write("This is a terminal emulator.\n");
-        terminal.Write("It supports VT100/ANSI escape sequences.\n");
+        terminal.Write("Hello, XTerm.NET!\r\n");
+        terminal.Write("This is a terminal emulator.\r\n");
+        terminal.Write("It supports VT100/ANSI escape sequences.\r\n");
 
         RenderTerminal(terminal, renderer);
     }
 
     static void ColoredOutputExample()
     {
-        Console.WriteLine("\n=== Colored Output Example ===\n");
+        Console.WriteLine("\r\n=== Colored Output Example ===\r\n");
 
-        var terminal = new Terminal(new TerminalOptions { ConvertEol = true });
+        var terminal = new Terminal(new TerminalOptions { });
         var renderer = new ConsoleRenderer(terminal);
 
         // Standard colors
-        terminal.Write("\x1b[31mRed text\x1b[0m\n");
-        terminal.Write("\x1b[32mGreen text\x1b[0m\n");
-        terminal.Write("\x1b[34mBlue text\x1b[0m\n");
+        terminal.Write("\x1b[31mRed text\x1b[0m\r\n");
+        terminal.Write("\x1b[32mGreen text\x1b[0m\r\n");
+        terminal.Write("\x1b[34mBlue text\x1b[0m\r\n");
 
         // Bold and italic
-        terminal.Write("\x1b[1mBold text\x1b[0m\n");
-        terminal.Write("\x1b[3mItalic text\x1b[0m\n");
-        terminal.Write("\x1b[1;32mBold green text\x1b[0m\n");
+        terminal.Write("\x1b[1mBold text\x1b[0m\r\n");
+        terminal.Write("\x1b[3mItalic text\x1b[0m\r\n");
+        terminal.Write("\x1b[1;32mBold green text\x1b[0m\r\n");
 
         // Background colors
-        terminal.Write("\x1b[41;37mWhite on red\x1b[0m\n");
-        terminal.Write("\x1b[44;33mYellow on blue\x1b[0m\n");
+        terminal.Write("\x1b[41;37mWhite on red\x1b[0m\r\n");
+        terminal.Write("\x1b[44;33mYellow on blue\x1b[0m\r\n");
 
         // 256 colors
-        terminal.Write("\x1b[38;5;208mOrange text (256 color)\x1b[0m\n");
+        terminal.Write("\x1b[38;5;208mOrange text (256 color)\x1b[0m\r\n");
 
         // True color (RGB)
-        terminal.Write("\x1b[38;2;255;100;200mPink text (RGB)\x1b[0m\n");
+        terminal.Write("\x1b[38;2;255;100;200mPink text (RGB)\x1b[0m\r\n");
 
         RenderTerminal(terminal, renderer);
     }
 
     static void CursorMovementExample()
     {
-        Console.WriteLine("\n=== Cursor Movement Example ===\n");
+        Console.WriteLine("\r\n=== Cursor Movement Example ===\r\n");
 
-        var terminal = new Terminal(new TerminalOptions { Cols = 40, Rows = 10, ConvertEol = true });
+        var terminal = new Terminal(new TerminalOptions { Cols = 40, Rows = 10, });
         var renderer = new ConsoleRenderer(terminal);
 
         // Write at different positions
@@ -107,14 +107,14 @@ public class BasicExample
 
     static void BufferAccessExample()
     {
-        Console.WriteLine("\n=== Buffer Access Example ===\n");
+        Console.WriteLine("\r\n=== Buffer Access Example ===\r\n");
 
-        var terminal = new Terminal(new TerminalOptions { Cols = 30, Rows = 5, ConvertEol = true });
+        var terminal = new Terminal(new TerminalOptions { Cols = 30, Rows = 5, });
         var renderer = new ConsoleRenderer(terminal);
 
-        terminal.Write("Line 1\n");
-        terminal.Write("\x1b[1;31mRed Line 2\x1b[0m\n");
-        terminal.Write("Line 3\n");
+        terminal.Write("Line 1\r\n");
+        terminal.Write("\x1b[1;31mRed Line 2\x1b[0m\r\n");
+        terminal.Write("Line 3\r\n");
 
         // Access buffer directly
         var buffer = terminal.Buffer;
@@ -144,9 +144,9 @@ public class BasicExample
 
     static void EventHandlingExample()
     {
-        Console.WriteLine("\n=== Event Handling Example ===\n");
+        Console.WriteLine("\r\n=== Event Handling Example ===\r\n");
 
-        var terminal = new Terminal(new TerminalOptions { ConvertEol = true });
+        var terminal = new Terminal(new TerminalOptions { });
         var renderer = new ConsoleRenderer(terminal);
 
         // Subscribe to events
@@ -167,9 +167,9 @@ public class BasicExample
 
         // Trigger events
         terminal.Write("\x1b]0;My Terminal Title\x07"); // Set title
-        terminal.Write("Line 1\n"); // Trigger line feed
+        terminal.Write("Line 1\r\n"); // Trigger line feed
         terminal.Write("\x07"); // Bell
-        terminal.Write("Line 2\n");
+        terminal.Write("Line 2\r\n");
 
         RenderTerminal(terminal, renderer);
     }
