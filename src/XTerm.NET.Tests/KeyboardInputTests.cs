@@ -84,11 +84,6 @@ public class KeyboardInputTests
         // Act
         var sequence = terminal.GenerateKeyInput(Key.UpArrow, modifiers);
 
-        // Debug: Output the sequence
-        var bytes = string.Join(",", sequence.Select(c => $"0x{((int)c):X2}"));
-        System.Diagnostics.Debug.WriteLine($"Sequence: {bytes}");
-        System.Diagnostics.Debug.WriteLine($"Modifiers value: {(int)modifiers}");
-
         // Assert - Control (4) + Shift (1) + 1 = 6
         var expected = "\x1B[1;6A";
         Assert.Equal(expected, sequence);
