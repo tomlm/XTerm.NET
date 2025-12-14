@@ -2,6 +2,7 @@ using XTerm.NET.Buffer;
 using XTerm.NET.Common;
 using XTerm.NET.Parser;
 using XTerm.NET.Options;
+using XTerm.NET.Input;
 
 namespace XTerm.NET;
 
@@ -13,6 +14,7 @@ public class Terminal
 {
     private readonly EscapeSequenceParser _parser;
     private readonly InputHandler _inputHandler;
+    private readonly KeyboardInputGenerator _keyboardInput;
     private Buffer.Buffer _buffer;
     private Buffer.Buffer? _normalBuffer;
     private Buffer.Buffer? _altBuffer;
@@ -64,6 +66,7 @@ public class Terminal
         // Initialize parser and input handler
         _parser = new EscapeSequenceParser();
         _inputHandler = new InputHandler(this);
+        _keyboardInput = new KeyboardInputGenerator(this); // Initialize keyboard input generator
 
         // Wire up parser handlers
         _parser.PrintHandler = data => _inputHandler.Print(data);
@@ -234,6 +237,28 @@ public class Terminal
             lines[i] = GetLine(_buffer.YDisp + i);
         }
         return lines;
+    }
+
+    /// <summary>
+    /// Generates an escape sequence for a key press.
+    /// </summary>
+    /// <param name="key">The key that was pressed</param>
+    /// <param name="modifiers">Modifier keys (Shift, Alt, Control)</param>
+    /// <returns>The escape sequence string to send to the application</returns>
+    public string GenerateKeyInput(Key key, KeyModifiers modifiers = KeyModifiers.None)
+    {
+        return _keyboardInput.GenerateKeySequence(key, modifiers);
+    }
+
+    /// <summary>
+    /// Generates an escape sequence for a character with modifiers.
+    /// </summary>
+    /// <param name="c">The character that was typed</param>
+    /// <param name="modifiers">Modifier keys (Shift, Alt, Control)</param>
+    /// <returns>The escape sequence string to send to the application</returns>
+    public string GenerateCharInput(char c, KeyModifiers modifiers = KeyModifiers.None)
+    {
+        return _keyboardInput.GenerateCharSequence(c, modifiers);
     }
 
     /// <summary>
