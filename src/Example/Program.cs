@@ -16,6 +16,7 @@ public class BasicExample
         // Example 1: Basic terminal usage
         BasicTerminalExample();
         Console.ReadKey();
+
         // Example 2: Colored output
         ColoredOutputExample();
         Console.ReadKey();
@@ -208,36 +209,43 @@ public class BasicExample
         terminal.OnWindowMove.Event(pos =>
         {
             Console.WriteLine($"[WINDOW EVENT] Move window to: ({pos.x}, {pos.y})");
+            Console.ReadKey();
         });
 
         terminal.OnWindowResize.Event(size =>
         {
             Console.WriteLine($"[WINDOW EVENT] Resize window to: {size.width}x{size.height} pixels");
+            Console.ReadKey();
         });
 
         terminal.OnWindowMinimize.Event(() =>
         {
             Console.WriteLine("[WINDOW EVENT] Minimize window");
+            Console.ReadKey();
         });
 
         terminal.OnWindowMaximize.Event(() =>
         {
             Console.WriteLine("[WINDOW EVENT] Maximize window");
+            Console.ReadKey();
         });
 
         terminal.OnWindowRestore.Event(() =>
         {
             Console.WriteLine("[WINDOW EVENT] Restore window");
+            Console.ReadKey();
         });
 
         terminal.OnWindowRaise.Event(() =>
         {
             Console.WriteLine("[WINDOW EVENT] Raise window to front");
+            Console.ReadKey();
         });
 
         terminal.OnWindowLower.Event(() =>
         {
             Console.WriteLine("[WINDOW EVENT] Lower window to back");
+            Console.ReadKey();
         });
 
         terminal.OnWindowInfoRequest.Event(request =>
@@ -292,10 +300,13 @@ public class BasicExample
                     // since terminal already knows Rows and Cols
                     break;
             }
+            Console.ReadKey();
         });
 
         // Send window manipulation commands
         terminal.Write("Sending window manipulation commands...\n");
+        RenderTerminal(terminal, renderer);
+      
         terminal.Write("\x1b[3;100;200t"); // Move window to (100, 200)
         terminal.Write("\x1b[4;600;800t"); // Resize window to 800x600 pixels
         terminal.Write("\x1b[2t");         // Minimize window
