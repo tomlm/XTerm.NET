@@ -1,5 +1,6 @@
 ﻿// See https://aka.ms/new-console-template for more information
 using XTerm;
+using XTerm.Common;
 using XTerm.Options;
 using XTerm.Renderer;
 
@@ -242,6 +243,55 @@ public class BasicExample
         terminal.OnWindowInfoRequest.Event(request =>
         {
             Console.WriteLine($"[WINDOW EVENT] Information requested: {request}");
+            switch (request)
+            {
+                case WindowInfoRequest.Position:
+                    // In a real app, get actual window position from UI framework
+                    int x = 100; // Example: Window.Left
+                    int y = 200; // Example: Window.Top
+
+                    // Send response back to terminal app
+                    terminal.OnData.Fire($"\u001b[3;{x};{y}t");
+                    Console.WriteLine($"[RESPONSE] Window position: ({x}, {y})");
+                    break;
+
+                case WindowInfoRequest.SizePixels:
+                    // In a real app, get actual window size
+                    int width = 1024;  // Example: Window.Width
+                    int height = 768;  // Example: Window.Height
+
+                    terminal.OnData.Fire($"\u001b[4;{height};{width}t");
+                    Console.WriteLine($"[RESPONSE] Window size: {width}x{height}");
+                    break;
+
+                case WindowInfoRequest.ScreenSizePixels:
+                    // In a real app, get screen size
+                    int screenWidth = 1920;
+                    int screenHeight = 1080;
+
+                    terminal.OnData.Fire($"\u001b[5;{screenHeight};{screenWidth}t");
+                    Console.WriteLine($"[RESPONSE] Screen size: {screenWidth}x{screenHeight}");
+                    break;
+
+                case WindowInfoRequest.CellSizePixels:
+                    // In a real app, get cell dimensions from renderer
+                    int cellWidth = 10;
+                    int cellHeight = 20;
+
+                    terminal.OnData.Fire($"\u001b[6;{cellHeight};{cellWidth}t");
+                    Console.WriteLine($"[RESPONSE] Cell size: {cellWidth}x{cellHeight}");
+                    break;
+
+                case WindowInfoRequest.Title:
+                    // Title query is handled automatically by InputHandler
+                    // but you could override it here if needed
+                    break;
+
+                case WindowInfoRequest.SizeCharacters:
+                    // Size in characters is handled automatically by InputHandler
+                    // since terminal already knows Rows and Cols
+                    break;
+            }
         });
 
         // Send window manipulation commands
