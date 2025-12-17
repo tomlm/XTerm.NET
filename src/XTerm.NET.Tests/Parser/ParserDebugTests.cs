@@ -1,4 +1,5 @@
 using XTerm.Parser;
+using XTerm.Events.Parser;
 using Xunit;
 
 namespace XTerm.Tests.Parser;
@@ -11,9 +12,9 @@ public class ParserDebugTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var calls = new List<(string, Params)>();
-        parser.CsiHandler = (id, p) => {
-            var paramsClone = p.Clone();
-            calls.Add((id, paramsClone));
+        parser.Csi += (sender, e) => {
+            var paramsClone = e.Parameters.Clone();
+            calls.Add((e.Identifier, paramsClone));
         };
 
         // Act

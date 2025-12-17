@@ -10,69 +10,113 @@ public static class TerminalEvents
     /// <summary>
     /// Data event - fired when the terminal receives input data.
     /// </summary>
-    public class DataEventArgs
+    public class DataEventArgs : EventArgs
     {
-        public string Data { get; set; } = string.Empty;
+        public string Data { get; }
+        
+        public DataEventArgs(string data)
+        {
+            Data = data;
+        }
     }
 
     /// <summary>
     /// Resize event - fired when the terminal is resized.
     /// </summary>
-    public class ResizeEventArgs
+    public class ResizeEventArgs : EventArgs
     {
-        public int Cols { get; set; }
-        public int Rows { get; set; }
+        public int Cols { get; }
+        public int Rows { get; }
+        
+        public ResizeEventArgs(int cols, int rows)
+        {
+            Cols = cols;
+            Rows = rows;
+        }
     }
 
     /// <summary>
     /// Title change event - fired when the terminal title changes.
     /// </summary>
-    public class TitleChangeEventArgs
+    public class TitleChangeEventArgs : EventArgs
     {
-        public string Title { get; set; } = string.Empty;
+        public string Title { get; }
+        
+        public TitleChangeEventArgs(string title)
+        {
+            Title = title;
+        }
     }
 
     /// <summary>
     /// Cursor move event - fired when the cursor position changes.
     /// </summary>
-    public class CursorMoveEventArgs
+    public class CursorMoveEventArgs : EventArgs
     {
-        public int X { get; set; }
-        public int Y { get; set; }
+        public int X { get; }
+        public int Y { get; }
+        
+        public CursorMoveEventArgs(int x, int y)
+        {
+            X = x;
+            Y = y;
+        }
     }
 
     /// <summary>
     /// Line feed event - fired when a line feed occurs.
     /// </summary>
-    public class LineFeedEventArgs
+    public class LineFeedEventArgs : EventArgs
     {
-        public string Data { get; set; } = string.Empty;
+        public string Data { get; }
+        
+        public LineFeedEventArgs(string data)
+        {
+            Data = data;
+        }
     }
 
     /// <summary>
     /// Scroll event - fired when the terminal scrolls.
     /// </summary>
-    public class ScrollEventArgs
+    public class ScrollEventArgs : EventArgs
     {
-        public int YDisp { get; set; }
-        public int YBase { get; set; }
+        public int YDisp { get; }
+        public int YBase { get; }
+        
+        public ScrollEventArgs(int yDisp, int yBase)
+        {
+            YDisp = yDisp;
+            YBase = yBase;
+        }
     }
 
     /// <summary>
     /// Selection change event - fired when the selection changes.
     /// </summary>
-    public class SelectionChangeEventArgs
+    public class SelectionChangeEventArgs : EventArgs
     {
-        public string SelectedText { get; set; } = string.Empty;
+        public string SelectedText { get; }
+        
+        public SelectionChangeEventArgs(string selectedText)
+        {
+            SelectedText = selectedText;
+        }
     }
 
     /// <summary>
     /// Render event - fired before/after rendering.
     /// </summary>
-    public class RenderEventArgs
+    public class RenderEventArgs : EventArgs
     {
-        public int StartRow { get; set; }
-        public int EndRow { get; set; }
+        public int StartRow { get; }
+        public int EndRow { get; }
+        
+        public RenderEventArgs(int startRow, int endRow)
+        {
+            StartRow = startRow;
+            EndRow = endRow;
+        }
     }
 }
 

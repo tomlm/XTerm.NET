@@ -1,5 +1,6 @@
 using System.Text;
 using XTerm.Common;
+using XTerm.Events.Parser;
 
 namespace XTerm.Parser;
 
@@ -16,13 +17,36 @@ public class EscapeSequenceParser
     private readonly StringBuilder _osc;
     private readonly StringBuilder _dcs;
     
-    // Parser handlers
-    public Action<string>? PrintHandler { get; set; }
-    public Action<int>? ExecuteHandler { get; set; }
-    public Action<string, Params>? CsiHandler { get; set; }
-    public Action<string, string>? EscHandler { get; set; }
-    public Action<string>? OscHandler { get; set; }
-    public Action<string, Params>? DcsHandler { get; set; }
+    // Parser events - Standard C# event pattern
+    /// <summary>
+    /// Fired when printable characters are parsed.
+    /// </summary>
+    public event EventHandler<PrintEventArgs>? Print;
+
+    /// <summary>
+    /// Fired when control characters are executed.
+    /// </summary>
+    public event EventHandler<ExecuteEventArgs>? Execute;
+
+    /// <summary>
+    /// Fired when CSI sequences are parsed.
+    /// </summary>
+    public event EventHandler<CsiEventArgs>? Csi;
+
+    /// <summary>
+    /// Fired when ESC sequences are parsed.
+    /// </summary>
+    public event EventHandler<EscEventArgs>? Esc;
+
+    /// <summary>
+    /// Fired when OSC sequences are parsed.
+    /// </summary>
+    public event EventHandler<OscEventArgs>? Osc;
+
+    /// <summary>
+    /// Fired when DCS sequences are parsed.
+    /// </summary>
+    public event EventHandler<DcsEventArgs>? Dcs;
 
     public EscapeSequenceParser()
     {
@@ -64,7 +88,7 @@ public class EscapeSequenceParser
                 case ParserState.CsiParam:
                 case ParserState.CsiIntermediate:
                 case ParserState.CsiIgnore:
-                    Execute(code);
+                    OnExecute(code);
                     if (code == 0x1B) // ESC
                     {
                         Transition(ParserState.Escape);
@@ -91,7 +115,7 @@ public class EscapeSequenceParser
             case ParserState.Ground:
                 if (code >= 0x20)
                 {
-                    Print(code);
+                    OnPrint(code);
                 }
                 break;
 
@@ -255,14 +279,20 @@ public class EscapeSequenceParser
         }
     }
 
-    private void Print(int code)
+    /// <summary>
+    /// Raises the Print event.
+    /// </summary>
+    protected virtual void OnPrint(int code)
     {
-        PrintHandler?.Invoke(char.ConvertFromUtf32(code));
+        Print?.Invoke(this, new PrintEventArgs(char.ConvertFromUtf32(code)));
     }
 
-    private void Execute(int code)
+    /// <summary>
+    /// Raises the Execute event.
+    /// </summary>
+    protected virtual void OnExecute(int code)
     {
-        ExecuteHandler?.Invoke(code);
+        Execute?.Invoke(this, new ExecuteEventArgs(code));
     }
 
     private void Collect(int code)
@@ -294,13 +324,30 @@ public class EscapeSequenceParser
         // Clone params so handlers get their own copy
         var paramsClone = _params.Clone();
         // Collected characters come BEFORE the final character (e.g., "?" before "h" gives "?h")
-        CsiHandler?.Invoke(_collect.ToString() + finalChar, paramsClone);
+        var identifier = _collect.ToString() + finalChar;
+        OnCsi(identifier, paramsClone);
+    }
+
+    /// <summary>
+    /// Raises the Csi event.
+    /// </summary>
+    protected virtual void OnCsi(string identifier, Params parameters)
+    {
+        Csi?.Invoke(this, new CsiEventArgs(identifier, parameters));
     }
 
     private void DispatchEsc(int code)
     {
         var finalChar = ((char)code).ToString();
-        EscHandler?.Invoke(finalChar, _collect.ToString());
+        OnEsc(finalChar, _collect.ToString());
+    }
+
+    /// <summary>
+    /// Raises the Esc event.
+    /// </summary>
+    protected virtual void OnEsc(string finalChar, string collected)
+    {
+        Esc?.Invoke(this, new EscEventArgs(finalChar, collected));
     }
 
     private void OscPut(int code)
@@ -310,7 +357,15 @@ public class EscapeSequenceParser
 
     private void DispatchOsc()
     {
-        OscHandler?.Invoke(_osc.ToString());
+        OnOsc(_osc.ToString());
+    }
+
+    /// <summary>
+    /// Raises the Osc event.
+    /// </summary>
+    protected virtual void OnOsc(string data)
+    {
+        Osc?.Invoke(this, new OscEventArgs(data));
     }
 
     /// <summary>

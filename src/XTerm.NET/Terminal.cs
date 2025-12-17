@@ -3,6 +3,7 @@ using XTerm.Common;
 using XTerm.Parser;
 using XTerm.Options;
 using XTerm.Input;
+using XTerm.Events.Parser;
 
 namespace XTerm;
 
@@ -156,12 +157,12 @@ public class Terminal
         _keyboardInput = new KeyboardInputGenerator(this);
         _mouseTracker = new MouseTracker(this); // Initialize mouse tracker
 
-        // Wire up parser handlers
-        _parser.PrintHandler = data => _inputHandler.Print(data);
-        _parser.ExecuteHandler = code => HandleExecute(code);
-        _parser.CsiHandler = (identifier, parameters) => _inputHandler.HandleCsi(identifier, parameters);
-        _parser.EscHandler = (finalChar, collected) => _inputHandler.HandleEsc(finalChar, collected);
-        _parser.OscHandler = data => _inputHandler.HandleOsc(data);
+        // Subscribe to parser events using C# event pattern
+        _parser.Print += OnParserPrint;
+        _parser.Execute += OnParserExecute;
+        _parser.Csi += OnParserCsi;
+        _parser.Esc += OnParserEsc;
+        _parser.Osc += OnParserOsc;
 
         InsertMode = false;
         ApplicationCursorKeys = false;
@@ -171,6 +172,46 @@ public class Terminal
         CursorVisible = true;
         ReverseWraparound = false;
         SendFocusEvents = false;
+    }
+
+    /// <summary>
+    /// Handles print events from the parser.
+    /// </summary>
+    private void OnParserPrint(object? sender, PrintEventArgs e)
+    {
+        _inputHandler.Print(e.Data);
+    }
+
+    /// <summary>
+    /// Handles execute events from the parser.
+    /// </summary>
+    private void OnParserExecute(object? sender, ExecuteEventArgs e)
+    {
+        HandleExecute(e.Code);
+    }
+
+    /// <summary>
+    /// Handles CSI events from the parser.
+    /// </summary>
+    private void OnParserCsi(object? sender, CsiEventArgs e)
+    {
+        _inputHandler.HandleCsi(e.Identifier, e.Parameters);
+    }
+
+    /// <summary>
+    /// Handles ESC events from the parser.
+    /// </summary>
+    private void OnParserEsc(object? sender, EscEventArgs e)
+    {
+        _inputHandler.HandleEsc(e.FinalChar, e.Collected);
+    }
+
+    /// <summary>
+    /// Handles OSC events from the parser.
+    /// </summary>
+    private void OnParserOsc(object? sender, OscEventArgs e)
+    {
+        _inputHandler.HandleOsc(e.Data);
     }
 
     /// <summary>
@@ -493,6 +534,13 @@ public class Terminal
     /// </summary>
     public void Dispose()
     {
+        // Unsubscribe from parser events
+        _parser.Print -= OnParserPrint;
+        _parser.Execute -= OnParserExecute;
+        _parser.Csi -= OnParserCsi;
+        _parser.Esc -= OnParserEsc;
+        _parser.Osc -= OnParserOsc;
+
         // Clear all event subscriptions
         DataReceived = null;
         TitleChanged = null;

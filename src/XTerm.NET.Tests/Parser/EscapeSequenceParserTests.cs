@@ -1,4 +1,5 @@
 using XTerm.Parser;
+using XTerm.Events.Parser;
 using System.Text;
 
 namespace XTerm.Tests.Parser;
@@ -21,7 +22,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var printed = new StringBuilder();
-        parser.PrintHandler = data => printed.Append(data);
+        parser.Print += (sender, e) => printed.Append(e.Data);
 
         // Act
         parser.Parse("Hello");
@@ -36,7 +37,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var called = false;
-        parser.PrintHandler = data => called = true;
+        parser.Print += (sender, e) => called = true;
 
         // Act
         parser.Parse("");
@@ -51,7 +52,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var executedCodes = new List<int>();
-        parser.ExecuteHandler = code => executedCodes.Add(code);
+        parser.Execute += (sender, e) => executedCodes.Add(e.Code);
 
         // Act
         parser.Parse("\x07"); // BEL
@@ -66,7 +67,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var executedCodes = new List<int>();
-        parser.ExecuteHandler = code => executedCodes.Add(code);
+        parser.Execute += (sender, e) => executedCodes.Add(e.Code);
 
         // Act
         parser.Parse("\n");
@@ -81,7 +82,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var executedCodes = new List<int>();
-        parser.ExecuteHandler = code => executedCodes.Add(code);
+        parser.Execute += (sender, e) => executedCodes.Add(e.Code);
 
         // Act
         parser.Parse("\r");
@@ -96,7 +97,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var executedCodes = new List<int>();
-        parser.ExecuteHandler = code => executedCodes.Add(code);
+        parser.Execute += (sender, e) => executedCodes.Add(e.Code);
 
         // Act
         parser.Parse("\t");
@@ -111,7 +112,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var executedCodes = new List<int>();
-        parser.ExecuteHandler = code => executedCodes.Add(code);
+        parser.Execute += (sender, e) => executedCodes.Add(e.Code);
 
         // Act
         parser.Parse("\x08");
@@ -126,7 +127,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var csiCalls = new List<(string identifier, Params parameters)>();
-        parser.CsiHandler = (id, p) => csiCalls.Add((id, p));
+        parser.Csi += (sender, e) => csiCalls.Add((e.Identifier, e.Parameters));
 
         // Act
         parser.Parse("\x1B[H"); // Cursor Home
@@ -142,7 +143,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var csiCalls = new List<(string identifier, Params parameters)>();
-        parser.CsiHandler = (id, p) => csiCalls.Add((id, p));
+        parser.Csi += (sender, e) => csiCalls.Add((e.Identifier, e.Parameters));
 
         // Act
         parser.Parse("\x1B[10;20H"); // Cursor Position
@@ -161,7 +162,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var csiCalls = new List<(string identifier, Params parameters)>();
-        parser.CsiHandler = (id, p) => csiCalls.Add((id, p));
+        parser.Csi += (sender, e) => csiCalls.Add((e.Identifier, e.Parameters));
 
         // Act
         parser.Parse("\x1B[5A"); // Cursor Up 5
@@ -179,7 +180,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var csiCalls = new List<(string identifier, Params parameters)>();
-        parser.CsiHandler = (id, p) => csiCalls.Add((id, p));
+        parser.Csi += (sender, e) => csiCalls.Add((e.Identifier, e.Parameters));
 
         // Act
         parser.Parse("\x1B[1;31m"); // Bold + Red foreground
@@ -198,7 +199,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var escCalls = new List<(string finalChar, string collected)>();
-        parser.EscHandler = (f, c) => escCalls.Add((f, c));
+        parser.Esc += (sender, e) => escCalls.Add((e.FinalChar, e.Collected));
 
         // Act
         parser.Parse("\x1B" + "D"); // Index
@@ -214,7 +215,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var oscData = new List<string>();
-        parser.OscHandler = data => oscData.Add(data);
+        parser.Osc += (sender, e) => oscData.Add(e.Data);
 
         // Act
         parser.Parse("\x1B]0;Test Title\x07"); // Set title
@@ -230,7 +231,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var oscData = new List<string>();
-        parser.OscHandler = data => oscData.Add(data);
+        parser.Osc += (sender, e) => oscData.Add(e.Data);
 
         // Act
         parser.Parse("\x1B]2;Window Title\x1B\\"); // Set title with ESC terminator
@@ -248,8 +249,8 @@ public class EscapeSequenceParserTests
         var printed = new StringBuilder();
         var csiCalls = new List<string>();
         
-        parser.PrintHandler = data => printed.Append(data);
-        parser.CsiHandler = (id, p) => csiCalls.Add(id);
+        parser.Print += (sender, e) => printed.Append(e.Data);
+        parser.Csi += (sender, e) => csiCalls.Add(e.Identifier);
 
         // Act
         parser.Parse("Hello\x1B[1mWorld");
@@ -266,7 +267,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var csiCalls = new List<string>();
-        parser.CsiHandler = (id, p) => csiCalls.Add(id);
+        parser.Csi += (sender, e) => csiCalls.Add(e.Identifier);
 
         // Act
         parser.Parse("\x1B[H\x1B[2J\x1B[1;1H");
@@ -284,7 +285,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var printed = new StringBuilder();
-        parser.PrintHandler = data => printed.Append(data);
+        parser.Print += (sender, e) => printed.Append(e.Data);
         var longString = new string('A', 1000);
 
         // Act
@@ -305,7 +306,7 @@ public class EscapeSequenceParserTests
         parser.Reset();
         
         var printed = new StringBuilder();
-        parser.PrintHandler = data => printed.Append(data);
+        parser.Print += (sender, e) => printed.Append(e.Data);
         parser.Parse("Test");
 
         // Assert
@@ -318,7 +319,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var printed = new StringBuilder();
-        parser.PrintHandler = data => printed.Append(data);
+        parser.Print += (sender, e) => printed.Append(e.Data);
 
         // Act
         parser.Parse("\x1B[");
@@ -334,7 +335,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var csiCalls = new List<(string identifier, Params parameters)>();
-        parser.CsiHandler = (id, p) => csiCalls.Add((id, p));
+        parser.Csi += (sender, e) => csiCalls.Add((e.Identifier, e.Parameters));
 
         // Act
         parser.Parse("\x1B[2J"); // Erase Display
@@ -351,7 +352,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var csiCalls = new List<(string identifier, Params parameters)>();
-        parser.CsiHandler = (id, p) => csiCalls.Add((id, p));
+        parser.Csi += (sender, e) => csiCalls.Add((e.Identifier, e.Parameters));
 
         // Act
         parser.Parse("\x1B[5A"); // Cursor Up
@@ -373,7 +374,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var escCalls = new List<string>();
-        parser.EscHandler = (f, c) => escCalls.Add(f);
+        parser.Esc += (sender, e) => escCalls.Add(e.FinalChar);
 
         // Act
         parser.Parse("\x1B" + "7"); // Save cursor - ESC followed by '7'
@@ -391,7 +392,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var csiCalls = new List<(string identifier, Params parameters)>();
-        parser.CsiHandler = (id, p) => csiCalls.Add((id, p));
+        parser.Csi += (sender, e) => csiCalls.Add((e.Identifier, e.Parameters));
 
         // Act
         parser.Parse("\x1B[1;3;4;31;42m"); // Bold, Italic, Underline, Red FG, Green BG
@@ -413,7 +414,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var csiCalls = new List<(string identifier, Params parameters)>();
-        parser.CsiHandler = (id, p) => csiCalls.Add((id, p));
+        parser.Csi += (sender, e) => csiCalls.Add((e.Identifier, e.Parameters));
 
         // Act
         parser.Parse("\x1B[5;20r"); // Set scroll region
@@ -434,8 +435,8 @@ public class EscapeSequenceParserTests
         var printed = new StringBuilder();
         var csiCount = 0;
         
-        parser.PrintHandler = data => printed.Append(data);
-        parser.CsiHandler = (id, p) => csiCount++;
+        parser.Print += (sender, e) => printed.Append(e.Data);
+        parser.Csi += (sender, e) => csiCount++;
 
         // Act
         parser.Parse("Line1\x1B[1mBold\x1B[0mNormal");
@@ -453,7 +454,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var csiCalls = new List<(string identifier, Params parameters)>();
-        parser.CsiHandler = (id, p) => csiCalls.Add((id, p));
+        parser.Csi += (sender, e) => csiCalls.Add((e.Identifier, e.Parameters));
 
         // Act
         parser.Parse("\x1B[m"); // SGR reset with no parameters
@@ -483,7 +484,7 @@ public class EscapeSequenceParserTests
         // Arrange
         var parser = new EscapeSequenceParser();
         var printed = new StringBuilder();
-        parser.PrintHandler = data => printed.Append(data);
+        parser.Print += (sender, e) => printed.Append(e.Data);
 
         // Act
         parser.Parse("Hello ?? ??");
