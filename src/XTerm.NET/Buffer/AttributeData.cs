@@ -7,7 +7,7 @@ namespace XTerm.Buffer;
 /// Stores foreground color, background color, and text attributes.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
-public struct AttributeData : IEquatable<AttributeData>
+public struct AttributeData : IEquatable<AttributeData>, ICloneable
 {
     /// <summary>
     /// Bit layout:
@@ -54,6 +54,16 @@ public struct AttributeData : IEquatable<AttributeData>
         Fg = fg;
         Bg = bg;
         Extended = extended;
+    }
+
+    /// <summary>
+    /// Copy constructor for cloning.
+    /// </summary>
+    public AttributeData(AttributeData other)
+    {
+        Fg = other.Fg;
+        Bg = other.Bg;
+        Extended = other.Extended;
     }
 
     public bool IsBold() => (Extended & BOLD) != 0;
@@ -125,8 +135,19 @@ public struct AttributeData : IEquatable<AttributeData>
         return !left.Equals(right);
     }
 
+    /// <summary>
+    /// Creates a copy of this AttributeData.
+    /// </summary>
     public AttributeData Clone()
     {
-        return new AttributeData(Fg, Bg, Extended);
+        return new AttributeData(this);
+    }
+
+    /// <summary>
+    /// Explicit interface implementation for ICloneable.
+    /// </summary>
+    object ICloneable.Clone()
+    {
+        return Clone();
     }
 }

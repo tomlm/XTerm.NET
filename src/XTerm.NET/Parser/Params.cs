@@ -3,7 +3,7 @@ namespace XTerm.Parser;
 /// <summary>
 /// Manages parameters for escape sequences.
 /// </summary>
-public class Params
+public class Params : ICloneable
 {
     private readonly List<int> _params;
     private readonly List<int> _subParams;
@@ -11,11 +11,24 @@ public class Params
 
     public int Length => _params.Count;
 
+    /// <summary>
+    /// Default constructor.
+    /// </summary>
     public Params()
     {
         _params = new List<int>(32);
         _subParams = new List<int>(32);
         _subParamsStart = 0;
+    }
+
+    /// <summary>
+    /// Copy constructor for cloning.
+    /// </summary>
+    public Params(Params other)
+    {
+        _params = new List<int>(other._params);
+        _subParams = new List<int>(other._subParams);
+        _subParamsStart = other._subParamsStart;
     }
 
     /// <summary>
@@ -104,14 +117,18 @@ public class Params
     }
 
     /// <summary>
-    /// Clones the parameters.
+    /// Creates a copy of this Params.
     /// </summary>
     public Params Clone()
     {
-        var clone = new Params();
-        clone._params.AddRange(_params);
-        clone._subParams.AddRange(_subParams);
-        clone._subParamsStart = _subParamsStart;
-        return clone;
+        return new Params(this);
+    }
+
+    /// <summary>
+    /// Explicit interface implementation for ICloneable.
+    /// </summary>
+    object ICloneable.Clone()
+    {
+        return Clone();
     }
 }

@@ -5,7 +5,7 @@ namespace XTerm.Options;
 /// <summary>
 /// Terminal configuration options.
 /// </summary>
-public class TerminalOptions
+public class TerminalOptions : ICloneable
 {
     /// <summary>
     /// Number of columns in the terminal.
@@ -158,43 +158,63 @@ public class TerminalOptions
     public Func<KeyEvent, bool>? CustomKeyEventHandler { get; set; }
 
     /// <summary>
-    /// Clones the options.
+    /// Default constructor.
+    /// </summary>
+    public TerminalOptions()
+    {
+    }
+
+    /// <summary>
+    /// Copy constructor for cloning.
+    /// </summary>
+    public TerminalOptions(TerminalOptions other)
+    {
+        Cols = other.Cols;
+        Rows = other.Rows;
+        Scrollback = other.Scrollback;
+        TabStopWidth = other.TabStopWidth;
+        BellSound = other.BellSound;
+        BellVolume = other.BellVolume;
+        BellStyle = other.BellStyle;
+        CursorBlinkRate = other.CursorBlinkRate;
+        CursorStyle = other.CursorStyle;
+        CursorBlink = other.CursorBlink;
+        FontFamily = other.FontFamily;
+        FontSize = other.FontSize;
+        FontWeight = other.FontWeight;
+        FontWeightBold = other.FontWeightBold;
+        LetterSpacing = other.LetterSpacing;
+        LineHeight = other.LineHeight;
+        Wraparound = other.Wraparound;
+        ConvertEol = other.ConvertEol;
+        TermName = other.TermName;
+        FastScrollModifier = other.FastScrollModifier;
+        ScrollSensitivity = other.ScrollSensitivity;
+        AllowTransparency = other.AllowTransparency;
+        MacOptionIsMeta = other.MacOptionIsMeta;
+        RightClickSelectsWord = other.RightClickSelectsWord;
+        RendererType = other.RendererType;
+        WindowOptions = new WindowOptions(other.WindowOptions);
+        Theme = new ThemeOptions(other.Theme);
+        MinimumContrastRatio = other.MinimumContrastRatio;
+        DrawBoldTextInBrightColors = other.DrawBoldTextInBrightColors;
+        CustomKeyEventHandler = other.CustomKeyEventHandler;
+    }
+
+    /// <summary>
+    /// Creates a copy of this TerminalOptions.
     /// </summary>
     public TerminalOptions Clone()
     {
-        return new TerminalOptions
-        {
-            Cols = Cols,
-            Rows = Rows,
-            Scrollback = Scrollback,
-            TabStopWidth = TabStopWidth,
-            BellSound = BellSound,
-            BellVolume = BellVolume,
-            BellStyle = BellStyle,
-            CursorBlinkRate = CursorBlinkRate,
-            CursorStyle = CursorStyle,
-            CursorBlink = CursorBlink,
-            FontFamily = FontFamily,
-            FontSize = FontSize,
-            FontWeight = FontWeight,
-            FontWeightBold = FontWeightBold,
-            LetterSpacing = LetterSpacing,
-            LineHeight = LineHeight,
-            Wraparound = Wraparound,
-            ConvertEol = ConvertEol,
-            TermName = TermName,
-            FastScrollModifier = FastScrollModifier,
-            ScrollSensitivity = ScrollSensitivity,
-            AllowTransparency = AllowTransparency,
-            MacOptionIsMeta = MacOptionIsMeta,
-            RightClickSelectsWord = RightClickSelectsWord,
-            RendererType = RendererType,
-            WindowOptions = WindowOptions.Clone(),
-            Theme = Theme.Clone(),
-            MinimumContrastRatio = MinimumContrastRatio,
-            DrawBoldTextInBrightColors = DrawBoldTextInBrightColors,
-            CustomKeyEventHandler = CustomKeyEventHandler
-        };
+        return new TerminalOptions(this);
+    }
+
+    /// <summary>
+    /// Explicit interface implementation for ICloneable.
+    /// </summary>
+    object ICloneable.Clone()
+    {
+        return Clone();
     }
 }
 
@@ -222,7 +242,7 @@ public enum RendererType
 /// <summary>
 /// Window options for OSC commands.
 /// </summary>
-public class WindowOptions
+public class WindowOptions : ICloneable
 {
     public bool GetWinPosition { get; set; } = false;
     public bool GetWinSizePixels { get; set; } = false;
@@ -243,36 +263,59 @@ public class WindowOptions
     public bool MinimizeWin { get; set; } = false;
     public bool FullscreenWin { get; set; } = false;
 
+    /// <summary>
+    /// Default constructor.
+    /// </summary>
+    public WindowOptions()
+    {
+    }
+
+    /// <summary>
+    /// Copy constructor for cloning.
+    /// </summary>
+    public WindowOptions(WindowOptions other)
+    {
+        GetWinPosition = other.GetWinPosition;
+        GetWinSizePixels = other.GetWinSizePixels;
+        GetWinSizeChars = other.GetWinSizeChars;
+        GetScreenSizePixels = other.GetScreenSizePixels;
+        GetCellSizePixels = other.GetCellSizePixels;
+        GetIconTitle = other.GetIconTitle;
+        GetWinTitle = other.GetWinTitle;
+        GetWinState = other.GetWinState;
+        SetWinPosition = other.SetWinPosition;
+        SetWinSizePixels = other.SetWinSizePixels;
+        SetWinSizeChars = other.SetWinSizeChars;
+        RaiseWin = other.RaiseWin;
+        LowerWin = other.LowerWin;
+        RefreshWin = other.RefreshWin;
+        RestoreWin = other.RestoreWin;
+        MaximizeWin = other.MaximizeWin;
+        MinimizeWin = other.MinimizeWin;
+        FullscreenWin = other.FullscreenWin;
+    }
+
+    /// <summary>
+    /// Creates a copy of this WindowOptions.
+    /// </summary>
     public WindowOptions Clone()
     {
-        return new WindowOptions
-        {
-            GetWinPosition = GetWinPosition,
-            GetWinSizePixels = GetWinSizePixels,
-            GetWinSizeChars = GetWinSizeChars,
-            GetScreenSizePixels = GetScreenSizePixels,
-            GetCellSizePixels = GetCellSizePixels,
-            GetIconTitle = GetIconTitle,
-            GetWinTitle = GetWinTitle,
-            GetWinState = GetWinState,
-            SetWinPosition = SetWinPosition,
-            SetWinSizePixels = SetWinSizePixels,
-            SetWinSizeChars = SetWinSizeChars,
-            RaiseWin = RaiseWin,
-            LowerWin = LowerWin,
-            RefreshWin = RefreshWin,
-            RestoreWin = RestoreWin,
-            MaximizeWin = MaximizeWin,
-            MinimizeWin = MinimizeWin,
-            FullscreenWin = FullscreenWin
-        };
+        return new WindowOptions(this);
+    }
+
+    /// <summary>
+    /// Explicit interface implementation for ICloneable.
+    /// </summary>
+    object ICloneable.Clone()
+    {
+        return Clone();
     }
 }
 
 /// <summary>
 /// Theme color options.
 /// </summary>
-public class ThemeOptions
+public class ThemeOptions : ICloneable
 {
     public string? Foreground { get; set; }
     public string? Background { get; set; }
@@ -301,33 +344,56 @@ public class ThemeOptions
     public string? BrightCyan { get; set; }
     public string? BrightWhite { get; set; }
 
+    /// <summary>
+    /// Default constructor.
+    /// </summary>
+    public ThemeOptions()
+    {
+    }
+
+    /// <summary>
+    /// Copy constructor for cloning.
+    /// </summary>
+    public ThemeOptions(ThemeOptions other)
+    {
+        Foreground = other.Foreground;
+        Background = other.Background;
+        Cursor = other.Cursor;
+        CursorAccent = other.CursorAccent;
+        Selection = other.Selection;
+        SelectionInactive = other.SelectionInactive;
+        Black = other.Black;
+        Red = other.Red;
+        Green = other.Green;
+        Yellow = other.Yellow;
+        Blue = other.Blue;
+        Magenta = other.Magenta;
+        Cyan = other.Cyan;
+        White = other.White;
+        BrightBlack = other.BrightBlack;
+        BrightRed = other.BrightRed;
+        BrightGreen = other.BrightGreen;
+        BrightYellow = other.BrightYellow;
+        BrightBlue = other.BrightBlue;
+        BrightMagenta = other.BrightMagenta;
+        BrightCyan = other.BrightCyan;
+        BrightWhite = other.BrightWhite;
+    }
+
+    /// <summary>
+    /// Creates a copy of this ThemeOptions.
+    /// </summary>
     public ThemeOptions Clone()
     {
-        return new ThemeOptions
-        {
-            Foreground = Foreground,
-            Background = Background,
-            Cursor = Cursor,
-            CursorAccent = CursorAccent,
-            Selection = Selection,
-            SelectionInactive = SelectionInactive,
-            Black = Black,
-            Red = Red,
-            Green = Green,
-            Yellow = Yellow,
-            Blue = Blue,
-            Magenta = Magenta,
-            Cyan = Cyan,
-            White = White,
-            BrightBlack = BrightBlack,
-            BrightRed = BrightRed,
-            BrightGreen = BrightGreen,
-            BrightYellow = BrightYellow,
-            BrightBlue = BrightBlue,
-            BrightMagenta = BrightMagenta,
-            BrightCyan = BrightCyan,
-            BrightWhite = BrightWhite
-        };
+        return new ThemeOptions(this);
+    }
+
+    /// <summary>
+    /// Explicit interface implementation for ICloneable.
+    /// </summary>
+    object ICloneable.Clone()
+    {
+        return Clone();
     }
 }
 
