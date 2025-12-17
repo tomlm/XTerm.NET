@@ -35,44 +35,74 @@ public enum UnderlineStyle
 /// <summary>
 /// Core mode constants for terminal state.
 /// </summary>
+[Obsolete("Use TerminalMode enum instead for type safety and IntelliSense support.")]
 public static class CoreModes
 {
     // ANSI Modes (SM/RM - Set Mode / Reset Mode)
-    public const int INSERT_MODE = 4;           // IRM - Insert/Replace Mode
-    public const int AUTO_WRAP_MODE = 7;        // DECAWM - Automatic Wrap
+    public const int InsertMode = 4;           // IRM - Insert/Replace Mode
+    public const int AutoWrapMode = 7;        // DECAWM - Automatic Wrap
     
     // DEC Private Modes (DECSET/DECRST - CSI ? Pm h / CSI ? Pm l)
-    public const int APP_CURSOR_KEYS = 1;       // DECCKM - Application Cursor Keys
-    public const int ANSI_VT52 = 2;            // DECANM - ANSI/VT52 Mode
-    public const int COLUMN_MODE = 3;          // DECCOLM - Column Mode (80/132)
-    public const int SMOOTH_SCROLL = 4;        // DECSCLM - Smooth Scroll
-    public const int ORIGIN = 6;               // DECOM - Origin Mode
-    public const int WRAPAROUND = 7;           // DECAWM - Wraparound Mode
-    public const int AUTO_REPEAT = 8;          // DECARM - Auto Repeat
-    public const int SHOW_CURSOR = 25;         // DECTCEM - Text Cursor Enable
-    public const int APP_KEYPAD = 66;          // DECNKM - Application Keypad
-    public const int BACKSPACE_KEY = 67;       // DECBKM - Backarrow Key
-    public const int BRACKETED_PASTE_MODE = 2004; // Bracketed Paste Mode
+    public const int AppCursorKeys = 1;       // DECCKM - Application Cursor Keys
+    public const int AnsiVt52 = 2;            // DECANM - ANSI/VT52 Mode
+    public const int ColumnMode = 3;          // DECCOLM - Column Mode (80/132)
+    public const int SmoothScroll = 4;        // DECSCLM - Smooth Scroll
+    public const int Origin = 6;               // DECOM - Origin Mode
+    public const int Wraparound = 7;           // DECAWM - Wraparound Mode
+    public const int AutoRepeat = 8;          // DECARM - Auto Repeat
+    public const int ShowCursor = 25;         // DECTCEM - Text Cursor Enable
+    public const int AppKeypad = 66;          // DECNKM - Application Keypad
+    public const int BackspaceKey = 67;       // DECBKM - Backarrow Key
+    public const int BracketedPasteMode = 2004; // Bracketed Paste Mode
     
     // Buffer Switching Modes
-    public const int ALT_BUFFER = 47;          // Use Alternate Screen Buffer
-    public const int ALT_BUFFER_CURSOR = 1047; // Use Alternate Screen Buffer (with cursor save/restore)
-    public const int ALT_BUFFER_FULL = 1049;   // Save cursor and use Alternate Screen Buffer
+    public const int AltBuffer = 47;          // Use Alternate Screen Buffer
+    public const int AltBufferCursor = 1047; // Use Alternate Screen Buffer (with cursor save/restore)
+    public const int AltBufferFull = 1049;   // Save cursor and use Alternate Screen Buffer
     
     // Mouse Tracking Modes
-    public const int MOUSE_REPORT_CLICK = 9;       // X10 Mouse Mode
-    public const int MOUSE_REPORT_NORMAL = 1000;   // VT200 Mouse Mode
-    public const int MOUSE_REPORT_HIGHLIGHT = 1001; // Highlight Mouse Mode
-    public const int MOUSE_REPORT_BTN_EVENT = 1002; // Button Event Mouse Mode
-    public const int MOUSE_REPORT_ANY_EVENT = 1003; // Any Event Mouse Mode
-    public const int MOUSE_REPORT_FOCUS = 1004;    // Focus Event Mode
-    public const int MOUSE_REPORT_UTF8 = 1005;     // UTF-8 Extended Mode
-    public const int MOUSE_REPORT_SGR = 1006;      // SGR Extended Mode
-    public const int MOUSE_REPORT_URXVT = 1015;    // URXVT Extended Mode
-    public const int MOUSE_REPORT_PIXEL = 1016;    // Pixel Position Mode
+    public const int MouseReportClick = 9;       // X10 Mouse Mode
+    public const int MouseReportNormal = 1000;   // VT200 Mouse Mode
+    public const int MouseReportHighlight = 1001; // Highlight Mouse Mode
+    public const int MouseReportButtonEvent = 1002; // Button Event Mouse Mode
+    public const int MouseReportAnyEvent = 1003; // Any Event Mouse Mode
+    public const int MouseReportFocus = 1004;    // Focus Event Mode
+    public const int MouseReportUtf8 = 1005;     // UTF-8 Extended Mode
+    public const int MouseReportSgr = 1006;      // SGR Extended Mode
+    public const int MouseReportUrxvt = 1015;    // URXVT Extended Mode
+    public const int MouseReportPixel = 1016;    // Pixel Position Mode
     
     // Other Modes
-    public const int SEND_FOCUS_EVENTS = 1004; // Focus In/Out Events
+    public const int SendFocusEvents = 1004; // Focus In/Out Events
+    
+    // Old SCREAMING_SNAKE_CASE names for backward compatibility
+    [Obsolete("Use InsertMode instead")] public const int INSERT_MODE = InsertMode;
+    [Obsolete("Use AutoWrapMode instead")] public const int AUTO_WRAP_MODE = AutoWrapMode;
+    [Obsolete("Use AppCursorKeys instead")] public const int APP_CURSOR_KEYS = AppCursorKeys;
+    [Obsolete("Use AnsiVt52 instead")] public const int ANSI_VT52 = AnsiVt52;
+    [Obsolete("Use ColumnMode instead")] public const int COLUMN_MODE = ColumnMode;
+    [Obsolete("Use SmoothScroll instead")] public const int SMOOTH_SCROLL = SmoothScroll;
+    [Obsolete("Use Origin instead")] public const int ORIGIN = Origin;
+    [Obsolete("Use Wraparound instead")] public const int WRAPAROUND = Wraparound;
+    [Obsolete("Use AutoRepeat instead")] public const int AUTO_REPEAT = AutoRepeat;
+    [Obsolete("Use ShowCursor instead")] public const int SHOW_CURSOR = ShowCursor;
+    [Obsolete("Use AppKeypad instead")] public const int APP_KEYPAD = AppKeypad;
+    [Obsolete("Use BackspaceKey instead")] public const int BACKSPACE_KEY = BackspaceKey;
+    [Obsolete("Use BracketedPasteMode instead")] public const int BRACKETED_PASTE_MODE = BracketedPasteMode;
+    [Obsolete("Use AltBuffer instead")] public const int ALT_BUFFER = AltBuffer;
+    [Obsolete("Use AltBufferCursor instead")] public const int ALT_BUFFER_CURSOR = AltBufferCursor;
+    [Obsolete("Use AltBufferFull instead")] public const int ALT_BUFFER_FULL = AltBufferFull;
+    [Obsolete("Use MouseReportClick instead")] public const int MOUSE_REPORT_CLICK = MouseReportClick;
+    [Obsolete("Use MouseReportNormal instead")] public const int MOUSE_REPORT_NORMAL = MouseReportNormal;
+    [Obsolete("Use MouseReportHighlight instead")] public const int MOUSE_REPORT_HIGHLIGHT = MouseReportHighlight;
+    [Obsolete("Use MouseReportButtonEvent instead")] public const int MOUSE_REPORT_BTN_EVENT = MouseReportButtonEvent;
+    [Obsolete("Use MouseReportAnyEvent instead")] public const int MOUSE_REPORT_ANY_EVENT = MouseReportAnyEvent;
+    [Obsolete("Use MouseReportFocus instead")] public const int MOUSE_REPORT_FOCUS = MouseReportFocus;
+    [Obsolete("Use MouseReportUtf8 instead")] public const int MOUSE_REPORT_UTF8 = MouseReportUtf8;
+    [Obsolete("Use MouseReportSgr instead")] public const int MOUSE_REPORT_SGR = MouseReportSgr;
+    [Obsolete("Use MouseReportUrxvt instead")] public const int MOUSE_REPORT_URXVT = MouseReportUrxvt;
+    [Obsolete("Use MouseReportPixel instead")] public const int MOUSE_REPORT_PIXEL = MouseReportPixel;
+    [Obsolete("Use SendFocusEvents instead")] public const int SEND_FOCUS_EVENTS = SendFocusEvents;
 }
 
 /// <summary>
@@ -176,24 +206,40 @@ public enum AttributeFlags
 /// </summary>
 public static class Constants
 {
-    public const int DEFAULT_ATTR = (0 << 18) | (257 << 9) | 256;
-    public const int DEFAULT_ATTR_DATA_FG = 256;
-    public const int DEFAULT_ATTR_DATA_BG = 257;
+    public const int DefaultAttr = (0 << 18) | (257 << 9) | 256;
+    public const int DefaultAttrDataFg = 256;
+    public const int DefaultAttrDataBg = 257;
     
-    public const int CHAR_DATA_ATTR_INDEX = 0;
-    public const int CHAR_DATA_CHAR_INDEX = 1;
-    public const int CHAR_DATA_WIDTH_INDEX = 2;
-    public const int CHAR_DATA_CODE_INDEX = 3;
+    public const int CharDataAttrIndex = 0;
+    public const int CharDataCharIndex = 1;
+    public const int CharDataWidthIndex = 2;
+    public const int CharDataCodeIndex = 3;
     
-    public const int NULL_CELL_CODE = 0x0020;
-    public const int NULL_CELL_WIDTH = 1;
-    public const char NULL_CELL_CHAR = ' ';
+    public const int NullCellCode = 0x0020;
+    public const int NullCellWidth = 1;
+    public const char NullCellChar = ' ';
     
-    public const int WHITESPACE_CELL_CODE = 0x0020;
-    public const int WHITESPACE_CELL_WIDTH = 1;
-    public const char WHITESPACE_CELL_CHAR = ' ';
+    public const int WhitespaceCellCode = 0x0020;
+    public const int WhitespaceCellWidth = 1;
+    public const char WhitespaceCellChar = ' ';
     
-    public const long MAX_BUFFER_SIZE = 4294967295;
+    public const long MaxBufferSize = 4294967295;
+    
+    // Old SCREAMING_SNAKE_CASE names for backward compatibility
+    [Obsolete("Use DefaultAttr instead")] public const int DEFAULT_ATTR = DefaultAttr;
+    [Obsolete("Use DefaultAttrDataFg instead")] public const int DEFAULT_ATTR_DATA_FG = DefaultAttrDataFg;
+    [Obsolete("Use DefaultAttrDataBg instead")] public const int DEFAULT_ATTR_DATA_BG = DefaultAttrDataBg;
+    [Obsolete("Use CharDataAttrIndex instead")] public const int CHAR_DATA_ATTR_INDEX = CharDataAttrIndex;
+    [Obsolete("Use CharDataCharIndex instead")] public const int CHAR_DATA_CHAR_INDEX = CharDataCharIndex;
+    [Obsolete("Use CharDataWidthIndex instead")] public const int CHAR_DATA_WIDTH_INDEX = CharDataWidthIndex;
+    [Obsolete("Use CharDataCodeIndex instead")] public const int CHAR_DATA_CODE_INDEX = CharDataCodeIndex;
+    [Obsolete("Use NullCellCode instead")] public const int NULL_CELL_CODE = NullCellCode;
+    [Obsolete("Use NullCellWidth instead")] public const int NULL_CELL_WIDTH = NullCellWidth;
+    [Obsolete("Use NullCellChar instead")] public const char NULL_CELL_CHAR = NullCellChar;
+    [Obsolete("Use WhitespaceCellCode instead")] public const int WHITESPACE_CELL_CODE = WhitespaceCellCode;
+    [Obsolete("Use WhitespaceCellWidth instead")] public const int WHITESPACE_CELL_WIDTH = WhitespaceCellWidth;
+    [Obsolete("Use WhitespaceCellChar instead")] public const char WHITESPACE_CELL_CHAR = WhitespaceCellChar;
+    [Obsolete("Use MaxBufferSize instead")] public const long MAX_BUFFER_SIZE = MaxBufferSize;
 }
 
 /// <summary>

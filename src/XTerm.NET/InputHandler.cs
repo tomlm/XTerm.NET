@@ -519,9 +519,9 @@ public class InputHandler
             // For now, return a default response
             string response = colorType switch
             {
-                OscCommands.FOREGROUND_COLOR => $"\u001b]{colorType};rgb:ff/ff/ff\u0007",
-                OscCommands.BACKGROUND_COLOR => $"\u001b]{colorType};rgb:00/00/00\u0007",
-                OscCommands.CURSOR_COLOR => $"\u001b]{colorType};rgb:ff/ff/ff\u0007",
+                "10" => $"\u001b]{colorType};rgb:ff/ff/ff\u0007",  // Foreground
+                "11" => $"\u001b]{colorType};rgb:00/00/00\u0007",  // Background
+                "12" => $"\u001b]{colorType};rgb:ff/ff/ff\u0007",  // Cursor
                 _ => string.Empty
             };
             
@@ -1248,94 +1248,119 @@ public class InputHandler
         if (isPrivate)
         {
             // DEC Private Modes (DECSET)
-            switch (mode)
+            // Convert int to TerminalMode enum
+            if (!Enum.IsDefined(typeof(TerminalMode), mode))
             {
-                case CoreModes.APP_CURSOR_KEYS:
+                System.Diagnostics.Debug.WriteLine($"Unknown terminal mode: {mode}");
+                return;
+            }
+            
+            var terminalMode = (TerminalMode)mode;
+            
+            switch (terminalMode)
+            {
+                case TerminalMode.AppCursorKeys:
                     _terminal.ApplicationCursorKeys = true;
                     break;
                     
-                case CoreModes.ORIGIN:
+                case TerminalMode.Origin:
                     _terminal.OriginMode = true;
                     _buffer.SetCursor(0, 0);
                     break;
                     
-                case CoreModes.WRAPAROUND:
+                case TerminalMode.Wraparound:
                     _terminal.Options.Wraparound = true;
                     break;
                     
-                case CoreModes.SHOW_CURSOR:
+                case TerminalMode.ShowCursor:
                     _terminal.CursorVisible = true;
                     break;
                     
-                case CoreModes.APP_KEYPAD:
+                case TerminalMode.AppKeypad:
                     _terminal.ApplicationKeypad = true;
                     break;
                     
-                case CoreModes.BRACKETED_PASTE_MODE:
+                case TerminalMode.BracketedPasteMode:
                     _terminal.BracketedPasteMode = true;
                     break;
                     
-                case CoreModes.ALT_BUFFER:
+                case TerminalMode.AltBuffer:
                     _terminal.SwitchToAltBuffer();
                     break;
                     
-                case CoreModes.ALT_BUFFER_CURSOR:
+                case TerminalMode.AltBufferCursor:
                     SaveCursor();
                     _terminal.SwitchToAltBuffer();
                     break;
                     
-                case CoreModes.ALT_BUFFER_FULL:
+                case TerminalMode.AltBufferFull:
                     SaveCursor();
                     _terminal.SwitchToAltBuffer();
                     _buffer.SetCursor(0, 0);
                     EraseInDisplay(new Params()); // Clear screen
                     break;
                     
-                case CoreModes.SEND_FOCUS_EVENTS:
+                case TerminalMode.SendFocusEvents:
                     _terminal.SendFocusEvents = true;
                     _terminal.GetMouseTracker().FocusEvents = true;
                     break;
                     
-                case CoreModes.MOUSE_REPORT_CLICK:
+                case TerminalMode.MouseReportClick:
                     _terminal.GetMouseTracker().TrackingMode = MouseTrackingMode.X10;
                     break;
                     
-                case CoreModes.MOUSE_REPORT_NORMAL:
+                case TerminalMode.MouseReportNormal:
                     _terminal.GetMouseTracker().TrackingMode = MouseTrackingMode.VT200;
                     break;
                     
-                case CoreModes.MOUSE_REPORT_BTN_EVENT:
+                case TerminalMode.MouseReportButtonEvent:
                     _terminal.GetMouseTracker().TrackingMode = MouseTrackingMode.ButtonEvent;
                     break;
                     
-                case CoreModes.MOUSE_REPORT_ANY_EVENT:
+                case TerminalMode.MouseReportAnyEvent:
                     _terminal.GetMouseTracker().TrackingMode = MouseTrackingMode.AnyEvent;
                     break;
                     
-                case CoreModes.MOUSE_REPORT_UTF8:
+                case TerminalMode.MouseReportUtf8:
                     _terminal.GetMouseTracker().Encoding = MouseEncoding.Utf8;
                     break;
                     
-                case CoreModes.MOUSE_REPORT_SGR:
+                case TerminalMode.MouseReportSgr:
                     _terminal.GetMouseTracker().Encoding = MouseEncoding.SGR;
                     break;
                     
-                case CoreModes.MOUSE_REPORT_URXVT:
+                case TerminalMode.MouseReportUrxvt:
                     _terminal.GetMouseTracker().Encoding = MouseEncoding.URXVT;
+                    break;
+                    
+                default:
+                    System.Diagnostics.Debug.WriteLine($"Unhandled terminal mode: {terminalMode}");
                     break;
             }
         }
         else
         {
             // ANSI Modes (SM)
-            switch (mode)
+            if (!Enum.IsDefined(typeof(TerminalMode), mode))
             {
-                case CoreModes.INSERT_MODE:
+                System.Diagnostics.Debug.WriteLine($"Unknown terminal mode: {mode}");
+                return;
+            }
+            
+            var terminalMode = (TerminalMode)mode;
+            
+            switch (terminalMode)
+            {
+                case TerminalMode.InsertMode:
                     _terminal.InsertMode = true;
                     break;
                     
-                case CoreModes.AUTO_WRAP_MODE:
+                case TerminalMode.AutoWrapMode:
                     _terminal.Options.Wraparound = true;
+                    break;
+                    
+                default:
+                    System.Diagnostics.Debug.WriteLine($"Unhandled terminal mode: {terminalMode}");
                     break;
             }
         }
@@ -1355,77 +1380,101 @@ public class InputHandler
         if (isPrivate)
         {
             // DEC Private Modes (DECRST)
-            switch (mode)
+            if (!Enum.IsDefined(typeof(TerminalMode), mode))
             {
-                case CoreModes.APP_CURSOR_KEYS:
+                System.Diagnostics.Debug.WriteLine($"Unknown terminal mode: {mode}");
+                return;
+            }
+            
+            var terminalMode = (TerminalMode)mode;
+            
+            switch (terminalMode)
+            {
+                case TerminalMode.AppCursorKeys:
                     _terminal.ApplicationCursorKeys = false;
                     break;
                     
-                case CoreModes.ORIGIN:
+                case TerminalMode.Origin:
                     _terminal.OriginMode = false;
                     _buffer.SetCursor(0, 0);
                     break;
                     
-                case CoreModes.WRAPAROUND:
+                case TerminalMode.Wraparound:
                     _terminal.Options.Wraparound = false;
                     break;
                     
-                case CoreModes.SHOW_CURSOR:
+                case TerminalMode.ShowCursor:
                     _terminal.CursorVisible = false;
                     break;
                     
-                case CoreModes.APP_KEYPAD:
+                case TerminalMode.AppKeypad:
                     _terminal.ApplicationKeypad = false;
                     break;
                     
-                case CoreModes.BRACKETED_PASTE_MODE:
+                case TerminalMode.BracketedPasteMode:
                     _terminal.BracketedPasteMode = false;
                     break;
                     
-                case CoreModes.ALT_BUFFER:
+                case TerminalMode.AltBuffer:
                     _terminal.SwitchToNormalBuffer();
                     break;
                     
-                case CoreModes.ALT_BUFFER_CURSOR:
-                    _terminal.SwitchToNormalBuffer();
-                    RestoreCursor();
-                    break;
-                    
-                case CoreModes.ALT_BUFFER_FULL:
+                case TerminalMode.AltBufferCursor:
                     _terminal.SwitchToNormalBuffer();
                     RestoreCursor();
                     break;
                     
-                case CoreModes.SEND_FOCUS_EVENTS:
+                case TerminalMode.AltBufferFull:
+                    _terminal.SwitchToNormalBuffer();
+                    RestoreCursor();
+                    break;
+                    
+                case TerminalMode.SendFocusEvents:
                     _terminal.SendFocusEvents = false;
                     _terminal.GetMouseTracker().FocusEvents = false;
                     break;
                     
-                case CoreModes.MOUSE_REPORT_CLICK:
-                case CoreModes.MOUSE_REPORT_NORMAL:
-                case CoreModes.MOUSE_REPORT_BTN_EVENT:
-                case CoreModes.MOUSE_REPORT_ANY_EVENT:
+                case TerminalMode.MouseReportClick:
+                case TerminalMode.MouseReportNormal:
+                case TerminalMode.MouseReportButtonEvent:
+                case TerminalMode.MouseReportAnyEvent:
                     _terminal.GetMouseTracker().TrackingMode = MouseTrackingMode.None;
                     break;
                     
-                case CoreModes.MOUSE_REPORT_UTF8:
-                case CoreModes.MOUSE_REPORT_SGR:
-                case CoreModes.MOUSE_REPORT_URXVT:
+                case TerminalMode.MouseReportUtf8:
+                case TerminalMode.MouseReportSgr:
+                case TerminalMode.MouseReportUrxvt:
                     _terminal.GetMouseTracker().Encoding = MouseEncoding.Default;
+                    break;
+                    
+                default:
+                    System.Diagnostics.Debug.WriteLine($"Unhandled terminal mode: {terminalMode}");
                     break;
             }
         }
         else
         {
             // ANSI Modes (RM)
-            switch (mode)
+            if (!Enum.IsDefined(typeof(TerminalMode), mode))
             {
-                case CoreModes.INSERT_MODE:
+                System.Diagnostics.Debug.WriteLine($"Unknown terminal mode: {mode}");
+                return;
+            }
+            
+            var terminalMode = (TerminalMode)mode;
+            
+            switch (terminalMode)
+            {
+                case TerminalMode.InsertMode:
                     _terminal.InsertMode = false;
                     break;
                     
-                case CoreModes.AUTO_WRAP_MODE:
+                case TerminalMode.AutoWrapMode:
                     _terminal.Options.Wraparound = false;
+                    break;
+                    
+                default:
+                    System.Diagnostics.Debug.WriteLine($"Unhandled terminal mode: {terminalMode}");
                     break;
             }
         }
