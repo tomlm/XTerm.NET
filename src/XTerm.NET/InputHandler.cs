@@ -128,95 +128,120 @@ public class InputHandler
     /// </summary>
     public void HandleCsi(string identifier, Params parameters)
     {
-        // Check for DEC private mode sequences (CSI ? ...)
-        bool isPrivate = identifier.StartsWith("?");
-        string command = isPrivate ? identifier.Substring(1) : identifier;
+        bool isPrivate = identifier.IsPrivateMode();
+        var command = identifier.ToCsiCommand();
         
         switch (command)
         {
-            case "@": // ICH - Insert Characters
+            case CsiCommand.InsertChars:
                 InsertChars(parameters);
                 break;
-            case "A": // CUU - Cursor Up
+                
+            case CsiCommand.CursorUp:
                 CursorUp(parameters);
                 break;
-            case "B": // CUD - Cursor Down
+                
+            case CsiCommand.CursorDown:
                 CursorDown(parameters);
                 break;
-            case "C": // CUF - Cursor Forward
+                
+            case CsiCommand.CursorForward:
                 CursorForward(parameters);
                 break;
-            case "D": // CUB - Cursor Backward
+                
+            case CsiCommand.CursorBackward:
                 CursorBackward(parameters);
                 break;
-            case "E": // CNL - Cursor Next Line
+                
+            case CsiCommand.CursorNextLine:
                 CursorNextLine(parameters);
                 break;
-            case "F": // CPL - Cursor Previous Line
+                
+            case CsiCommand.CursorPreviousLine:
                 CursorPrecedingLine(parameters);
                 break;
-            case "G": // CHA - Cursor Horizontal Absolute
+                
+            case CsiCommand.CursorCharAbsolute:
                 CursorCharAbsolute(parameters);
                 break;
-            case "H": // CUP - Cursor Position
-            case "f": // HVP - Horizontal Vertical Position
+                
+            case CsiCommand.CursorPosition:
                 CursorPosition(parameters);
                 break;
-            case "I": // CHT - Cursor Forward Tabulation
+                
+            case CsiCommand.CursorForwardTab:
                 CursorForwardTab(parameters);
                 break;
-            case "J": // ED - Erase in Display
+                
+            case CsiCommand.EraseInDisplay:
                 EraseInDisplay(parameters);
                 break;
-            case "K": // EL - Erase in Line
+                
+            case CsiCommand.EraseInLine:
                 EraseInLine(parameters);
                 break;
-            case "L": // IL - Insert Lines
+                
+            case CsiCommand.InsertLines:
                 InsertLines(parameters);
                 break;
-            case "M": // DL - Delete Lines
+                
+            case CsiCommand.DeleteLines:
                 DeleteLines(parameters);
                 break;
-            case "P": // DCH - Delete Characters
+                
+            case CsiCommand.DeleteChars:
                 DeleteChars(parameters);
                 break;
-            case "S": // SU - Scroll Up
+                
+            case CsiCommand.ScrollUp:
                 ScrollUp(parameters);
                 break;
-            case "T": // SD - Scroll Down
+                
+            case CsiCommand.ScrollDown:
                 ScrollDown(parameters);
                 break;
-            case "X": // ECH - Erase Characters
+                
+            case CsiCommand.EraseChars:
                 EraseChars(parameters);
                 break;
-            case "Z": // CBT - Cursor Backward Tabulation
+                
+            case CsiCommand.CursorBackwardTab:
                 CursorBackwardTab(parameters);
                 break;
-            case "c": // DA - Primary Device Attributes
+                
+            case CsiCommand.DeviceAttributes:
                 DeviceAttributes(parameters, isPrivate);
                 break;
-            case "d": // VPA - Line Position Absolute
+                
+            case CsiCommand.LinePositionAbsolute:
                 LinePositionAbsolute(parameters);
                 break;
-            case "m": // SGR - Select Graphic Rendition
+                
+            case CsiCommand.SelectGraphicRendition:
                 CharAttributes(parameters);
                 break;
-            case "n": // DSR - Device Status Report
+                
+            case CsiCommand.DeviceStatusReport:
                 DeviceStatusReport(parameters, isPrivate);
                 break;
-            case "r": // DECSTBM - Set Top and Bottom Margins
+                
+            case CsiCommand.SetScrollRegion:
                 SetScrollRegion(parameters);
                 break;
-            case "s": // SCP - Save Cursor Position (ANSI)
+                
+            case CsiCommand.SaveCursorAnsi:
                 SaveCursorAnsi();
                 break;
-            case "u": // RCP - Restore Cursor Position (ANSI)
+                
+            case CsiCommand.RestoreCursorAnsi:
                 RestoreCursorAnsi();
                 break;
-            case "t": // XTWINOPS - Window manipulation
+                
+            case CsiCommand.WindowManipulation:
                 WindowManipulation(parameters);
                 break;
-            case "h": // SM - Set Mode / DECSET
+                
+            case CsiCommand.SetMode:
                 if (isPrivate)
                 {
                     // DEC Private Mode Set (CSI ? Pm h)
@@ -231,7 +256,8 @@ public class InputHandler
                     SetMode(parameters);
                 }
                 break;
-            case "l": // RM - Reset Mode / DECRST
+                
+            case CsiCommand.ResetMode:
                 if (isPrivate)
                 {
                     // DEC Private Mode Reset (CSI ? Pm l)
@@ -245,6 +271,11 @@ public class InputHandler
                 {
                     ResetMode(parameters);
                 }
+                break;
+                
+            case CsiCommand.Unknown:
+                // Log unknown sequence for debugging
+                System.Diagnostics.Debug.WriteLine($"Unknown CSI sequence: {identifier}");
                 break;
         }
     }
@@ -341,58 +372,68 @@ public class InputHandler
         if (parts.Length == 0)
             return;
 
-        var command = parts[0];
         var arg = parts.Length > 1 ? parts[1] : string.Empty;
 
-        switch (command)
+        // Try to parse as OscCommand enum
+        if (parts[0].TryParseOscCommand(out OscCommand command))
         {
-            case OscCommands.SET_ICON_AND_TITLE: // OSC 0
-            case OscCommands.SET_WINDOW_TITLE:   // OSC 2
-                _terminal.Title = arg;
-                _terminal.RaiseTitleChanged(arg);
-                break;
+            switch (command)
+            {
+                case OscCommand.SetIconAndTitle:
+                case OscCommand.SetWindowTitle:
+                    _terminal.Title = arg;
+                    _terminal.RaiseTitleChanged(arg);
+                    break;
 
-            case OscCommands.SET_ICON_NAME: // OSC 1
-                // Icon name - not typically supported in modern terminals
-                break;
+                case OscCommand.SetIconName:
+                    // Icon name - not typically supported in modern terminals
+                    break;
 
-            case OscCommands.CHANGE_COLOR: // OSC 4 - Change color palette
-                HandleColorPaletteChange(arg);
-                break;
+                case OscCommand.ChangeColor:
+                    HandleColorPaletteChange(arg);
+                    break;
 
-            case OscCommands.CURRENT_DIRECTORY: // OSC 7 - Set current working directory
-                HandleCurrentDirectory(arg);
-                break;
+                case OscCommand.CurrentDirectory:
+                    HandleCurrentDirectory(arg);
+                    break;
 
-            case OscCommands.HYPERLINK: // OSC 8 - Hyperlink
-                HandleHyperlink(arg);
-                break;
+                case OscCommand.Hyperlink:
+                    HandleHyperlink(arg);
+                    break;
 
-            case OscCommands.FOREGROUND_COLOR: // OSC 10 - Set/query foreground color
-                HandleColorQuery(OscCommands.FOREGROUND_COLOR, arg);
-                break;
+                case OscCommand.ForegroundColor:
+                    HandleColorQuery(((int)command).ToString(), arg);
+                    break;
 
-            case OscCommands.BACKGROUND_COLOR: // OSC 11 - Set/query background color
-                HandleColorQuery(OscCommands.BACKGROUND_COLOR, arg);
-                break;
+                case OscCommand.BackgroundColor:
+                    HandleColorQuery(((int)command).ToString(), arg);
+                    break;
 
-            case OscCommands.CURSOR_COLOR: // OSC 12 - Set/query cursor color
-                HandleColorQuery(OscCommands.CURSOR_COLOR, arg);
-                break;
+                case OscCommand.CursorColor:
+                    HandleColorQuery(((int)command).ToString(), arg);
+                    break;
 
-            case OscCommands.CLIPBOARD: // OSC 52 - Clipboard operations
-                HandleClipboard(arg);
-                break;
+                case OscCommand.Clipboard:
+                    HandleClipboard(arg);
+                    break;
 
-            case OscCommands.RESET_COLOR: // OSC 104 - Reset color palette
-                HandleColorReset(arg);
-                break;
-
-            case OscCommands.RESET_FOREGROUND: // OSC 110 - Reset foreground color
-            case OscCommands.RESET_BACKGROUND: // OSC 111 - Reset background color
-            case OscCommands.RESET_CURSOR:     // OSC 112 - Reset cursor color
-                // Color resets - would reset to default colors
-                break;
+                case OscCommand.ResetColor:
+                case OscCommand.ResetForeground:
+                case OscCommand.ResetBackground:
+                case OscCommand.ResetCursor:
+                    HandleColorReset(arg);
+                    break;
+                    
+                default:
+                    // Known but unhandled command
+                    System.Diagnostics.Debug.WriteLine($"Unhandled OSC command: {command}");
+                    break;
+            }
+        }
+        else
+        {
+            // Unknown or unsupported OSC sequence
+            System.Diagnostics.Debug.WriteLine($"Unknown OSC sequence: {parts[0]}");
         }
     }
 

@@ -78,6 +78,7 @@ public static class CoreModes
 /// <summary>
 /// OSC (Operating System Command) sequence identifiers.
 /// </summary>
+[Obsolete("Use OscCommand enum instead for type safety and IntelliSense support.")]
 public static class OscCommands
 {
     public const string SET_ICON_AND_TITLE = "0";      // Set icon name and window title

@@ -89,7 +89,7 @@ public class CursorRenderOptions
 /// Main renderer interface that platform-specific renderers must implement.
 /// This is the abstraction layer between core terminal logic and rendering.
 /// </summary>
-public interface IRenderer
+public interface IRenderer : IDisposable
 {
     /// <summary>
     /// Gets the render dimensions.
@@ -138,10 +138,6 @@ public interface IRenderer
     /// </summary>
     void RenderCursor(int x, int y, CursorRenderOptions options);
 
-    /// <summary>
-    /// Disposes the renderer.
-    /// </summary>
-    void Dispose();
 }
 
 /// <summary>
