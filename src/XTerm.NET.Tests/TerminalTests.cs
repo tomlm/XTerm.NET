@@ -114,11 +114,11 @@ public class TerminalTests
         var newCols = 0;
         var newRows = 0;
         
-        terminal.Resized += (cols, rows) =>
+        terminal.Resized += (sender, e) =>
         {
             resized = true;
-            newCols = cols;
-            newRows = rows;
+            newCols = e.Cols;
+            newRows = e.Rows;
         };
 
         // Act
@@ -138,7 +138,7 @@ public class TerminalTests
         // Arrange
         var terminal = new Terminal();
         var resized = false;
-        terminal.Resized += (cols, rows) => resized = true;
+        terminal.Resized += (sender, e) => resized = true;
 
         // Act
         terminal.Resize(80, 24); // Same as default
@@ -196,7 +196,7 @@ public class TerminalTests
         }
         
         var scrolled = false;
-        terminal.Scrolled += () => scrolled = true;
+        terminal.Scrolled += (sender, e) => scrolled = true;
 
         // Act
         terminal.ScrollLines(5);
@@ -217,7 +217,7 @@ public class TerminalTests
         
         terminal.ScrollLines(10);
         var scrolled = false;
-        terminal.Scrolled += () => scrolled = true;
+        terminal.Scrolled += (sender, e) => scrolled = true;
 
         // Act
         terminal.ScrollToTop();
@@ -239,7 +239,7 @@ public class TerminalTests
         
         terminal.ScrollToTop();
         var scrolled = false;
-        terminal.Scrolled += () => scrolled = true;
+        terminal.Scrolled += (sender, e) => scrolled = true;
 
         // Act
         terminal.ScrollToBottom();
@@ -301,7 +301,7 @@ public class TerminalTests
         // Arrange
         var terminal = new Terminal();
         var bellRang = false;
-        terminal.BellRang += () => bellRang = true;
+        terminal.BellRang += (sender, e) => bellRang = true;
 
         // Act
         terminal.Write("\x07"); // BEL character
@@ -316,7 +316,7 @@ public class TerminalTests
         // Arrange
         var terminal = new Terminal();
         var lineFeedFired = false;
-        terminal.LineFed += data => lineFeedFired = true;
+        terminal.LineFed += (sender, e) => lineFeedFired = true;
 
         // Act
         terminal.Write("\n");
@@ -408,8 +408,8 @@ public class TerminalTests
         // Arrange
         var terminal = new Terminal();
         var count = 0;
-        terminal.BellRang += () => count++;
-        terminal.Scrolled += () => count++;
+        terminal.BellRang += (sender, e) => count++;
+        terminal.Scrolled += (sender, e) => count++;
 
         // Act
         terminal.Dispose();

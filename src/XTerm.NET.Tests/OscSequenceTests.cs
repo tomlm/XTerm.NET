@@ -19,10 +19,10 @@ public class OscSequenceTests
         var terminal = CreateTerminal();
         var titleChanged = false;
         string? newTitle = null;
-        terminal.TitleChanged += title =>
+        terminal.TitleChanged += (sender, e) =>
         {
             titleChanged = true;
-            newTitle = title;
+            newTitle = e.Title;
         };
 
         // Act
@@ -81,10 +81,10 @@ public class OscSequenceTests
         var terminal = CreateTerminal();
         var directoryChanged = false;
         string? newDirectory = null;
-        terminal.DirectoryChanged += dir =>
+        terminal.DirectoryChanged += (sender, e) =>
         {
             directoryChanged = true;
-            newDirectory = dir;
+            newDirectory = e.Directory;
         };
 
         // Act
@@ -186,7 +186,7 @@ public class OscSequenceTests
         // Arrange
         var terminal = CreateTerminal();
         string? response = null;
-        terminal.DataReceived += data => response = data;
+        terminal.DataReceived += (sender, e) => response = e.Data;
 
         // Act
         terminal.Write("\x1B]10;?\x07");
@@ -203,7 +203,7 @@ public class OscSequenceTests
         // Arrange
         var terminal = CreateTerminal();
         string? response = null;
-        terminal.DataReceived += data => response = data;
+        terminal.DataReceived += (sender, e) => response = e.Data;
 
         // Act
         terminal.Write("\x1B]11;?\x07");
@@ -220,7 +220,7 @@ public class OscSequenceTests
         // Arrange
         var terminal = CreateTerminal();
         string? response = null;
-        terminal.DataReceived += data => response = data;
+        terminal.DataReceived += (sender, e) => response = e.Data;
 
         // Act
         terminal.Write("\x1B]12;?\x07");
@@ -237,7 +237,7 @@ public class OscSequenceTests
         // Arrange
         var terminal = CreateTerminal();
         string? response = null;
-        terminal.DataReceived += data => response = data;
+        terminal.DataReceived += (sender, e) => response = e.Data;
 
         // Act
         terminal.Write("\x1B]52;c;?\x07");
@@ -286,8 +286,8 @@ public class OscSequenceTests
         var terminal = CreateTerminal();
         var titleChangeCount = 0;
         var directoryChangeCount = 0;
-        terminal.TitleChanged += title => titleChangeCount++;
-        terminal.DirectoryChanged += dir => directoryChangeCount++;
+        terminal.TitleChanged += (sender, e) => titleChangeCount++;
+        terminal.DirectoryChanged += (sender, e) => directoryChangeCount++;
 
         // Act
         terminal.Write("\x1B]0;Title1\x07");
@@ -351,7 +351,7 @@ public class OscSequenceTests
         // Arrange
         var terminal = CreateTerminal();
         var paths = new List<string>();
-        terminal.DirectoryChanged += dir => paths.Add(dir);
+        terminal.DirectoryChanged += (sender, e) => paths.Add(e.Directory);
 
         // Act
         terminal.Write("\x1B]7;file://localhost/home\x07");
@@ -372,10 +372,10 @@ public class OscSequenceTests
         var terminal = CreateTerminal();
 
         // Act
-        terminal.Write("\x1B]0;Title with émojis ?? and spëcial chars\x07");
+        terminal.Write("\x1B]0;Title with émojis 😀 and spëcial chars\x07");
 
         // Assert
-        Assert.Equal("Title with émojis ?? and spëcial chars", terminal.Title);
+        Assert.Equal("Title with émojis 😀 and spëcial chars", terminal.Title);
     }
 
     [Fact]
@@ -407,7 +407,7 @@ public class OscSequenceTests
         // Arrange
         var terminal = CreateTerminal();
         var responses = new List<string>();
-        terminal.DataReceived += data => responses.Add(data);
+        terminal.DataReceived += (sender, e) => responses.Add(e.Data);
 
         // Act
         terminal.Write("\x1B]10;?\x07");

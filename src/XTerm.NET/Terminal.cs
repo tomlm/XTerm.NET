@@ -4,6 +4,7 @@ using XTerm.Parser;
 using XTerm.Options;
 using XTerm.Input;
 using XTerm.Events.Parser;
+using XTerm.Events;
 
 namespace XTerm;
 
@@ -41,102 +42,102 @@ public class Terminal
     public string? CurrentHyperlink { get; set; }
     public string? HyperlinkId { get; set; }
 
-    // Events - Standard C# events
+    // Events - Standard C# EventHandler pattern
     /// <summary>
     /// Fired when the terminal wants to send data back to the application.
     /// </summary>
-    public event Action<string>? DataReceived;
+    public event EventHandler<TerminalEvents.DataEventArgs>? DataReceived;
 
     /// <summary>
     /// Fired when the terminal title changes.
     /// </summary>
-    public event Action<string>? TitleChanged;
+    public event EventHandler<TerminalEvents.TitleChangeEventArgs>? TitleChanged;
 
     /// <summary>
     /// Fired when the terminal bell is activated.
     /// </summary>
-    public event Action? BellRang;
+    public event EventHandler? BellRang;
 
     /// <summary>
     /// Fired when the terminal is resized.
     /// </summary>
-    public event Action<int, int>? Resized;
+    public event EventHandler<TerminalEvents.ResizeEventArgs>? Resized;
 
     /// <summary>
     /// Fired when the viewport scrolls.
     /// </summary>
-    public event Action? Scrolled;
+    public event EventHandler? Scrolled;
 
     /// <summary>
     /// Fired when a line feed occurs.
     /// </summary>
-    public event Action<string>? LineFed;
+    public event EventHandler<TerminalEvents.LineFeedEventArgs>? LineFed;
 
     /// <summary>
     /// Fired when the cursor moves.
     /// </summary>
-    public event Action? CursorMoved;
+    public event EventHandler? CursorMoved;
 
     /// <summary>
     /// Fired when the current directory changes.
     /// </summary>
-    public event Action<string>? DirectoryChanged;
+    public event EventHandler<TerminalEvents.DirectoryChangeEventArgs>? DirectoryChanged;
 
     /// <summary>
     /// Fired when a hyperlink is encountered.
     /// </summary>
-    public event Action<string>? HyperlinkChanged;
+    public event EventHandler<TerminalEvents.HyperlinkEventArgs>? HyperlinkChanged;
 
     // Window manipulation events
     /// <summary>
     /// Fired when a window move command is received.
     /// </summary>
-    public event Action<int, int>? WindowMoved;
+    public event EventHandler<TerminalEvents.WindowMovedEventArgs>? WindowMoved;
 
     /// <summary>
     /// Fired when a window resize command is received.
     /// </summary>
-    public event Action<int, int>? WindowResized;
+    public event EventHandler<TerminalEvents.WindowResizedEventArgs>? WindowResized;
 
     /// <summary>
     /// Fired when a window minimize command is received.
     /// </summary>
-    public event Action? WindowMinimized;
+    public event EventHandler? WindowMinimized;
 
     /// <summary>
     /// Fired when a window maximize command is received.
     /// </summary>
-    public event Action? WindowMaximized;
+    public event EventHandler? WindowMaximized;
 
     /// <summary>
     /// Fired when a window restore command is received.
     /// </summary>
-    public event Action? WindowRestored;
+    public event EventHandler? WindowRestored;
 
     /// <summary>
     /// Fired when a window raise command is received.
     /// </summary>
-    public event Action? WindowRaised;
+    public event EventHandler? WindowRaised;
 
     /// <summary>
     /// Fired when a window lower command is received.
     /// </summary>
-    public event Action? WindowLowered;
+    public event EventHandler? WindowLowered;
 
     /// <summary>
     /// Fired when a window refresh command is received.
     /// </summary>
-    public event Action? WindowRefreshed;
+    public event EventHandler? WindowRefreshed;
 
     /// <summary>
     /// Fired when a window fullscreen command is received.
     /// </summary>
-    public event Action? WindowFullscreened;
+    public event EventHandler? WindowFullscreened;
 
     /// <summary>
     /// Fired when window information is requested.
     /// </summary>
-    public event Action<WindowInfoRequest>? WindowInfoRequested;
+    public event EventHandler<TerminalEvents.WindowInfoRequestedEventArgs>? WindowInfoRequested;
 
     public Terminal(TerminalOptions? options = null)
     {
@@ -251,7 +252,7 @@ public class Terminal
         _normalBuffer?.Resize(cols, rows);
         _altBuffer?.Resize(cols, rows);
 
-        Resized?.Invoke(cols, rows);
+        Resized?.Invoke(this, new TerminalEvents.ResizeEventArgs(cols, rows));
     }
 
     /// <summary>
@@ -311,7 +312,7 @@ public class Terminal
     public void ScrollLines(int lines)
     {
         _buffer.ScrollDisp(lines);
-        Scrolled?.Invoke();
+        Scrolled?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -320,7 +321,7 @@ public class Terminal
     public void ScrollToTop()
     {
         _buffer.ScrollToTop();
-        Scrolled?.Invoke();
+        Scrolled?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -329,7 +330,7 @@ public class Terminal
     public void ScrollToBottom()
     {
         _buffer.ScrollToBottom();
-        Scrolled?.Invoke();
+        Scrolled?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -419,19 +420,44 @@ public class Terminal
     internal MouseTracker GetMouseTracker() => _mouseTracker;
 
     // Internal methods for raising events (called by InputHandler)
-    internal void RaiseDataReceived(string data) => DataReceived?.Invoke(data);
-    internal void RaiseTitleChanged(string title) => TitleChanged?.Invoke(title);
-    internal void RaiseDirectoryChanged(string directory) => DirectoryChanged?.Invoke(directory);
-    internal void RaiseWindowMoved(int x, int y) => WindowMoved?.Invoke(x, y);
-    internal void RaiseWindowResized(int width, int height) => WindowResized?.Invoke(width, height);
-    internal void RaiseWindowMinimized() => WindowMinimized?.Invoke();
-    internal void RaiseWindowMaximized() => WindowMaximized?.Invoke();
-    internal void RaiseWindowRestored() => WindowRestored?.Invoke();
-    internal void RaiseWindowRaised() => WindowRaised?.Invoke();
-    internal void RaiseWindowLowered() => WindowLowered?.Invoke();
-    internal void RaiseWindowRefreshed() => WindowRefreshed?.Invoke();
-    internal void RaiseWindowFullscreened() => WindowFullscreened?.Invoke();
-    internal void RaiseWindowInfoRequested(WindowInfoRequest request) => WindowInfoRequested?.Invoke(request);
+    internal void RaiseDataReceived(string data) => 
+        DataReceived?.Invoke(this, new TerminalEvents.DataEventArgs(data));
+    
+    internal void RaiseTitleChanged(string title) => 
+        TitleChanged?.Invoke(this, new TerminalEvents.TitleChangeEventArgs(title));
+    
+    internal void RaiseDirectoryChanged(string directory) => 
+        DirectoryChanged?.Invoke(this, new TerminalEvents.DirectoryChangeEventArgs(directory));
+    
+    internal void RaiseWindowMoved(int x, int y) => 
+        WindowMoved?.Invoke(this, new TerminalEvents.WindowMovedEventArgs(x, y));
+    
+    internal void RaiseWindowResized(int width, int height) => 
+        WindowResized?.Invoke(this, new TerminalEvents.WindowResizedEventArgs(width, height));
+    
+    internal void RaiseWindowMinimized() => 
+        WindowMinimized?.Invoke(this, EventArgs.Empty);
+    
+    internal void RaiseWindowMaximized() => 
+        WindowMaximized?.Invoke(this, EventArgs.Empty);
+    
+    internal void RaiseWindowRestored() => 
+        WindowRestored?.Invoke(this, EventArgs.Empty);
+    
+    internal void RaiseWindowRaised() => 
+        WindowRaised?.Invoke(this, EventArgs.Empty);
+    
+    internal void RaiseWindowLowered() => 
+        WindowLowered?.Invoke(this, EventArgs.Empty);
+    
+    internal void RaiseWindowRefreshed() => 
+        WindowRefreshed?.Invoke(this, EventArgs.Empty);
+    
+    internal void RaiseWindowFullscreened() => 
+        WindowFullscreened?.Invoke(this, EventArgs.Empty);
+    
+    internal void RaiseWindowInfoRequested(WindowInfoRequest request) => 
+        WindowInfoRequested?.Invoke(this, new TerminalEvents.WindowInfoRequestedEventArgs(request));
 
     /// <summary>
     /// Switches to the alternate buffer.
@@ -467,7 +493,7 @@ public class Terminal
         switch (code)
         {
             case 0x07: // BEL
-                BellRang?.Invoke();
+                BellRang?.Invoke(this, EventArgs.Empty);
                 break;
 
             case 0x08: // BS - Backspace
@@ -526,7 +552,7 @@ public class Terminal
             _buffer.SetCursor(0, _buffer.Y);
         }
 
-        LineFed?.Invoke("\n");
+        LineFed?.Invoke(this, new TerminalEvents.LineFeedEventArgs("\n"));
     }
 
     /// <summary>

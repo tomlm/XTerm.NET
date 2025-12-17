@@ -155,20 +155,20 @@ public class BasicExample
         var terminal = new Terminal(new TerminalOptions { ConvertEol = true });
         var renderer = new ConsoleRenderer(terminal);
 
-        // Subscribe to events
-        terminal.TitleChanged += title =>
+        // Subscribe to events using EventHandler pattern
+        terminal.TitleChanged += (sender, e) =>
         {
-            Console.WriteLine($"[EVENT] Title changed to: {title}");
+            Console.WriteLine($"[EVENT] Title changed to: {e.Title}");
         };
 
-        terminal.BellRang += () =>
+        terminal.BellRang += (sender, e) =>
         {
             Console.WriteLine("[EVENT] Bell!");
         };
 
-        terminal.LineFed += data =>
+        terminal.LineFed += (sender, e) =>
         {
-            Console.WriteLine($"[EVENT] Line feed: {data}");
+            Console.WriteLine($"[EVENT] Line feed: {e.Data}");
         };
 
         // Trigger events
@@ -205,53 +205,53 @@ public class BasicExample
 
         var renderer = new ConsoleRenderer(terminal);
 
-        // Subscribe to window manipulation events
-        terminal.WindowMoved += (x, y) =>
+        // Subscribe to window manipulation events using EventHandler pattern
+        terminal.WindowMoved += (sender, e) =>
         {
-            Console.WriteLine($"[WINDOW EVENT] Move window to: ({x}, {y})");
+            Console.WriteLine($"[WINDOW EVENT] Move window to: ({e.X}, {e.Y})");
             Console.ReadKey();
         };
 
-        terminal.WindowResized += (width, height) =>
+        terminal.WindowResized += (sender, e) =>
         {
-            Console.WriteLine($"[WINDOW EVENT] Resize window to: {width}x{height} pixels");
+            Console.WriteLine($"[WINDOW EVENT] Resize window to: {e.Width}x{e.Height} pixels");
             Console.ReadKey();
         };
 
-        terminal.WindowMinimized += () =>
+        terminal.WindowMinimized += (sender, e) =>
         {
             Console.WriteLine("[WINDOW EVENT] Minimize window");
             Console.ReadKey();
         };
 
-        terminal.WindowMaximized += () =>
+        terminal.WindowMaximized += (sender, e) =>
         {
             Console.WriteLine("[WINDOW EVENT] Maximize window");
             Console.ReadKey();
         };
 
-        terminal.WindowRestored += () =>
+        terminal.WindowRestored += (sender, e) =>
         {
             Console.WriteLine("[WINDOW EVENT] Restore window");
             Console.ReadKey();
         };
 
-        terminal.WindowRaised += () =>
+        terminal.WindowRaised += (sender, e) =>
         {
             Console.WriteLine("[WINDOW EVENT] Raise window to front");
             Console.ReadKey();
         };
 
-        terminal.WindowLowered += () =>
+        terminal.WindowLowered += (sender, e) =>
         {
             Console.WriteLine("[WINDOW EVENT] Lower window to back");
             Console.ReadKey();
         };
 
-        terminal.WindowInfoRequested += request =>
+        terminal.WindowInfoRequested += (sender, e) =>
         {
-            Console.WriteLine($"[WINDOW EVENT] Information requested: {request}");
-            switch (request)
+            Console.WriteLine($"[WINDOW EVENT] Information requested: {e.Request}");
+            switch (e.Request)
             {
                 case WindowInfoRequest.Position:
                     // In a real app, get actual window position from UI framework

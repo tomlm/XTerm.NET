@@ -25,16 +25,8 @@ public class WindowManipulationTests
         var terminal = CreateTerminal();
 
         // Assert
-        // C# event - no null check needed;
-        // C# event - no null check needed;
-        // C# event - no null check needed;
-        // C# event - no null check needed;
-        // C# event - no null check needed;
-        // C# event - no null check needed;
-        // C# event - no null check needed;
-        // C# event - no null check needed;
-        // C# event - no null check needed;
-        // C# event - no null check needed;
+        // C# event - no null check needed
+        Assert.NotNull(terminal);
     }
 
     [Fact]
@@ -46,11 +38,11 @@ public class WindowManipulationTests
         var moveEventFired = false;
         int capturedX = 0, capturedY = 0;
 
-        terminal.WindowMoved += (x,y)=>
+        terminal.WindowMoved += (sender, e) =>
         {
             moveEventFired = true;
-            capturedX = x;
-            capturedY = y;
+            capturedX = e.X;
+            capturedY = e.Y;
         };
 
         // Act
@@ -70,7 +62,7 @@ public class WindowManipulationTests
         var terminal = CreateTerminal(windowOptions);
         var moveEventFired = false;
 
-        terminal.WindowMoved += (x, y) => moveEventFired = true;
+        terminal.WindowMoved += (sender, e) => moveEventFired = true;
 
         // Act
         terminal.Write("\x1b[3;100;200t");
@@ -88,11 +80,11 @@ public class WindowManipulationTests
         var resizeEventFired = false;
         int capturedWidth = 0, capturedHeight = 0;
 
-        terminal.WindowResized += (width, height) =>
+        terminal.WindowResized += (sender, e) =>
         {
             resizeEventFired = true;
-            capturedWidth = width;
-            capturedHeight = height;
+            capturedWidth = e.Width;
+            capturedHeight = e.Height;
         };
 
         // Act
@@ -112,7 +104,7 @@ public class WindowManipulationTests
         var terminal = CreateTerminal(windowOptions);
         var eventFired = false;
 
-        terminal.WindowMinimized += () => eventFired = true;
+        terminal.WindowMinimized += (sender, e) => eventFired = true;
 
         // Act
         terminal.Write("\x1b[2t"); // CSI 2 t
@@ -129,7 +121,7 @@ public class WindowManipulationTests
         var terminal = CreateTerminal(windowOptions);
         var eventFired = false;
 
-        terminal.WindowMaximized += () => eventFired = true;
+        terminal.WindowMaximized += (sender, e) => eventFired = true;
 
         // Act
         terminal.Write("\x1b[9;1t"); // CSI 9 ; 1 t
@@ -146,7 +138,7 @@ public class WindowManipulationTests
         var terminal = CreateTerminal(windowOptions);
         var eventFired = false;
 
-        terminal.WindowRestored += () => eventFired = true;
+        terminal.WindowRestored += (sender, e) => eventFired = true;
 
         // Act - Test both operation 1 (de-iconify) and operation 9;0 (restore from maximize)
         terminal.Write("\x1b[1t"); // CSI 1 t
@@ -163,7 +155,7 @@ public class WindowManipulationTests
         var terminal = CreateTerminal(windowOptions);
         var eventFired = false;
 
-        terminal.WindowRestored += () => eventFired = true;
+        terminal.WindowRestored += (sender, e) => eventFired = true;
 
         // Act
         terminal.Write("\x1b[9;0t"); // CSI 9 ; 0 t
@@ -180,7 +172,7 @@ public class WindowManipulationTests
         var terminal = CreateTerminal(windowOptions);
         var eventFired = false;
 
-        terminal.WindowRaised += () => eventFired = true;
+        terminal.WindowRaised += (sender, e) => eventFired = true;
 
         // Act
         terminal.Write("\x1b[5t"); // CSI 5 t
@@ -197,7 +189,7 @@ public class WindowManipulationTests
         var terminal = CreateTerminal(windowOptions);
         var eventFired = false;
 
-        terminal.WindowLowered += () => eventFired = true;
+        terminal.WindowLowered += (sender, e) => eventFired = true;
 
         // Act
         terminal.Write("\x1b[6t"); // CSI 6 t
@@ -214,7 +206,7 @@ public class WindowManipulationTests
         var terminal = CreateTerminal(windowOptions);
         var eventFired = false;
 
-        terminal.WindowRefreshed += () => eventFired = true;
+        terminal.WindowRefreshed += (sender, e) => eventFired = true;
 
         // Act
         terminal.Write("\x1b[7t"); // CSI 7 t
@@ -231,7 +223,7 @@ public class WindowManipulationTests
         var terminal = CreateTerminal(windowOptions);
         var eventCount = 0;
 
-        terminal.WindowFullscreened += () => eventCount++;
+        terminal.WindowFullscreened += (sender, e) => eventCount++;
 
         // Act
         terminal.Write("\x1b[10;0t"); // Exit fullscreen
@@ -251,10 +243,10 @@ public class WindowManipulationTests
         var requestReceived = false;
         WindowInfoRequest capturedRequest = default;
 
-        terminal.WindowInfoRequested += request =>
+        terminal.WindowInfoRequested += (sender, e) =>
         {
             requestReceived = true;
-            capturedRequest = request;
+            capturedRequest = e.Request;
         };
 
         // Act
@@ -274,10 +266,10 @@ public class WindowManipulationTests
         var requestReceived = false;
         WindowInfoRequest capturedRequest = default;
 
-        terminal.WindowInfoRequested += request =>
+        terminal.WindowInfoRequested += (sender, e) =>
         {
             requestReceived = true;
-            capturedRequest = request;
+            capturedRequest = e.Request;
         };
 
         // Act
@@ -297,10 +289,10 @@ public class WindowManipulationTests
         var requestReceived = false;
         WindowInfoRequest capturedRequest = default;
 
-        terminal.WindowInfoRequested += request =>
+        terminal.WindowInfoRequested += (sender, e) =>
         {
             requestReceived = true;
-            capturedRequest = request;
+            capturedRequest = e.Request;
         };
 
         // Act
@@ -319,7 +311,7 @@ public class WindowManipulationTests
         var terminal = CreateTerminal(windowOptions);
         var requestReceived = false;
 
-        terminal.WindowInfoRequested += request =>
+        terminal.WindowInfoRequested += (sender, e) =>
         {
             requestReceived = true;
         };
@@ -339,7 +331,7 @@ public class WindowManipulationTests
         var terminal = CreateTerminal(windowOptions);
         var requestReceived = false;
 
-        terminal.WindowInfoRequested += request =>
+        terminal.WindowInfoRequested += (sender, e) =>
         {
             requestReceived = true;
         };
@@ -360,10 +352,10 @@ public class WindowManipulationTests
         var responseReceived = false;
         string capturedResponse = string.Empty;
 
-        terminal.DataReceived += data =>
+        terminal.DataReceived += (sender, e) =>
         {
             responseReceived = true;
-            capturedResponse = data;
+            capturedResponse = e.Data;
         };
 
         // Act
@@ -388,15 +380,15 @@ public class WindowManipulationTests
         var responseReceived = false;
         string capturedResponse = string.Empty;
 
-        terminal.WindowInfoRequested += request =>
+        terminal.WindowInfoRequested += (sender, e) =>
         {
             requestReceived = true;
         };
 
-        terminal.DataReceived += data =>
+        terminal.DataReceived += (sender, e) =>
         {
             responseReceived = true;
-            capturedResponse = data;
+            capturedResponse = e.Data;
         };
 
         // Act
@@ -416,7 +408,7 @@ public class WindowManipulationTests
         var terminal = CreateTerminal(windowOptions);
         var requestReceived = false;
 
-        terminal.WindowInfoRequested += request =>
+        terminal.WindowInfoRequested += (sender, e) =>
         {
             requestReceived = true;
         };
@@ -480,10 +472,10 @@ public class WindowManipulationTests
         var maximizeCount = 0;
         var raiseCount = 0;
 
-        terminal.WindowMoved += (x,y) => moveCount++;
-        terminal.WindowMinimized += () => minimizeCount++;
-        terminal.WindowMaximized += () => maximizeCount++;
-        terminal.WindowRaised += () => raiseCount++;
+        terminal.WindowMoved += (sender, e) => moveCount++;
+        terminal.WindowMinimized += (sender, e) => minimizeCount++;
+        terminal.WindowMaximized += (sender, e) => maximizeCount++;
+        terminal.WindowRaised += (sender, e) => raiseCount++;
 
         // Act
         terminal.Write("\x1b[3;10;20t");  // Move
@@ -517,7 +509,7 @@ public class WindowManipulationTests
         var terminal = CreateTerminal(windowOptions);
         var eventFired = false;
 
-        terminal.WindowMoved += (x,y) => eventFired = true;
+        terminal.WindowMoved += (sender, e) => eventFired = true;
 
         // Act & Assert - Should not throw, may or may not fire with default values
         terminal.Write("\x1b[3t"); // Missing x, y parameters
@@ -532,7 +524,7 @@ public class WindowManipulationTests
         var windowOptions = new WindowOptions { MinimizeWin = true };
         terminal.Options.WindowOptions.MinimizeWin = true;
         
-        terminal.WindowMinimized += () => eventCount++;
+        terminal.WindowMinimized += (sender, e) => eventCount++;
 
         // Act
         terminal.Dispose();
@@ -564,16 +556,16 @@ public class WindowManipulationTests
         var terminal = CreateTerminal(windowOptions);
         
         var eventCount = 0;
-        terminal.WindowMoved += (x,y) => eventCount++;
-        terminal.WindowResized += (width,height) => eventCount++;
-        terminal.WindowMinimized += () => eventCount++;
-        terminal.WindowMaximized += () => eventCount++;
-        terminal.WindowRestored += () => eventCount++;
-        terminal.WindowRaised += () => eventCount++;
-        terminal.WindowLowered += () => eventCount++;
-        terminal.WindowRefreshed += () => eventCount++;
-        terminal.WindowFullscreened += () => eventCount++;
-        terminal.WindowInfoRequested += req => eventCount++;
+        terminal.WindowMoved += (sender, e) => eventCount++;
+        terminal.WindowResized += (sender, e) => eventCount++;
+        terminal.WindowMinimized += (sender, e) => eventCount++;
+        terminal.WindowMaximized += (sender, e) => eventCount++;
+        terminal.WindowRestored += (sender, e) => eventCount++;
+        terminal.WindowRaised += (sender, e) => eventCount++;
+        terminal.WindowLowered += (sender, e) => eventCount++;
+        terminal.WindowRefreshed += (sender, e) => eventCount++;
+        terminal.WindowFullscreened += (sender, e) => eventCount++;
+        terminal.WindowInfoRequested += (sender, e) => eventCount++;
 
         // Act - Try all operations
         terminal.Write("\x1b[3;10;20t");  // Move

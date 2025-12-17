@@ -118,5 +118,74 @@ public static class TerminalEvents
             EndRow = endRow;
         }
     }
+
+    /// <summary>
+    /// Directory change event - fired when the current directory changes.
+    /// </summary>
+    public class DirectoryChangeEventArgs : EventArgs
+    {
+        public string Directory { get; }
+        
+        public DirectoryChangeEventArgs(string directory)
+        {
+            Directory = directory;
+        }
+    }
+
+    /// <summary>
+    /// Hyperlink event - fired when a hyperlink is encountered.
+    /// </summary>
+    public class HyperlinkEventArgs : EventArgs
+    {
+        public string Url { get; }
+        
+        public HyperlinkEventArgs(string url)
+        {
+            Url = url;
+        }
+    }
+
+    /// <summary>
+    /// Window moved event - fired when a window move command is received.
+    /// </summary>
+    public class WindowMovedEventArgs : EventArgs
+    {
+        public int X { get; }
+        public int Y { get; }
+        
+        public WindowMovedEventArgs(int x, int y)
+        {
+            X = x;
+            Y = y;
+        }
+    }
+
+    /// <summary>
+    /// Window resized event - fired when a window resize command is received.
+    /// </summary>
+    public class WindowResizedEventArgs : EventArgs
+    {
+        public int Width { get; }
+        public int Height { get; }
+        
+        public WindowResizedEventArgs(int width, int height)
+        {
+            Width = width;
+            Height = height;
+        }
+    }
+
+    /// <summary>
+    /// Window info requested event - fired when window information is requested.
+    /// </summary>
+    public class WindowInfoRequestedEventArgs : EventArgs
+    {
+        public WindowInfoRequest Request { get; }
+        
+        public WindowInfoRequestedEventArgs(WindowInfoRequest request)
+        {
+            Request = request;
+        }
+    }
 }
 
