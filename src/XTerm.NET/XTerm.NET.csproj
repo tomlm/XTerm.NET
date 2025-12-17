@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -6,5 +6,31 @@
     <Nullable>enable</Nullable>
     <RootNamespace>XTerm</RootNamespace>
   </PropertyGroup>
+<PropertyGroup>
+    <Version>0.1.0-beta</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <Description></Description>
+    <Company>Iciclecreek</Company>
+    <Authors>Tom Laird-McConnell</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/tomlm/XTerm.NET</PackageProjectUrl>
+    <PackageIconUrl>https://raw.githubusercontent.com/tomlm/XTerm.NET/master/icon.png</PackageIconUrl>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <RepositoryUrl>https://github.com/tomlm/XTerm.NET</RepositoryUrl>
+    <Copyright>Tom Laird-McConnell All Rights Reserved</Copyright>
+    <RootNamespace>XTerm.NET</RootNamespace>
+    <ContentTargetFolders>content</ContentTargetFolders>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>  
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="" />
+    <None Include="../../icon.png" Pack="true" PackagePath="" />
+  </ItemGroup>
+
 
 </Project>
