@@ -103,17 +103,3 @@ public struct BufferCell : IEquatable<BufferCell>
         };
     }
 }
-
-/// <summary>
-/// Interface for cell data in the buffer.
-/// </summary>
-public interface ICellData
-{
-    string Content { get; set; }
-    int Width { get; set; }
-    AttributeData Attributes { get; set; }
-    int GetCode();
-    string GetChars();
-    int GetWidth();
-    bool IsNull();
-}

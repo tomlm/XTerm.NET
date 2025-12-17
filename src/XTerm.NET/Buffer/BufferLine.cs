@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Text;
 
 namespace XTerm.Buffer;
@@ -6,7 +7,7 @@ namespace XTerm.Buffer;
 /// Represents a single line in the terminal buffer.
 /// Contains an array of cells and metadata about the line.
 /// </summary>
-public class BufferLine
+public class BufferLine : IEnumerable<BufferCell>
 {
     private BufferCell[] _cells;
     private int _length;
@@ -218,5 +219,15 @@ public class BufferLine
             _cells[i] = line._cells[i].Clone();
         }
         _isWrapped = line._isWrapped;
+    }
+
+    public IEnumerator<BufferCell> GetEnumerator()
+    {
+        return _cells.AsEnumerable().GetEnumerator();
+    }
+
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        return _cells.GetEnumerator();
     }
 }
