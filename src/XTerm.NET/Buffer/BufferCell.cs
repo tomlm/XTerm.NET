@@ -16,26 +16,26 @@ public struct BufferCell : IEquatable<BufferCell>
 
     public static BufferCell Null => new BufferCell
     {
-        Content = Constants.NULL_CELL_CHAR.ToString(),
-        Width = Constants.NULL_CELL_WIDTH,
+        Content = Constants.NullCellChar.ToString(),
+        Width = Constants.NullCellWidth,
         Attributes = AttributeData.Default,
-        CodePoint = Constants.NULL_CELL_CODE
+        CodePoint = Constants.NullCellCode
     };
 
     public static BufferCell Whitespace => new BufferCell
     {
-        Content = Constants.WHITESPACE_CELL_CHAR.ToString(),
-        Width = Constants.WHITESPACE_CELL_WIDTH,
+        Content = Constants.WhitespaceCellChar.ToString(),
+        Width = Constants.WhitespaceCellWidth,
         Attributes = AttributeData.Default,
-        CodePoint = Constants.WHITESPACE_CELL_CODE
+        CodePoint = Constants.WhitespaceCellCode
     };
 
     public BufferCell()
     {
-        Content = Constants.NULL_CELL_CHAR.ToString();
-        Width = Constants.NULL_CELL_WIDTH;
+        Content = Constants.NullCellChar.ToString();
+        Width = Constants.NullCellWidth;
         Attributes = AttributeData.Default;
-        CodePoint = Constants.NULL_CELL_CODE;
+        CodePoint = Constants.NullCellCode;
     }
 
     public BufferCell(string content, int width, AttributeData attributes)
@@ -54,9 +54,9 @@ public struct BufferCell : IEquatable<BufferCell>
         Content = char.ConvertFromUtf32(codePoint);
     }
 
-    public bool IsNull() => CodePoint == Constants.NULL_CELL_CODE && Width == Constants.NULL_CELL_WIDTH;
+    public bool IsNull() => CodePoint == Constants.NullCellCode && Width == Constants.NullCellWidth;
 
-    public bool IsWhitespace() => CodePoint == Constants.WHITESPACE_CELL_CODE;
+    public bool IsWhitespace() => CodePoint == Constants.WhitespaceCellCode;
 
     public int GetWidth() => Width;
 

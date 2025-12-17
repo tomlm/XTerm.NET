@@ -12,9 +12,9 @@ public class BufferCellTests
         var cell = new BufferCell();
 
         // Assert
-        Assert.Equal(Constants.NULL_CELL_CHAR.ToString(), cell.Content);
-        Assert.Equal(Constants.NULL_CELL_WIDTH, cell.Width);
-        Assert.Equal(Constants.NULL_CELL_CODE, cell.CodePoint);
+        Assert.Equal(Constants.NullCellChar.ToString(), cell.Content);
+        Assert.Equal(Constants.NullCellWidth, cell.Width);
+        Assert.Equal(Constants.NullCellCode, cell.CodePoint);
         Assert.Equal(AttributeData.Default, cell.Attributes);
     }
 
@@ -61,9 +61,9 @@ public class BufferCellTests
         var cell = BufferCell.Null;
 
         // Assert
-        Assert.Equal(Constants.NULL_CELL_CHAR.ToString(), cell.Content);
-        Assert.Equal(Constants.NULL_CELL_WIDTH, cell.Width);
-        Assert.Equal(Constants.NULL_CELL_CODE, cell.CodePoint);
+        Assert.Equal(Constants.NullCellChar.ToString(), cell.Content);
+        Assert.Equal(Constants.NullCellWidth, cell.Width);
+        Assert.Equal(Constants.NullCellCode, cell.CodePoint);
     }
 
     [Fact]
@@ -73,9 +73,9 @@ public class BufferCellTests
         var cell = BufferCell.Whitespace;
 
         // Assert
-        Assert.Equal(Constants.WHITESPACE_CELL_CHAR.ToString(), cell.Content);
-        Assert.Equal(Constants.WHITESPACE_CELL_WIDTH, cell.Width);
-        Assert.Equal(Constants.WHITESPACE_CELL_CODE, cell.CodePoint);
+        Assert.Equal(Constants.WhitespaceCellChar.ToString(), cell.Content);
+        Assert.Equal(Constants.WhitespaceCellWidth, cell.Width);
+        Assert.Equal(Constants.WhitespaceCellCode, cell.CodePoint);
     }
 
     [Fact]

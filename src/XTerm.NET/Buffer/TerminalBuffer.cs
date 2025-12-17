@@ -84,10 +84,10 @@ public class TerminalBuffer
     {
         var fillCell = new BufferCell
         {
-            Content = Constants.NULL_CELL_CHAR.ToString(),
-            Width = Constants.NULL_CELL_WIDTH,
+            Content = Constants.NullCellChar.ToString(),
+            Width = Constants.NullCellWidth,
             Attributes = attr,
-            CodePoint = Constants.NULL_CELL_CODE
+            CodePoint = Constants.NullCellCode
         };
 
         return new BufferLine(_cols, fillCell) { IsWrapped = isWrapped };

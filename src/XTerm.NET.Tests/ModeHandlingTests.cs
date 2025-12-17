@@ -20,7 +20,7 @@ public class ModeHandlingTests
         Assert.False(terminal.InsertMode);
 
         // Act
-        terminal.Write($"\x1B[{CoreModes.INSERT_MODE}h");
+        terminal.Write($"\x1B[{(int)TerminalMode.InsertMode}h");
 
         // Assert
         Assert.True(terminal.InsertMode);
@@ -34,7 +34,7 @@ public class ModeHandlingTests
         terminal.InsertMode = true;
 
         // Act
-        terminal.Write($"\x1B[{CoreModes.INSERT_MODE}l");
+        terminal.Write($"\x1B[{(int)TerminalMode.InsertMode}l");
 
         // Assert
         Assert.False(terminal.InsertMode);
@@ -48,7 +48,7 @@ public class ModeHandlingTests
         Assert.False(terminal.ApplicationCursorKeys);
 
         // Act - DEC private mode
-        terminal.Write($"\x1B[?{CoreModes.APP_CURSOR_KEYS}h");
+        terminal.Write($"\x1B[?{(int)TerminalMode.AppCursorKeys}h");
 
         // Assert
         Assert.True(terminal.ApplicationCursorKeys);
@@ -62,7 +62,7 @@ public class ModeHandlingTests
         terminal.ApplicationCursorKeys = true;
 
         // Act - DEC private mode
-        terminal.Write($"\x1B[?{CoreModes.APP_CURSOR_KEYS}l");
+        terminal.Write($"\x1B[?{(int)TerminalMode.AppCursorKeys}l");
 
         // Assert
         Assert.False(terminal.ApplicationCursorKeys);
@@ -76,7 +76,7 @@ public class ModeHandlingTests
         terminal.CursorVisible = false;
 
         // Act - DEC private mode
-        terminal.Write($"\x1B[?{CoreModes.SHOW_CURSOR}h");
+        terminal.Write($"\x1B[?{(int)TerminalMode.ShowCursor}h");
 
         // Assert
         Assert.True(terminal.CursorVisible);
@@ -90,7 +90,7 @@ public class ModeHandlingTests
         Assert.True(terminal.CursorVisible); // Default is true
 
         // Act - DEC private mode
-        terminal.Write($"\x1B[?{CoreModes.SHOW_CURSOR}l");
+        terminal.Write($"\x1B[?{(int)TerminalMode.ShowCursor}l");
 
         // Assert
         Assert.False(terminal.CursorVisible);
@@ -104,7 +104,7 @@ public class ModeHandlingTests
         Assert.False(terminal.ApplicationKeypad);
 
         // Act - DEC private mode
-        terminal.Write($"\x1B[?{CoreModes.APP_KEYPAD}h");
+        terminal.Write($"\x1B[?{(int)TerminalMode.AppKeypad}h");
 
         // Assert
         Assert.True(terminal.ApplicationKeypad);
@@ -118,7 +118,7 @@ public class ModeHandlingTests
         terminal.ApplicationKeypad = true;
 
         // Act - DEC private mode
-        terminal.Write($"\x1B[?{CoreModes.APP_KEYPAD}l");
+        terminal.Write($"\x1B[?{(int)TerminalMode.AppKeypad}l");
 
         // Assert
         Assert.False(terminal.ApplicationKeypad);
@@ -132,7 +132,7 @@ public class ModeHandlingTests
         Assert.False(terminal.BracketedPasteMode);
 
         // Act - DEC private mode
-        terminal.Write($"\x1B[?{CoreModes.BRACKETED_PASTE_MODE}h");
+        terminal.Write($"\x1B[?{(int)TerminalMode.BracketedPasteMode}h");
 
         // Assert
         Assert.True(terminal.BracketedPasteMode);
@@ -146,7 +146,7 @@ public class ModeHandlingTests
         terminal.BracketedPasteMode = true;
 
         // Act - DEC private mode
-        terminal.Write($"\x1B[?{CoreModes.BRACKETED_PASTE_MODE}l");
+        terminal.Write($"\x1B[?{(int)TerminalMode.BracketedPasteMode}l");
 
         // Assert
         Assert.False(terminal.BracketedPasteMode);
@@ -161,7 +161,7 @@ public class ModeHandlingTests
         Assert.False(terminal.OriginMode);
 
         // Act - DEC private mode
-        terminal.Write($"\x1B[?{CoreModes.ORIGIN}h");
+        terminal.Write($"\x1B[?{(int)TerminalMode.Origin}h");
 
         // Assert
         Assert.True(terminal.OriginMode);
@@ -179,7 +179,7 @@ public class ModeHandlingTests
         terminal.Buffer.SetCursor(5, 5);
 
         // Act - DEC private mode
-        terminal.Write($"\x1B[?{CoreModes.ORIGIN}l");
+        terminal.Write($"\x1B[?{(int)TerminalMode.Origin}l");
 
         // Assert
         Assert.False(terminal.OriginMode);
@@ -197,7 +197,7 @@ public class ModeHandlingTests
         var normalBufferContent = terminal.GetLine(0);
 
         // Act - DEC private mode
-        terminal.Write($"\x1B[?{CoreModes.ALT_BUFFER}h");
+        terminal.Write($"\x1B[?{(int)TerminalMode.AltBuffer}h");
 
         // Assert
         terminal.Write("Alt buffer content");
@@ -212,11 +212,11 @@ public class ModeHandlingTests
         // Arrange
         var terminal = CreateTerminal();
         terminal.Write("Normal content");
-        terminal.Write($"\x1B[?{CoreModes.ALT_BUFFER}h"); // Switch to alt
+        terminal.Write($"\x1B[?{(int)TerminalMode.AltBuffer}h"); // Switch to alt
         terminal.Write("Alt content");
 
         // Act - DEC private mode
-        terminal.Write($"\x1B[?{CoreModes.ALT_BUFFER}l"); // Switch back
+        terminal.Write($"\x1B[?{(int)TerminalMode.AltBuffer}l"); // Switch back
 
         // Assert
         var content = terminal.GetLine(0);
@@ -231,7 +231,7 @@ public class ModeHandlingTests
         terminal.Buffer.SetCursor(20, 10);
 
         // Act - DEC private mode (saves cursor and switches)
-        terminal.Write($"\x1B[?{CoreModes.ALT_BUFFER_CURSOR}h");
+        terminal.Write($"\x1B[?{(int)TerminalMode.AltBufferCursor}h");
 
         // Assert
         // Should be in alt buffer
@@ -249,11 +249,11 @@ public class ModeHandlingTests
         var savedX = terminal.Buffer.X;
         var savedY = terminal.Buffer.Y;
 
-        terminal.Write($"\x1B[?{CoreModes.ALT_BUFFER_CURSOR}h"); // Save and switch
+        terminal.Write($"\x1B[?{(int)TerminalMode.AltBufferCursor}h"); // Save and switch
         terminal.Buffer.SetCursor(5, 5); // Move cursor in alt buffer
 
         // Act - DEC private mode (switches back and restores cursor)
-        terminal.Write($"\x1B[?{CoreModes.ALT_BUFFER_CURSOR}l");
+        terminal.Write($"\x1B[?{(int)TerminalMode.AltBufferCursor}l");
 
         // Assert
         Assert.Equal(savedX, terminal.Buffer.X);
@@ -268,7 +268,7 @@ public class ModeHandlingTests
         Assert.False(terminal.SendFocusEvents);
 
         // Act - DEC private mode
-        terminal.Write($"\x1B[?{CoreModes.SEND_FOCUS_EVENTS}h");
+        terminal.Write($"\x1B[?{(int)TerminalMode.SendFocusEvents}h");
 
         // Assert
         Assert.True(terminal.SendFocusEvents);
@@ -282,7 +282,7 @@ public class ModeHandlingTests
         terminal.SendFocusEvents = true;
 
         // Act - DEC private mode
-        terminal.Write($"\x1B[?{CoreModes.SEND_FOCUS_EVENTS}l");
+        terminal.Write($"\x1B[?{(int)TerminalMode.SendFocusEvents}l");
 
         // Assert
         Assert.False(terminal.SendFocusEvents);
@@ -296,7 +296,7 @@ public class ModeHandlingTests
         terminal.Options.Wraparound = false;
 
         // Act - DEC private mode
-        terminal.Write($"\x1B[?{CoreModes.WRAPAROUND}h");
+        terminal.Write($"\x1B[?{(int)TerminalMode.Wraparound}h");
 
         // Assert
         Assert.True(terminal.Options.Wraparound);
@@ -310,7 +310,7 @@ public class ModeHandlingTests
         Assert.True(terminal.Options.Wraparound); // Default is true
 
         // Act - DEC private mode
-        terminal.Write($"\x1B[?{CoreModes.WRAPAROUND}l");
+        terminal.Write($"\x1B[?{(int)TerminalMode.Wraparound}l");
 
         // Assert
         Assert.False(terminal.Options.Wraparound);
@@ -323,7 +323,7 @@ public class ModeHandlingTests
         var terminal = CreateTerminal();
 
         // Act - Set multiple modes at once
-        terminal.Write($"\x1B[?{CoreModes.APP_CURSOR_KEYS};{CoreModes.SHOW_CURSOR};{CoreModes.APP_KEYPAD}h");
+        terminal.Write($"\x1B[?{(int)TerminalMode.AppCursorKeys};{(int)TerminalMode.ShowCursor};{(int)TerminalMode.AppKeypad}h");
 
         // Assert
         Assert.True(terminal.ApplicationCursorKeys);
@@ -341,7 +341,7 @@ public class ModeHandlingTests
         terminal.ApplicationKeypad = true;
 
         // Act - Reset multiple modes at once
-        terminal.Write($"\x1B[?{CoreModes.APP_CURSOR_KEYS};{CoreModes.SHOW_CURSOR};{CoreModes.APP_KEYPAD}l");
+        terminal.Write($"\x1B[?{(int)TerminalMode.AppCursorKeys};{(int)TerminalMode.ShowCursor};{(int)TerminalMode.AppKeypad}l");
 
         // Assert
         Assert.False(terminal.ApplicationCursorKeys);
