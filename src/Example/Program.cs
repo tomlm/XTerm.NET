@@ -1,4 +1,4 @@
-﻿// See https://aka.ms/new-console-template for more information
+// See https://aka.ms/new-console-template for more information
 using XTerm;
 using XTerm.Common;
 using XTerm.Options;
@@ -32,7 +32,7 @@ public class BasicExample
         // Example 5: Event handling
         EventHandlingExample();
         Console.ReadKey();
-        
+
         // Example 6: Window manipulation events
         WindowManipulationExample();
         Console.ReadKey();
@@ -47,7 +47,7 @@ public class BasicExample
             Cols = 80,
             Rows = 24,
             Scrollback = 1000,
-             // Enable EOL conversion so \r\n behaves like \r\r\n
+            // Enable EOL conversion so \r\n behaves like \r\r\n
         });
 
         var renderer = new ConsoleRenderer(terminal);
@@ -156,20 +156,20 @@ public class BasicExample
         var renderer = new ConsoleRenderer(terminal);
 
         // Subscribe to events
-        terminal.OnTitleChange.Event(title =>
+        terminal.TitleChanged += title =>
         {
             Console.WriteLine($"[EVENT] Title changed to: {title}");
-        });
+        };
 
-        terminal.OnBell.Event(() =>
+        terminal.BellRang += () =>
         {
             Console.WriteLine("[EVENT] Bell!");
-        });
+        };
 
-        terminal.OnLineFeed.Event(data =>
+        terminal.LineFed += data =>
         {
             Console.WriteLine($"[EVENT] Line feed: {data}");
-        });
+        };
 
         // Trigger events
         terminal.Write("\x1b]0;My Terminal Title\x07"); // Set title
@@ -206,49 +206,49 @@ public class BasicExample
         var renderer = new ConsoleRenderer(terminal);
 
         // Subscribe to window manipulation events
-        terminal.OnWindowMove.Event(pos =>
+        terminal.WindowMoved += (x, y) =>
         {
-            Console.WriteLine($"[WINDOW EVENT] Move window to: ({pos.x}, {pos.y})");
+            Console.WriteLine($"[WINDOW EVENT] Move window to: ({x}, {y})");
             Console.ReadKey();
-        });
+        };
 
-        terminal.OnWindowResize.Event(size =>
+        terminal.WindowResized += (width, height) =>
         {
-            Console.WriteLine($"[WINDOW EVENT] Resize window to: {size.width}x{size.height} pixels");
+            Console.WriteLine($"[WINDOW EVENT] Resize window to: {width}x{height} pixels");
             Console.ReadKey();
-        });
+        };
 
-        terminal.OnWindowMinimize.Event(() =>
+        terminal.WindowMinimized += () =>
         {
             Console.WriteLine("[WINDOW EVENT] Minimize window");
             Console.ReadKey();
-        });
+        };
 
-        terminal.OnWindowMaximize.Event(() =>
+        terminal.WindowMaximized += () =>
         {
             Console.WriteLine("[WINDOW EVENT] Maximize window");
             Console.ReadKey();
-        });
+        };
 
-        terminal.OnWindowRestore.Event(() =>
+        terminal.WindowRestored += () =>
         {
             Console.WriteLine("[WINDOW EVENT] Restore window");
             Console.ReadKey();
-        });
+        };
 
-        terminal.OnWindowRaise.Event(() =>
+        terminal.WindowRaised += () =>
         {
             Console.WriteLine("[WINDOW EVENT] Raise window to front");
             Console.ReadKey();
-        });
+        };
 
-        terminal.OnWindowLower.Event(() =>
+        terminal.WindowLowered += () =>
         {
             Console.WriteLine("[WINDOW EVENT] Lower window to back");
             Console.ReadKey();
-        });
+        };
 
-        terminal.OnWindowInfoRequest.Event(request =>
+        terminal.WindowInfoRequested += request =>
         {
             Console.WriteLine($"[WINDOW EVENT] Information requested: {request}");
             switch (request)
@@ -258,8 +258,8 @@ public class BasicExample
                     int x = 100; // Example: Window.Left
                     int y = 200; // Example: Window.Top
 
-                    // Send response back to terminal app
-                    terminal.OnData.Fire($"\u001b[3;{x};{y}t");
+                    // In a real application, the UI framework would call this to send the response:
+                    // terminal.RaiseDataReceived($"\u001b[3;{x};{y}t");
                     Console.WriteLine($"[RESPONSE] Window position: ({x}, {y})");
                     break;
 
@@ -268,7 +268,8 @@ public class BasicExample
                     int width = 1024;  // Example: Window.Width
                     int height = 768;  // Example: Window.Height
 
-                    terminal.OnData.Fire($"\u001b[4;{height};{width}t");
+                    // In a real application, the UI framework would call this to send the response:
+                    // terminal.RaiseDataReceived($"\u001b[4;{height};{width}t");
                     Console.WriteLine($"[RESPONSE] Window size: {width}x{height}");
                     break;
 
@@ -277,7 +278,8 @@ public class BasicExample
                     int screenWidth = 1920;
                     int screenHeight = 1080;
 
-                    terminal.OnData.Fire($"\u001b[5;{screenHeight};{screenWidth}t");
+                    // In a real application, the UI framework would call this to send the response:
+                    // terminal.RaiseDataReceived($"\u001b[5;{screenHeight};{screenWidth}t");
                     Console.WriteLine($"[RESPONSE] Screen size: {screenWidth}x{screenHeight}");
                     break;
 
@@ -286,7 +288,8 @@ public class BasicExample
                     int cellWidth = 10;
                     int cellHeight = 20;
 
-                    terminal.OnData.Fire($"\u001b[6;{cellHeight};{cellWidth}t");
+                    // In a real application, the UI framework would call this to send the response:
+                    // terminal.RaiseDataReceived($"\u001b[6;{cellHeight};{cellWidth}t");
                     Console.WriteLine($"[RESPONSE] Cell size: {cellWidth}x{cellHeight}");
                     break;
 
@@ -301,12 +304,12 @@ public class BasicExample
                     break;
             }
             Console.ReadKey();
-        });
+        };
 
         // Send window manipulation commands
         terminal.Write("Sending window manipulation commands...\n");
         RenderTerminal(terminal, renderer);
-      
+
         terminal.Write("\x1b[3;100;200t"); // Move window to (100, 200)
         terminal.Write("\x1b[4;600;800t"); // Resize window to 800x600 pixels
         terminal.Write("\x1b[2t");         // Minimize window

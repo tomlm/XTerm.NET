@@ -35,22 +35,6 @@ public class TerminalTests
     }
 
     [Fact]
-    public void Constructor_InitializesEvents()
-    {
-        // Arrange & Act
-        var terminal = new Terminal();
-
-        // Assert
-        Assert.NotNull(terminal.OnData);
-        Assert.NotNull(terminal.OnTitleChange);
-        Assert.NotNull(terminal.OnBell);
-        Assert.NotNull(terminal.OnResize);
-        Assert.NotNull(terminal.OnScroll);
-        Assert.NotNull(terminal.OnLineFeed);
-        Assert.NotNull(terminal.OnCursorMove);
-    }
-
-    [Fact]
     public void Constructor_InitializesTerminalState()
     {
         // Arrange & Act
@@ -130,12 +114,12 @@ public class TerminalTests
         var newCols = 0;
         var newRows = 0;
         
-        terminal.OnResize.Event(data =>
+        terminal.Resized += (cols, rows) =>
         {
             resized = true;
-            newCols = data.cols;
-            newRows = data.rows;
-        });
+            newCols = cols;
+            newRows = rows;
+        };
 
         // Act
         terminal.Resize(100, 30);
@@ -154,7 +138,7 @@ public class TerminalTests
         // Arrange
         var terminal = new Terminal();
         var resized = false;
-        terminal.OnResize.Event(data => resized = true);
+        terminal.Resized += (cols, rows) => resized = true;
 
         // Act
         terminal.Resize(80, 24); // Same as default
@@ -212,7 +196,7 @@ public class TerminalTests
         }
         
         var scrolled = false;
-        terminal.OnScroll.Event(() => scrolled = true);
+        terminal.Scrolled += () => scrolled = true;
 
         // Act
         terminal.ScrollLines(5);
@@ -233,7 +217,7 @@ public class TerminalTests
         
         terminal.ScrollLines(10);
         var scrolled = false;
-        terminal.OnScroll.Event(() => scrolled = true);
+        terminal.Scrolled += () => scrolled = true;
 
         // Act
         terminal.ScrollToTop();
@@ -255,7 +239,7 @@ public class TerminalTests
         
         terminal.ScrollToTop();
         var scrolled = false;
-        terminal.OnScroll.Event(() => scrolled = true);
+        terminal.Scrolled += () => scrolled = true;
 
         // Act
         terminal.ScrollToBottom();
@@ -317,7 +301,7 @@ public class TerminalTests
         // Arrange
         var terminal = new Terminal();
         var bellRang = false;
-        terminal.OnBell.Event(() => bellRang = true);
+        terminal.BellRang += () => bellRang = true;
 
         // Act
         terminal.Write("\x07"); // BEL character
@@ -332,7 +316,7 @@ public class TerminalTests
         // Arrange
         var terminal = new Terminal();
         var lineFeedFired = false;
-        terminal.OnLineFeed.Event(data => lineFeedFired = true);
+        terminal.LineFed += data => lineFeedFired = true;
 
         // Act
         terminal.Write("\n");
@@ -424,8 +408,8 @@ public class TerminalTests
         // Arrange
         var terminal = new Terminal();
         var count = 0;
-        terminal.OnBell.Event(() => count++);
-        terminal.OnScroll.Event(() => count++);
+        terminal.BellRang += () => count++;
+        terminal.Scrolled += () => count++;
 
         // Act
         terminal.Dispose();

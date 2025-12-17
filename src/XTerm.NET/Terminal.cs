@@ -40,28 +40,102 @@ public class Terminal
     public string? CurrentHyperlink { get; set; }
     public string? HyperlinkId { get; set; }
 
-    // Events
-    public EventEmitter<string> OnData { get; }
-    public EventEmitter<string> OnTitleChange { get; }
-    public EventEmitter OnBell { get; }
-    public EventEmitter<(int cols, int rows)> OnResize { get; }
-    public EventEmitter OnScroll { get; }
-    public EventEmitter<string> OnLineFeed { get; }
-    public EventEmitter OnCursorMove { get; }
-    public EventEmitter<string> OnDirectoryChange { get; }
-    public EventEmitter<string> OnHyperlink { get; } // New event for hyperlinks
+    // Events - Standard C# events
+    /// <summary>
+    /// Fired when the terminal wants to send data back to the application.
+    /// </summary>
+    public event Action<string>? DataReceived;
+
+    /// <summary>
+    /// Fired when the terminal title changes.
+    /// </summary>
+    public event Action<string>? TitleChanged;
+
+    /// <summary>
+    /// Fired when the terminal bell is activated.
+    /// </summary>
+    public event Action? BellRang;
+
+    /// <summary>
+    /// Fired when the terminal is resized.
+    /// </summary>
+    public event Action<int, int>? Resized;
+
+    /// <summary>
+    /// Fired when the viewport scrolls.
+    /// </summary>
+    public event Action? Scrolled;
+
+    /// <summary>
+    /// Fired when a line feed occurs.
+    /// </summary>
+    public event Action<string>? LineFed;
+
+    /// <summary>
+    /// Fired when the cursor moves.
+    /// </summary>
+    public event Action? CursorMoved;
+
+    /// <summary>
+    /// Fired when the current directory changes.
+    /// </summary>
+    public event Action<string>? DirectoryChanged;
+
+    /// <summary>
+    /// Fired when a hyperlink is encountered.
+    /// </summary>
+    public event Action<string>? HyperlinkChanged;
 
     // Window manipulation events
-    public EventEmitter<(int x, int y)> OnWindowMove { get; }
-    public EventEmitter<(int width, int height)> OnWindowResize { get; }
-    public EventEmitter OnWindowMinimize { get; }
-    public EventEmitter OnWindowMaximize { get; }
-    public EventEmitter OnWindowRestore { get; }
-    public EventEmitter OnWindowRaise { get; }
-    public EventEmitter OnWindowLower { get; }
-    public EventEmitter OnWindowRefresh { get; }
-    public EventEmitter OnWindowFullscreen { get; }
-    public EventEmitter<WindowInfoRequest> OnWindowInfoRequest { get; }
+    /// <summary>
+    /// Fired when a window move command is received.
+    /// </summary>
+    public event Action<int, int>? WindowMoved;
+
+    /// <summary>
+    /// Fired when a window resize command is received.
+    /// </summary>
+    public event Action<int, int>? WindowResized;
+
+    /// <summary>
+    /// Fired when a window minimize command is received.
+    /// </summary>
+    public event Action? WindowMinimized;
+
+    /// <summary>
+    /// Fired when a window maximize command is received.
+    /// </summary>
+    public event Action? WindowMaximized;
+
+    /// <summary>
+    /// Fired when a window restore command is received.
+    /// </summary>
+    public event Action? WindowRestored;
+
+    /// <summary>
+    /// Fired when a window raise command is received.
+    /// </summary>
+    public event Action? WindowRaised;
+
+    /// <summary>
+    /// Fired when a window lower command is received.
+    /// </summary>
+    public event Action? WindowLowered;
+
+    /// <summary>
+    /// Fired when a window refresh command is received.
+    /// </summary>
+    public event Action? WindowRefreshed;
+
+    /// <summary>
+    /// Fired when a window fullscreen command is received.
+    /// </summary>
+    public event Action? WindowFullscreened;
+
+    /// <summary>
+    /// Fired when window information is requested.
+    /// </summary>
+    public event Action<WindowInfoRequest>? WindowInfoRequested;
 
     public Terminal(TerminalOptions? options = null)
     {
@@ -88,29 +162,6 @@ public class Terminal
         _parser.CsiHandler = (identifier, parameters) => _inputHandler.HandleCsi(identifier, parameters);
         _parser.EscHandler = (finalChar, collected) => _inputHandler.HandleEsc(finalChar, collected);
         _parser.OscHandler = data => _inputHandler.HandleOsc(data);
-
-        // Initialize events
-        OnData = new EventEmitter<string>();
-        OnTitleChange = new EventEmitter<string>();
-        OnBell = new EventEmitter();
-        OnResize = new EventEmitter<(int cols, int rows)>();
-        OnScroll = new EventEmitter();
-        OnLineFeed = new EventEmitter<string>();
-        OnCursorMove = new EventEmitter();
-        OnDirectoryChange = new EventEmitter<string>();
-        OnHyperlink = new EventEmitter<string>();
-        
-        // Initialize window manipulation events
-        OnWindowMove = new EventEmitter<(int x, int y)>();
-        OnWindowResize = new EventEmitter<(int width, int height)>();
-        OnWindowMinimize = new EventEmitter();
-        OnWindowMaximize = new EventEmitter();
-        OnWindowRestore = new EventEmitter();
-        OnWindowRaise = new EventEmitter();
-        OnWindowLower = new EventEmitter();
-        OnWindowRefresh = new EventEmitter();
-        OnWindowFullscreen = new EventEmitter();
-        OnWindowInfoRequest = new EventEmitter<WindowInfoRequest>();
 
         InsertMode = false;
         ApplicationCursorKeys = false;
@@ -159,7 +210,7 @@ public class Terminal
         _normalBuffer?.Resize(cols, rows);
         _altBuffer?.Resize(cols, rows);
 
-        OnResize.Fire((cols, rows));
+        Resized?.Invoke(cols, rows);
     }
 
     /// <summary>
@@ -219,7 +270,7 @@ public class Terminal
     public void ScrollLines(int lines)
     {
         _buffer.ScrollDisp(lines);
-        OnScroll.Fire();
+        Scrolled?.Invoke();
     }
 
     /// <summary>
@@ -228,7 +279,7 @@ public class Terminal
     public void ScrollToTop()
     {
         _buffer.ScrollToTop();
-        OnScroll.Fire();
+        Scrolled?.Invoke();
     }
 
     /// <summary>
@@ -237,7 +288,7 @@ public class Terminal
     public void ScrollToBottom()
     {
         _buffer.ScrollToBottom();
-        OnScroll.Fire();
+        Scrolled?.Invoke();
     }
 
     /// <summary>
@@ -326,6 +377,21 @@ public class Terminal
     /// </summary>
     internal MouseTracker GetMouseTracker() => _mouseTracker;
 
+    // Internal methods for raising events (called by InputHandler)
+    internal void RaiseDataReceived(string data) => DataReceived?.Invoke(data);
+    internal void RaiseTitleChanged(string title) => TitleChanged?.Invoke(title);
+    internal void RaiseDirectoryChanged(string directory) => DirectoryChanged?.Invoke(directory);
+    internal void RaiseWindowMoved(int x, int y) => WindowMoved?.Invoke(x, y);
+    internal void RaiseWindowResized(int width, int height) => WindowResized?.Invoke(width, height);
+    internal void RaiseWindowMinimized() => WindowMinimized?.Invoke();
+    internal void RaiseWindowMaximized() => WindowMaximized?.Invoke();
+    internal void RaiseWindowRestored() => WindowRestored?.Invoke();
+    internal void RaiseWindowRaised() => WindowRaised?.Invoke();
+    internal void RaiseWindowLowered() => WindowLowered?.Invoke();
+    internal void RaiseWindowRefreshed() => WindowRefreshed?.Invoke();
+    internal void RaiseWindowFullscreened() => WindowFullscreened?.Invoke();
+    internal void RaiseWindowInfoRequested(WindowInfoRequest request) => WindowInfoRequested?.Invoke(request);
+
     /// <summary>
     /// Switches to the alternate buffer.
     /// </summary>
@@ -360,7 +426,7 @@ public class Terminal
         switch (code)
         {
             case 0x07: // BEL
-                OnBell.Fire();
+                BellRang?.Invoke();
                 break;
 
             case 0x08: // BS - Backspace
@@ -419,7 +485,7 @@ public class Terminal
             _buffer.SetCursor(0, _buffer.Y);
         }
 
-        OnLineFeed.Fire("\n");
+        LineFed?.Invoke("\n");
     }
 
     /// <summary>
@@ -427,26 +493,27 @@ public class Terminal
     /// </summary>
     public void Dispose()
     {
-        OnData.Clear();
-        OnTitleChange.Clear();
-        OnBell.Clear();
-        OnResize.Clear();
-        OnScroll.Clear();
-        OnLineFeed.Clear();
-        OnCursorMove.Clear();
-        OnDirectoryChange.Clear();
-        OnHyperlink.Clear();
+        // Clear all event subscriptions
+        DataReceived = null;
+        TitleChanged = null;
+        BellRang = null;
+        Resized = null;
+        Scrolled = null;
+        LineFed = null;
+        CursorMoved = null;
+        DirectoryChanged = null;
+        HyperlinkChanged = null;
         
         // Clear window manipulation events
-        OnWindowMove.Clear();
-        OnWindowResize.Clear();
-        OnWindowMinimize.Clear();
-        OnWindowMaximize.Clear();
-        OnWindowRestore.Clear();
-        OnWindowRaise.Clear();
-        OnWindowLower.Clear();
-        OnWindowRefresh.Clear();
-        OnWindowFullscreen.Clear();
-        OnWindowInfoRequest.Clear();
+        WindowMoved = null;
+        WindowResized = null;
+        WindowMinimized = null;
+        WindowMaximized = null;
+        WindowRestored = null;
+        WindowRaised = null;
+        WindowLowered = null;
+        WindowRefreshed = null;
+        WindowFullscreened = null;
+        WindowInfoRequested = null;
     }
 }

@@ -24,7 +24,11 @@ public class SelectionManager
     private (int x, int y)? _selectionEnd;
     private SelectionMode _selectionMode;
 
-    public EventEmitter OnSelectionChange { get; }
+    /// <summary>
+    /// Fired when the selection changes.
+    /// </summary>
+    public event Action? SelectionChanged;
+    
     public bool HasSelection => _selectionStart.HasValue && _selectionEnd.HasValue;
 
     public SelectionManager(Terminal terminal)
@@ -32,7 +36,6 @@ public class SelectionManager
         _terminal = terminal;
         _isSelecting = false;
         _selectionMode = SelectionMode.Normal;
-        OnSelectionChange = new EventEmitter();
     }
 
     /// <summary>
@@ -55,7 +58,7 @@ public class SelectionManager
             ExpandSelectionToLine();
         }
 
-        OnSelectionChange.Fire();
+        SelectionChanged?.Invoke();
     }
 
     /// <summary>
@@ -78,7 +81,7 @@ public class SelectionManager
             ExpandSelectionToLine();
         }
 
-        OnSelectionChange.Fire();
+        SelectionChanged?.Invoke();
     }
 
     /// <summary>
@@ -97,7 +100,7 @@ public class SelectionManager
         _selectionStart = null;
         _selectionEnd = null;
         _isSelecting = false;
-        OnSelectionChange.Fire();
+        SelectionChanged?.Invoke();
     }
 
     /// <summary>
@@ -108,7 +111,7 @@ public class SelectionManager
         _selectionStart = (0, 0);
         _selectionEnd = (_terminal.Cols - 1, _terminal.Rows - 1);
         _isSelecting = false;
-        OnSelectionChange.Fire();
+        SelectionChanged?.Invoke();
     }
 
     /// <summary>
@@ -268,14 +271,17 @@ public class ViewportManager
     private readonly Terminal _terminal;
     private int _scrollTop;
 
-    public EventEmitter OnScroll { get; }
+    /// <summary>
+    /// Fired when the viewport scrolls.
+    /// </summary>
+    public event Action? Scrolled;
+    
     public int ScrollTop => _scrollTop;
 
     public ViewportManager(Terminal terminal)
     {
         _terminal = terminal;
         _scrollTop = 0;
-        OnScroll = new EventEmitter();
     }
 
     /// <summary>
@@ -290,7 +296,7 @@ public class ViewportManager
         {
             _scrollTop = newScrollTop;
             buffer.ScrollDisp(lines);
-            OnScroll.Fire();
+            Scrolled?.Invoke();
         }
     }
 
@@ -307,7 +313,7 @@ public class ViewportManager
             var diff = newScrollTop - _scrollTop;
             _scrollTop = newScrollTop;
             buffer.ScrollDisp(diff);
-            OnScroll.Fire();
+            Scrolled?.Invoke();
         }
     }
 
@@ -342,6 +348,6 @@ public class ViewportManager
     public void Reset()
     {
         _scrollTop = 0;
-        OnScroll.Fire();
+        Scrolled?.Invoke();
     }
 }

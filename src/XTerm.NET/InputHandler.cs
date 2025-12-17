@@ -349,7 +349,7 @@ public class InputHandler
             case OscCommands.SET_ICON_AND_TITLE: // OSC 0
             case OscCommands.SET_WINDOW_TITLE:   // OSC 2
                 _terminal.Title = arg;
-                _terminal.OnTitleChange.Fire(arg);
+                _terminal.RaiseTitleChanged(arg);
                 break;
 
             case OscCommands.SET_ICON_NAME: // OSC 1
@@ -423,7 +423,7 @@ public class InputHandler
             {
                 var path = uri.Substring(slashIndex);
                 _terminal.CurrentDirectory = Uri.UnescapeDataString(path);
-                _terminal.OnDirectoryChange.Fire(_terminal.CurrentDirectory);
+                _terminal.RaiseDirectoryChanged(_terminal.CurrentDirectory);
             }
         }
     }
@@ -486,7 +486,7 @@ public class InputHandler
             
             if (!string.IsNullOrEmpty(response))
             {
-                _terminal.OnData.Fire(response);
+                _terminal.RaiseDataReceived(response);
             }
         }
         else if (!string.IsNullOrEmpty(data))
@@ -513,7 +513,7 @@ public class InputHandler
                 // Format: OSC 52 ; c ; base64data ST
                 // For security, many terminals don't support this
                 // We'll send an empty response
-                _terminal.OnData.Fire($"\u001b]52;{target};\u0007");
+                _terminal.RaiseDataReceived($"\u001b]52;{target};\u0007");
             }
             else
             {
@@ -795,7 +795,7 @@ public class InputHandler
             // Secondary DA (CSI > c) - Report terminal ID and version
             // Response: CSI > 0 ; version ; 0 c
             // We report as VT100-compatible
-            _terminal.OnData.Fire("\u001b[>0;10;0c");
+            _terminal.RaiseDataReceived("\u001b[>0;10;0c");
         }
         else
         {
@@ -803,7 +803,7 @@ public class InputHandler
             // Response: CSI ? 1 ; 2 c (VT100 with AVO)
             // More complete: CSI ? 1 ; 2 ; 6 ; 9 c
             // 1 = 132 columns, 2 = Printer, 6 = Selective erase, 9 = National replacement character sets
-            _terminal.OnData.Fire("\u001b[?1;2c");
+            _terminal.RaiseDataReceived("\u001b[?1;2c");
         }
     }
 
@@ -821,22 +821,22 @@ public class InputHandler
                     // Report cursor position: CSI ? row ; col R
                     var row = _buffer.Y + 1; // 1-based
                     var col = _buffer.X + 1; // 1-based
-                    _terminal.OnData.Fire($"\u001b[?{row};{col}R");
+                    _terminal.RaiseDataReceived($"\u001b[?{row};{col}R");
                     break;
                     
                 case 15: // Printer status
                     // Report no printer: CSI ? 1 3 n
-                    _terminal.OnData.Fire("\u001b[?13n");
+                    _terminal.RaiseDataReceived("\u001b[?13n");
                     break;
                     
                 case 25: // UDK status
                     // Report UDK locked: CSI ? 2 1 n
-                    _terminal.OnData.Fire("\u001b[?21n");
+                    _terminal.RaiseDataReceived("\u001b[?21n");
                     break;
                     
                 case 26: // Keyboard status
                     // Report keyboard ready: CSI ? 2 7 ; 1 ; 0 ; 0 n
-                    _terminal.OnData.Fire("\u001b[?27;1;0;0n");
+                    _terminal.RaiseDataReceived("\u001b[?27;1;0;0n");
                     break;
             }
         }
@@ -847,7 +847,7 @@ public class InputHandler
             {
                 case 5: // Operating status
                     // Report OK: CSI 0 n
-                    _terminal.OnData.Fire("\u001b[0n");
+                    _terminal.RaiseDataReceived("\u001b[0n");
                     break;
                     
                 case 6: // CPR - Cursor Position Report
@@ -860,8 +860,8 @@ public class InputHandler
                     {
                         row = row - _buffer.ScrollTop;
                     }
-                    
-                    _terminal.OnData.Fire($"\u001b[{row};{col}R");
+
+                    _terminal.RaiseDataReceived($"\u001b[{row};{col}R");
                     break;
             }
         }
@@ -1009,14 +1009,14 @@ public class InputHandler
             case 1: // De-iconify window (restore from minimized)
                 if (_terminal.Options.WindowOptions.RestoreWin)
                 {
-                    _terminal.OnWindowRestore.Fire();
+                    _terminal.RaiseWindowRestored();
                 }
                 break;
                 
             case 2: // Iconify window (minimize)
                 if (_terminal.Options.WindowOptions.MinimizeWin)
                 {
-                    _terminal.OnWindowMinimize.Fire();
+                    _terminal.RaiseWindowMinimized();
                 }
                 break;
                 
@@ -1025,7 +1025,7 @@ public class InputHandler
                 {
                     var x = parameters.GetParam(1, 0);
                     var y = parameters.GetParam(2, 0);
-                    _terminal.OnWindowMove.Fire((x, y));
+                    _terminal.RaiseWindowMoved(x, y);
                 }
                 break;
                 
@@ -1034,28 +1034,28 @@ public class InputHandler
                 {
                     var height = parameters.GetParam(1, 0);
                     var width = parameters.GetParam(2, 0);
-                    _terminal.OnWindowResize.Fire((width, height));
+                    _terminal.RaiseWindowResized(width, height);
                 }
                 break;
                 
             case 5: // Raise window to front
                 if (_terminal.Options.WindowOptions.RaiseWin)
                 {
-                    _terminal.OnWindowRaise.Fire();
+                    _terminal.RaiseWindowRaised();
                 }
                 break;
                 
             case 6: // Lower window to back
                 if (_terminal.Options.WindowOptions.LowerWin)
                 {
-                    _terminal.OnWindowLower.Fire();
+                    _terminal.RaiseWindowLowered();
                 }
                 break;
                 
             case 7: // Refresh window
                 if (_terminal.Options.WindowOptions.RefreshWin)
                 {
-                    _terminal.OnWindowRefresh.Fire();
+                    _terminal.RaiseWindowRefreshed();
                 }
                 break;
                 
@@ -1076,12 +1076,12 @@ public class InputHandler
                 if (subOp == 0 && _terminal.Options.WindowOptions.RestoreWin)
                 {
                     // Restore maximized window
-                    _terminal.OnWindowRestore.Fire();
+                    _terminal.RaiseWindowRestored();
                 }
                 else if (subOp == 1 && _terminal.Options.WindowOptions.MaximizeWin)
                 {
                     // Maximize window
-                    _terminal.OnWindowMaximize.Fire();
+                    _terminal.RaiseWindowMaximized();
                 }
                 break;
                 
@@ -1090,24 +1090,24 @@ public class InputHandler
                 if (subOp == 0 && _terminal.Options.WindowOptions.FullscreenWin)
                 {
                     // Exit full-screen
-                    _terminal.OnWindowFullscreen.Fire();
+                    _terminal.RaiseWindowFullscreened();
                 }
                 else if (subOp == 1 && _terminal.Options.WindowOptions.FullscreenWin)
                 {
                     // Enter full-screen
-                    _terminal.OnWindowFullscreen.Fire();
+                    _terminal.RaiseWindowFullscreened();
                 }
                 else if (subOp == 2 && _terminal.Options.WindowOptions.FullscreenWin)
                 {
                     // Toggle full-screen
-                    _terminal.OnWindowFullscreen.Fire();
+                    _terminal.RaiseWindowFullscreened();
                 }
                 break;
                 
             case 11: // Report window state (iconified or not)
                 if (_terminal.Options.WindowOptions.GetWinState)
                 {
-                    _terminal.OnWindowInfoRequest.Fire(WindowInfoRequest.State);
+                    _terminal.RaiseWindowInfoRequested(WindowInfoRequest.State);
                     // Response: CSI 1 t (not iconified) or CSI 2 t (iconified)
                     // Application should call terminal.OnData.Fire to respond
                 }
@@ -1116,7 +1116,7 @@ public class InputHandler
             case 13: // Report window position
                 if (_terminal.Options.WindowOptions.GetWinPosition)
                 {
-                    _terminal.OnWindowInfoRequest.Fire(WindowInfoRequest.Position);
+                    _terminal.RaiseWindowInfoRequested(WindowInfoRequest.Position);
                     // Response: CSI 3 ; x ; y t
                 }
                 break;
@@ -1124,7 +1124,7 @@ public class InputHandler
             case 14: // Report window size in pixels
                 if (_terminal.Options.WindowOptions.GetWinSizePixels)
                 {
-                    _terminal.OnWindowInfoRequest.Fire(WindowInfoRequest.SizePixels);
+                    _terminal.RaiseWindowInfoRequested(WindowInfoRequest.SizePixels);
                     // Response: CSI 4 ; height ; width t
                 }
                 break;
@@ -1132,7 +1132,7 @@ public class InputHandler
             case 15: // Report screen size in pixels
                 if (_terminal.Options.WindowOptions.GetScreenSizePixels)
                 {
-                    _terminal.OnWindowInfoRequest.Fire(WindowInfoRequest.ScreenSizePixels);
+                    _terminal.RaiseWindowInfoRequested(WindowInfoRequest.ScreenSizePixels);
                     // Response: CSI 5 ; height ; width t
                 }
                 break;
@@ -1140,7 +1140,7 @@ public class InputHandler
             case 16: // Report character cell size in pixels
                 if (_terminal.Options.WindowOptions.GetCellSizePixels)
                 {
-                    _terminal.OnWindowInfoRequest.Fire(WindowInfoRequest.CellSizePixels);
+                    _terminal.RaiseWindowInfoRequested(WindowInfoRequest.CellSizePixels);
                     // Response: CSI 6 ; height ; width t
                 }
                 break;
@@ -1148,10 +1148,10 @@ public class InputHandler
             case 18: // Report text area size in characters
                 if (_terminal.Options.WindowOptions.GetWinSizeChars)
                 {
-                    _terminal.OnWindowInfoRequest.Fire(WindowInfoRequest.SizeCharacters);
+                    _terminal.RaiseWindowInfoRequested(WindowInfoRequest.SizeCharacters);
                     // Response: CSI 8 ; rows ; cols t
                     // Or respond directly:
-                    _terminal.OnData.Fire($"\u001b[8;{_terminal.Rows};{_terminal.Cols}t");
+                    _terminal.RaiseDataReceived($"\u001b[8;{_terminal.Rows};{_terminal.Cols}t");
                 }
                 break;
                 
@@ -1159,14 +1159,14 @@ public class InputHandler
                 if (_terminal.Options.WindowOptions.GetScreenSizePixels)
                 {
                     // This is typically the same as window size for terminal apps
-                    _terminal.OnData.Fire($"\u001b[9;{_terminal.Rows};{_terminal.Cols}t");
+                    _terminal.RaiseDataReceived($"\u001b[9;{_terminal.Rows};{_terminal.Cols}t");
                 }
                 break;
                 
             case 20: // Report icon label
                 if (_terminal.Options.WindowOptions.GetIconTitle)
                 {
-                    _terminal.OnWindowInfoRequest.Fire(WindowInfoRequest.IconTitle);
+                    _terminal.RaiseWindowInfoRequested(WindowInfoRequest.IconTitle);
                     // Response: OSC L label ST
                 }
                 break;
@@ -1174,11 +1174,11 @@ public class InputHandler
             case 21: // Report window title
                 if (_terminal.Options.WindowOptions.GetWinTitle)
                 {
-                    _terminal.OnWindowInfoRequest.Fire(WindowInfoRequest.Title);
+                    _terminal.RaiseWindowInfoRequested(WindowInfoRequest.Title);
                     // Response: OSC l title ST or just return current title
                     if (!string.IsNullOrEmpty(_terminal.Title))
                     {
-                        _terminal.OnData.Fire($"\u001b]l{_terminal.Title}\u0007");
+                        _terminal.RaiseDataReceived($"\u001b]l{_terminal.Title}\u0007");
                     }
                 }
                 break;

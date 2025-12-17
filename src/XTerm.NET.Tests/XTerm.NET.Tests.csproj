@@ -22,4 +22,8 @@
     <ProjectReference Include="..\XTerm.NET\XTerm.NET.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Common\" />
+  </ItemGroup>
+
 </Project>
