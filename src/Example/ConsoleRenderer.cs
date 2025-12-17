@@ -232,11 +232,11 @@ public class ConsoleRenderer : IRenderer
         }
     }
 
-    public void OnResize(int cols, int rows) { }
-    public void OnDevicePixelRatioChange() { }
+    public void Resize(int cols, int rows) { }
+    public void HandleDevicePixelRatioChange() { }
     public void Clear() => Console.Clear();
     public void RegisterCharacterAtlas(ICharAtlas atlas) { }
-    public void OnColorChange() { }
-    public void OnOptionsChange() { }
+    public void HandleColorChange() { }
+    public void HandleOptionsChange() { }
     public void Dispose() { }
 }

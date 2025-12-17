@@ -99,12 +99,12 @@ public interface IRenderer
     /// <summary>
     /// Called when the terminal is resized.
     /// </summary>
-    void OnResize(int cols, int rows);
+    void Resize(int cols, int rows);
 
     /// <summary>
     /// Called when the device pixel ratio changes.
     /// </summary>
-    void OnDevicePixelRatioChange();
+    void HandleDevicePixelRatioChange();
 
     /// <summary>
     /// Renders the terminal content.
@@ -126,12 +126,12 @@ public interface IRenderer
     /// <summary>
     /// Called when colors change.
     /// </summary>
-    void OnColorChange();
+    void HandleColorChange();
 
     /// <summary>
     /// Called when options change.
     /// </summary>
-    void OnOptionsChange();
+    void HandleOptionsChange();
 
     /// <summary>
     /// Handles cursor rendering.
@@ -178,7 +178,7 @@ public interface IRenderLayer
     /// <summary>
     /// Called when the layer is resized.
     /// </summary>
-    void OnResize(int cols, int rows);
+    void Resize(int cols, int rows);
 
     /// <summary>
     /// Renders the layer content.
@@ -188,7 +188,7 @@ public interface IRenderLayer
     /// <summary>
     /// Called when cell dimensions change.
     /// </summary>
-    void OnCellSizeChanged();
+    void HandleCellSizeChange();
 }
 
 /// <summary>
@@ -231,9 +231,9 @@ public abstract class BaseRenderLayer : IRenderLayer
     }
 
     public abstract void Reset();
-    public abstract void OnResize(int cols, int rows);
+    public abstract void Resize(int cols, int rows);
     public abstract void Render(int startRow, int endRow);
-    public abstract void OnCellSizeChanged();
+    public abstract void HandleCellSizeChange();
 }
 
 /// <summary>
@@ -249,13 +249,13 @@ public class NullRenderer : IRenderer
         DevicePixelRatio = 1.0
     };
 
-    public void OnResize(int cols, int rows) { }
-    public void OnDevicePixelRatioChange() { }
+    public void Resize(int cols, int rows) { }
+    public void HandleDevicePixelRatioChange() { }
     public void Render(int start, int end) { }
     public void Clear() { }
     public void RegisterCharacterAtlas(ICharAtlas atlas) { }
-    public void OnColorChange() { }
-    public void OnOptionsChange() { }
+    public void HandleColorChange() { }
+    public void HandleOptionsChange() { }
     public void RenderCursor(int x, int y, CursorRenderOptions options) { }
     public void Dispose() { }
 }
