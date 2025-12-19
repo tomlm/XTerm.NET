@@ -330,6 +330,42 @@ public class BufferTests
     }
 
     [Fact]
+    public void Resize_GrowsColumns_UpdatesLineLengths()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 24, 1000);
+
+        // Act
+        buffer.Resize(120, 24);
+
+        // Assert - every line should have the new column count
+        for (int i = 0; i < buffer.Lines.Length; i++)
+        {
+            var line = buffer.Lines[i];
+            Assert.NotNull(line);
+            Assert.Equal(120, line!.Length);
+        }
+    }
+
+    [Fact]
+    public void Resize_ShrinksColumns_UpdatesLineLengths()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(120, 24, 1000);
+
+        // Act
+        buffer.Resize(60, 24);
+
+        // Assert - every line should have the new column count
+        for (int i = 0; i < buffer.Lines.Length; i++)
+        {
+            var line = buffer.Lines[i];
+            Assert.NotNull(line);
+            Assert.Equal(60, line!.Length);
+        }
+    }
+
+    [Fact]
     public void SavedCursorState_InitializesCorrectly()
     {
         // Arrange

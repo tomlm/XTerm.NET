@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using XTerm.Common;
 using XTerm.Events.Parser;
@@ -63,6 +64,7 @@ public class EscapeSequenceParser
     /// </summary>
     public void Parse(string data)
     {
+        Debug.Write(data);
         for (int i = 0; i < data.Length; i++)
         {
             var code = (int)data[i];

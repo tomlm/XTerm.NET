@@ -284,31 +284,34 @@ public class TerminalBuffer
     /// </summary>
     public void Resize(int newCols, int newRows)
     {
-        // Implementation would handle reflow logic
-        // For now, simple resize
-        var fillCell = BufferCell.Null;
+        // Calculate new max length keeping the same scrollback capacity
+        var newMaxLength = newRows + (_lines.MaxLength - _rows);
 
-        // Resize existing lines
+        // Resize max length of circular list (may drop oldest lines if shrinking)
+        _lines.Resize(newMaxLength);
+
+        // Resize existing lines to the new column count
+        var fillCell = BufferCell.Null;
         for (int i = 0; i < _lines.Length; i++)
         {
             _lines[i]?.Resize(newCols, fillCell);
         }
 
-        // Add or remove lines as needed
-        if (newRows > _rows)
+        // Ensure we have at least viewport rows available
+        while (_lines.Length < newRows)
         {
-            for (int i = _rows; i < newRows; i++)
-            {
-                _lines.Push(new BufferLine(newCols, fillCell));
-            }
+            _lines.Push(new BufferLine(newCols, fillCell));
         }
 
-        // Update scroll region
+        // If we have fewer rows, ensure ybase/ydisp stay in range
+        _yBase = Math.Min(_yBase, Math.Max(0, _lines.Length - newRows));
+        _yDisp = Math.Clamp(_yDisp, 0, _yBase);
+
+        // Update scroll region and dimensions
         var oldRows = _rows;
         _cols = newCols;
         _rows = newRows;
 
-        // Adjust scroll bottom if it was at the old bottom
         if (_scrollBottom == oldRows - 1)
         {
             _scrollBottom = newRows - 1;
@@ -318,6 +321,10 @@ public class TerminalBuffer
             _scrollBottom = Math.Min(_scrollBottom, newRows - 1);
         }
         _scrollTop = Math.Min(_scrollTop, newRows - 1);
+
+        // Clamp cursor within new bounds
+        _x = Math.Clamp(_x, 0, _cols - 1);
+        _y = Math.Clamp(_y, 0, _rows - 1);
     }
 
     /// <summary>
