@@ -240,7 +240,11 @@ public class InputHandler
             case CsiCommand.WindowManipulation:
                 WindowManipulation(parameters);
                 break;
-                
+            
+            case CsiCommand.SelectCursorStyle:
+                SelectCursorStyle(parameters);
+                break;
+            
             case CsiCommand.SetMode:
                 if (isPrivate)
                 {
@@ -1515,6 +1519,49 @@ public class InputHandler
     private void ResetTerminal()
     {
         _terminal.Reset();
+    }
+
+    private void SelectCursorStyle(Params parameters)
+    {
+        // DECSCUSR - Select Cursor Style (CSI Ps SP q)
+        var ps = parameters.GetParam(0, 1);
+
+        CursorStyle style;
+        bool blink;
+
+        switch (ps)
+        {
+            case 0:
+            case 1:
+                style = CursorStyle.Block;
+                blink = true;
+                break;
+            case 2:
+                style = CursorStyle.Block;
+                blink = false;
+                break;
+            case 3:
+                style = CursorStyle.Underline;
+                blink = true;
+                break;
+            case 4:
+                style = CursorStyle.Underline;
+                blink = false;
+                break;
+            case 5:
+                style = CursorStyle.Bar;
+                blink = true;
+                break;
+            case 6:
+                style = CursorStyle.Bar;
+                blink = false;
+                break;
+            default:
+                // Unsupported value - ignore
+                return;
+        }
+
+        _terminal.SetCursorStyle(style, blink);
     }
 
     private void SaveCursor()

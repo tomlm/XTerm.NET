@@ -64,11 +64,9 @@ public class EscapeSequenceParser
     /// </summary>
     public void Parse(string data)
     {
-        Debug.Write(data);
-        for (int i = 0; i < data.Length; i++)
+        foreach (var rune in data.EnumerateRunes())
         {
-            var code = (int)data[i];
-            ParseChar(code);
+            ParseChar(rune.Value);
         }
     }
 
@@ -354,7 +352,7 @@ public class EscapeSequenceParser
 
     private void OscPut(int code)
     {
-        _osc.Append((char)code);
+        _osc.Append(char.ConvertFromUtf32(code));
     }
 
     private void DispatchOsc()

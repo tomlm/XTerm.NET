@@ -2,6 +2,8 @@ using XTerm;
 using XTerm.Buffer;
 using XTerm.Options;
 using XTerm.Parser;
+using XTerm.Common;
+using XTerm.Events;
 
 namespace XTerm.Tests;
 
@@ -540,5 +542,64 @@ public class InputHandlerTests
         Assert.True(attrs.IsItalic());
         Assert.True(attrs.IsUnderline());
         Assert.Equal(1, attrs.GetFgColor());
+    }
+
+    [Fact]
+    public void HandleCsi_DECSCUSR_SetsCursorStyle()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var paramsUnderlineBlink = new Params();
+        paramsUnderlineBlink.AddParam(3); // Blinking underline
+
+        // Act
+        handler.HandleCsi(" q", paramsUnderlineBlink);
+
+        // Assert
+        Assert.Equal(CursorStyle.Underline, terminal.Options.CursorStyle);
+        Assert.True(terminal.Options.CursorBlink);
+
+        // Act - Steady block
+        var paramsBlockSteady = new Params();
+        paramsBlockSteady.AddParam(2);
+        handler.HandleCsi(" q", paramsBlockSteady);
+
+        Assert.Equal(CursorStyle.Block, terminal.Options.CursorStyle);
+        Assert.False(terminal.Options.CursorBlink);
+    }
+
+    [Fact]
+    public void HandleCsi_SelectCursorStyle_BlinkingBlock_Defaults()
+    {
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(1);
+
+        handler.HandleCsi(" q", params_);
+
+        Assert.Equal(CursorStyle.Block, terminal.Options.CursorStyle);
+        Assert.True(terminal.Options.CursorBlink);
+    }
+
+    [Fact]
+    public void HandleCsi_SelectCursorStyle_SteadyBar_RaisesEvent()
+    {
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(6); // Steady bar
+
+        TerminalEvents.CursorStyleChangedEventArgs? received = null;
+        terminal.CursorStyleChanged += (_, e) => received = e;
+
+        handler.HandleCsi(" q", params_);
+
+        Assert.Equal(CursorStyle.Bar, terminal.Options.CursorStyle);
+        Assert.False(terminal.Options.CursorBlink);
+        Assert.NotNull(received);
+        Assert.Equal(CursorStyle.Bar, received!.Style);
+        Assert.False(received.Blink);
     }
 }

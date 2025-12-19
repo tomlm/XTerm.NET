@@ -200,5 +200,20 @@ public static class TerminalEvents
             Buffer = buffer;
         }
     }
+
+    /// <summary>
+    /// Cursor style changed event - fired when cursor style or blink setting changes.
+    /// </summary>
+    public class CursorStyleChangedEventArgs : EventArgs
+    {
+        public CursorStyle Style { get; }
+        public bool Blink { get; }
+
+        public CursorStyleChangedEventArgs(CursorStyle style, bool blink)
+        {
+            Style = style;
+            Blink = blink;
+        }
+    }
 }
 

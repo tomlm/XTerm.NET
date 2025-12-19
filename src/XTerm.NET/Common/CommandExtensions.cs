@@ -36,7 +36,9 @@ public static class CsiCommandExtensions
         { "r", CsiCommand.SetScrollRegion },
         { "s", CsiCommand.SaveCursorAnsi },
         { "t", CsiCommand.WindowManipulation },
-        { "u", CsiCommand.RestoreCursorAnsi }
+        { "u", CsiCommand.RestoreCursorAnsi },
+        { " q", CsiCommand.SelectCursorStyle },
+        { "q", CsiCommand.SelectCursorStyle }
     };
 
     /// <summary>

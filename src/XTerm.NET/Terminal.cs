@@ -44,6 +44,11 @@ public class Terminal
     public string? CurrentHyperlink { get; set; }
     public string? HyperlinkId { get; set; }
 
+    /// <summary>
+    /// Fired when the cursor style or blink setting changes.
+    /// </summary>
+    public event EventHandler<TerminalEvents.CursorStyleChangedEventArgs>? CursorStyleChanged;
+
     // Events - Standard C# EventHandler pattern
     /// <summary>
     /// Fired when the terminal wants to send data back to the application.
@@ -465,6 +470,23 @@ public class Terminal
     
     internal void RaiseWindowInfoRequested(WindowInfoRequest request) => 
         WindowInfoRequested?.Invoke(this, new TerminalEvents.WindowInfoRequestedEventArgs(request));
+
+    /// <summary>
+    /// Updates cursor style and blink settings and notifies listeners if changed.
+    /// </summary>
+    /// <param name="style">Cursor rendering style.</param>
+    /// <param name="blink">Whether the cursor should blink.</param>
+    public void SetCursorStyle(CursorStyle style, bool blink)
+    {
+        var changed = Options.CursorStyle != style || Options.CursorBlink != blink;
+        Options.CursorStyle = style;
+        Options.CursorBlink = blink;
+
+        if (changed)
+        {
+            CursorStyleChanged?.Invoke(this, new TerminalEvents.CursorStyleChangedEventArgs(style, blink));
+        }
+    }
 
     /// <summary>
     /// Switches to the alternate buffer.

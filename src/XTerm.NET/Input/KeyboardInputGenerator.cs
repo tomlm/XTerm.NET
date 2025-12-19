@@ -100,39 +100,46 @@ public class KeyboardInputGenerator
     /// </summary>
     public string GenerateCharSequence(char c, KeyModifiers modifiers = KeyModifiers.None)
     {
-        // Control + character
-        if ((modifiers & KeyModifiers.Control) != 0)
+        var hasControl = (modifiers & KeyModifiers.Control) != 0;
+        var hasAlt = (modifiers & KeyModifiers.Alt) != 0;
+        string result;
+
+        if (hasControl)
         {
             // Ctrl+A through Ctrl+Z generate 0x01 through 0x1A
             if (c >= 'a' && c <= 'z')
-                return ((char)(c - 'a' + 1)).ToString();
-            if (c >= 'A' && c <= 'Z')
-                return ((char)(c - 'A' + 1)).ToString();
-
-            // Special control characters
-            return c switch
+                result = ((char)(c - 'a' + 1)).ToString();
+            else if (c >= 'A' && c <= 'Z')
+                result = ((char)(c - 'A' + 1)).ToString();
+            else
             {
-                ' ' => "\u0000", // Ctrl+Space = NUL
-                '@' => "\u0000", // Ctrl+@ = NUL
-                '[' => "\u001b", // Ctrl+[ = ESC
-                '\\' => "\u001c", // Ctrl+\ = FS
-                ']' => "\u001d", // Ctrl+] = GS
-                '^' => "\u001e", // Ctrl+^ = RS
-                '_' => "\u001f", // Ctrl+_ = US
-                '?' => "\u007f", // Ctrl+? = DEL
-                _ => c.ToString()
-            };
+                result = c switch
+                {
+                    ' ' => "\u0000", // Ctrl+Space = NUL
+                    '@' => "\u0000", // Ctrl+@ = NUL
+                    '[' => "\u001b", // Ctrl+[ = ESC
+                    '\\' => "\u001c", // Ctrl+\ = FS
+                    ']' => "\u001d", // Ctrl+] = GS
+                    '^' => "\u001e", // Ctrl+^ = RS
+                    '_' => "\u001f", // Ctrl+_ = US
+                    '?' => "\u007f", // Ctrl+? = DEL
+                    _ => c.ToString()
+                };
+            }
         }
-
-        // Alt + character
-        if ((modifiers & KeyModifiers.Alt) != 0)
+        else
         {
-            // Alt sends ESC prefix - use \u format to avoid interpolation issues
-            return $"\u001b{c}";
+            // Shift is implicit in the character itself (uppercase vs lowercase)
+            result = c.ToString();
         }
 
-        // Shift is implicit in the character itself (uppercase vs lowercase)
-        return c.ToString();
+        // Alt sends ESC prefix even when combined with Control
+        if (hasAlt)
+        {
+            result = $"\u001b{result}";
+        }
+
+        return result;
     }
 
     private string? GetControlCharacter(Key key)

@@ -153,6 +153,11 @@ public enum CsiCommand
     ResetMode,
     
     /// <summary>
+    /// Select Cursor Style (DECSCUSR, CSI Ps SP q).
+    /// </summary>
+    SelectCursorStyle,
+    
+    /// <summary>
     /// Unknown or unsupported command.
     /// </summary>
     Unknown
