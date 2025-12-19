@@ -18,6 +18,33 @@ public class TerminalBuffer
     private readonly int _rows;
     private readonly BufferCell _fillCell;
 
+    /// <summary>
+    /// The absolute line index of the top of the viewport in the buffer.
+    /// In XTerm.js this is 'ydisp'. This represents the current scroll position.
+    /// </summary>
+    public int ViewportY 
+    { 
+        get => _yDisp;
+        set => _yDisp = Math.Clamp(value, 0, Math.Max(0, _yBase - _rows));
+    }
+
+    /// <summary>
+    /// The absolute line index where new content is being written.
+    /// In XTerm.js this is 'ybase'. This represents the bottom of the active content.
+    /// </summary>
+    public int BaseY => _yBase;
+
+    /// <summary>
+    /// Total number of lines in the buffer (scrollback + active lines).
+    /// </summary>
+    public int Length => _lines.Length;
+
+    /// <summary>
+    /// Whether the viewport is at the bottom (showing latest content).
+    /// </summary>
+    public bool IsAtBottom => _yDisp >= (_yBase - _rows);
+
+    // Legacy properties for backward compatibility
     public int YDisp => _yDisp;
     public int YBase => _yBase;
     public int Y => _y;
@@ -144,11 +171,20 @@ public class TerminalBuffer
     }
 
     /// <summary>
+    /// Scrolls the viewport to show a specific line.
+    /// </summary>
+    /// <param name="line">The absolute line number to scroll to</param>
+    public void ScrollToLine(int line)
+    {
+        _yDisp = Math.Clamp(line, 0, Math.Max(0, _yBase - _rows));
+    }
+
+    /// <summary>
     /// Scrolls the display to the bottom.
     /// </summary>
     public void ScrollToBottom()
     {
-        _yDisp = _yBase;
+        _yDisp = Math.Max(0, _yBase - _rows);
     }
 
     /// <summary>
@@ -157,6 +193,15 @@ public class TerminalBuffer
     public void ScrollToTop()
     {
         _yDisp = 0;
+    }
+
+    /// <summary>
+    /// Scrolls the viewport by a relative number of lines.
+    /// </summary>
+    /// <param name="lines">Number of lines to scroll (negative = up, positive = down)</param>
+    public void ScrollLines(int lines)
+    {
+        ScrollToLine(_yDisp + lines);
     }
 
     /// <summary>
