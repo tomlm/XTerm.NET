@@ -14,8 +14,8 @@ public class TerminalBuffer
     private int _x;
     private int _scrollBottom;
     private int _scrollTop;
-    private readonly int _cols;
-    private readonly int _rows;
+    private int _cols;
+    private int _rows;
     private readonly BufferCell _fillCell;
 
     /// <summary>
@@ -25,7 +25,7 @@ public class TerminalBuffer
     public int ViewportY 
     { 
         get => _yDisp;
-        set => _yDisp = Math.Clamp(value, 0, Math.Max(0, _yBase - _rows));
+        set => _yDisp = Math.Clamp(value, 0, _yBase);
     }
 
     /// <summary>
@@ -41,8 +41,19 @@ public class TerminalBuffer
 
     /// <summary>
     /// Whether the viewport is at the bottom (showing latest content).
+    /// In xterm.js: ydisp === ybase means we're at the bottom.
     /// </summary>
-    public bool IsAtBottom => _yDisp >= (_yBase - _rows);
+    public bool IsAtBottom => _yDisp >= _yBase;
+
+    /// <summary>
+    /// Number of columns in the buffer.
+    /// </summary>
+    public int Cols => _cols;
+
+    /// <summary>
+    /// Number of rows in the buffer (viewport height).
+    /// </summary>
+    public int Rows => _rows;
 
     // Legacy properties for backward compatibility
     public int YDisp => _yDisp;
@@ -122,48 +133,85 @@ public class TerminalBuffer
 
     /// <summary>
     /// Scrolls the buffer up by a specified number of lines.
+    /// This matches xterm.js Buffer.scroll() behavior.
     /// </summary>
     public void ScrollUp(int lines, bool isWrapped = false)
     {
         for (int i = 0; i < lines; i++)
         {
-            // Remove line from scroll region top
+            // Create a new blank line that will be inserted at the bottom of the scroll region
+            var newLine = GetBlankLine(AttributeData.Default, isWrapped);
+
             if (_scrollTop == 0)
             {
-                // Line goes to scrollback
-                _yBase++;
-                _yDisp = _yBase;
+                // When scrollTop is 0, the top line goes into scrollback.
+                // In xterm.js: push new line first, then increment yBase and yDisp.
+                // This causes the circular list to potentially recycle the oldest line.
+                
+                // Check if we're at max capacity - if so, yBase stays the same but 
+                // the buffer rotates. If not, yBase increments.
+                var willBeRecycled = _lines.Length >= _lines.MaxLength;
+                
+                // Push the new line at the end (bottom of screen in buffer terms)
+                _lines.Push(newLine);
+                
+                // Only increment yBase if the buffer didn't recycle
+                if (!willBeRecycled)
+                {
+                    _yBase++;
+                }
+                
+                // If yDisp was at the bottom, keep it there
+                if (_yDisp + 1 < _yBase)
+                {
+                    // User was scrolled up, don't auto-scroll
+                }
+                else
+                {
+                    _yDisp = _yBase;
+                }
             }
             else
             {
-                // Line is removed from buffer
-                _lines.Splice(_scrollTop, 1);
-            }
+                // Scroll region is not at top of screen.
+                // Remove line from scroll region top and add blank at bottom.
+                // Use yBase offset for correct absolute positioning.
+                var scrollRegionStart = _yBase + _scrollTop;
+                var scrollRegionEnd = _yBase + _scrollBottom;
 
-            // Add blank line at bottom of scroll region
-            var newLine = GetBlankLine(AttributeData.Default, isWrapped);
-            _lines.Splice(_scrollBottom, 0, newLine);
+                // Delete the line at the top of scroll region
+                _lines.Splice(scrollRegionStart, 1);
+
+                // Insert blank line at bottom of scroll region
+                _lines.Splice(scrollRegionEnd, 0, newLine);
+            }
         }
     }
 
     /// <summary>
     /// Scrolls the buffer down by a specified number of lines.
+    /// This is reverse scrolling within the scroll region.
     /// </summary>
     public void ScrollDown(int lines)
     {
         for (int i = 0; i < lines; i++)
         {
+            // Calculate absolute positions in the buffer
+            var scrollRegionStart = _yBase + _scrollTop;
+            var scrollRegionEnd = _yBase + _scrollBottom;
+
             // Remove line from scroll region bottom
-            _lines.Splice(_scrollBottom, 1);
+            _lines.Splice(scrollRegionEnd, 1);
 
             // Add blank line at top of scroll region
             var newLine = GetBlankLine(AttributeData.Default);
-            _lines.Splice(_scrollTop, 0, newLine);
+            _lines.Splice(scrollRegionStart, 0, newLine);
         }
     }
 
     /// <summary>
     /// Scrolls the display by a specified amount.
+    /// This only changes the viewport position, not the buffer content.
     /// </summary>
     public void ScrollDisp(int disp, bool suppressScrollEvent = false)
     {
@@ -176,15 +224,16 @@ public class TerminalBuffer
     /// <param name="line">The absolute line number to scroll to</param>
     public void ScrollToLine(int line)
     {
-        _yDisp = Math.Clamp(line, 0, Math.Max(0, _yBase - _rows));
+        _yDisp = Math.Clamp(line, 0, _yBase);
     }
 
     /// <summary>
-    /// Scrolls the display to the bottom.
+    /// Scrolls the display to the bottom (showing active screen).
+    /// In xterm.js, yDisp = yBase means showing the active terminal area.
     /// </summary>
     public void ScrollToBottom()
     {
-        _yDisp = Math.Max(0, _yBase - _rows);
+        _yDisp = _yBase;
     }
 
     /// <summary>
@@ -253,6 +302,22 @@ public class TerminalBuffer
                 _lines.Push(new BufferLine(newCols, fillCell));
             }
         }
+
+        // Update scroll region
+        var oldRows = _rows;
+        _cols = newCols;
+        _rows = newRows;
+
+        // Adjust scroll bottom if it was at the old bottom
+        if (_scrollBottom == oldRows - 1)
+        {
+            _scrollBottom = newRows - 1;
+        }
+        else
+        {
+            _scrollBottom = Math.Min(_scrollBottom, newRows - 1);
+        }
+        _scrollTop = Math.Min(_scrollTop, newRows - 1);
     }
 
     /// <summary>

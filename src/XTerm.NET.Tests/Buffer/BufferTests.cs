@@ -392,12 +392,13 @@ public class BufferTests
         buffer.ScrollUp(1, isWrapped: true);
 
         // Assert
-        // The newly added line at bottom should be marked as wrapped
-        var bottomLine = buffer.Lines[buffer.ScrollBottom];
-        if (bottomLine != null)
-        {
-            Assert.True(bottomLine.IsWrapped);
-        }
+        // The newly added line is at the bottom of the active screen area.
+        // After scroll, the new line is at position YBase + Rows - 1 in the buffer.
+        // Since YBase becomes 1 after scroll (when scrollTop is 0), the new line is at index 24 (1 + 24 - 1).
+        var lastActiveRow = buffer.YBase + buffer.Rows - 1;
+        var bottomLine = buffer.Lines[lastActiveRow];
+        Assert.NotNull(bottomLine);
+        Assert.True(bottomLine.IsWrapped);
     }
 
     [Fact]
@@ -477,4 +478,411 @@ public class BufferTests
         Assert.Equal(5, scrollTop);
         Assert.Equal(15, scrollBottom);
     }
+
+    #region Scrolling Beyond Viewport Tests
+
+    [Fact]
+    public void ScrollUp_BeyondViewport_IncrementsYBase()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 24, 1000);
+        Assert.Equal(0, buffer.YBase);
+
+        // Act - Scroll up 10 times (simulating 10 new lines at bottom of screen)
+        buffer.ScrollUp(10);
+
+        // Assert
+        Assert.Equal(10, buffer.YBase);
+        Assert.Equal(10, buffer.YDisp); // Should auto-scroll to bottom
+    }
+
+    [Fact]
+    public void ScrollUp_YDispFollowsYBase_WhenAtBottom()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 24, 1000);
+
+        // Act
+        buffer.ScrollUp(5);
+
+        // Assert - yDisp should follow yBase when user hasn't scrolled up
+        Assert.Equal(buffer.YBase, buffer.YDisp);
+        Assert.True(buffer.IsAtBottom);
+    }
+
+    [Fact]
+    public void ScrollUp_YDispDoesNotFollow_WhenScrolledUp()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 24, 1000);
+        buffer.ScrollUp(10); // Create some scrollback
+        buffer.ScrollToTop(); // Scroll viewport to top
+
+        // Act
+        buffer.ScrollUp(5); // More content added
+
+        // Assert - yDisp should stay at 0 (user scrolled up)
+        Assert.Equal(0, buffer.YDisp);
+        Assert.Equal(15, buffer.YBase);
+        Assert.False(buffer.IsAtBottom);
+    }
+
+    [Fact]
+    public void ScrollUp_BufferLengthGrows_UntilMaxCapacity()
+    {
+        // Arrange - Small buffer with 10 row viewport and 20 scrollback (30 total)
+        var buffer = new TerminalBuffer(80, 10, 20);
+        Assert.Equal(10, buffer.Lines.Length); // Initially just viewport rows
+
+        // Act - Scroll up 15 times
+        buffer.ScrollUp(15);
+
+        // Assert - Buffer should have grown
+        Assert.Equal(25, buffer.Lines.Length); // 10 initial + 15 scrolled
+        Assert.Equal(15, buffer.YBase);
+    }
+
+    [Fact]
+    public void ScrollUp_AtMaxCapacity_RecyclesOldestLines()
+    {
+        // Arrange - Small buffer: 5 rows viewport, 5 scrollback = 10 max
+        var buffer = new TerminalBuffer(80, 5, 5);
+        
+        // Fill buffer to capacity
+        buffer.ScrollUp(5); // Now at 10 lines (max)
+        Assert.Equal(10, buffer.Lines.Length);
+        Assert.Equal(5, buffer.YBase);
+
+        // Act - Scroll more, should recycle
+        buffer.ScrollUp(3);
+
+        // Assert - Length should stay at max, yBase should still be 5 (recycled)
+        Assert.Equal(10, buffer.Lines.Length);
+        Assert.Equal(5, buffer.YBase); // Stays at 5 because oldest lines are recycled
+    }
+
+    [Fact]
+    public void ScrollUp_ContentPlacedCorrectly_InActiveArea()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 5, 100);
+        
+        // Write content to first line
+        var line0 = buffer.Lines[0];
+        line0?.SetCell(0, new BufferCell("A", 1, AttributeData.Default));
+
+        // Act - Scroll up once
+        buffer.ScrollUp(1);
+
+        // Assert - Original line 0 is now in scrollback (at index 0)
+        // Active area starts at yBase (1), new blank line is at yBase + rows - 1 (5)
+        var scrollbackLine = buffer.Lines[0];
+        Assert.NotNull(scrollbackLine);
+        Assert.Equal("A", scrollbackLine[0].Content);
+
+        // The active area's last line should be blank
+        var lastActiveLine = buffer.Lines[buffer.YBase + buffer.Rows - 1];
+        Assert.NotNull(lastActiveLine);
+        Assert.True(lastActiveLine[0].IsNull() || lastActiveLine[0].Content == "\0");
+    }
+
+    [Fact]
+    public void ScrollUp_PreservesScrollbackContent()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 5, 100);
+        
+        // Mark each initial line with a unique identifier
+        for (int i = 0; i < 5; i++)
+        {
+            var line = buffer.Lines[i];
+            line?.SetCell(0, new BufferCell(((char)('A' + i)).ToString(), 1, AttributeData.Default));
+        }
+
+        // Act - Scroll up 3 times
+        buffer.ScrollUp(3);
+
+        // Assert - First 3 original lines should be in scrollback
+        Assert.Equal("A", buffer.Lines[0]?[0].Content);
+        Assert.Equal("B", buffer.Lines[1]?[0].Content);
+        Assert.Equal("C", buffer.Lines[2]?[0].Content);
+        
+        // Lines D and E should now be in active area (at yBase + 0 and yBase + 1)
+        Assert.Equal("D", buffer.Lines[buffer.YBase]?[0].Content);
+        Assert.Equal("E", buffer.Lines[buffer.YBase + 1]?[0].Content);
+    }
+
+    [Fact]
+    public void ScrollToTop_ShowsScrollbackContent()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 5, 100);
+        
+        // Mark line 0
+        buffer.Lines[0]?.SetCell(0, new BufferCell("X", 1, AttributeData.Default));
+        
+        // Scroll up to create scrollback
+        buffer.ScrollUp(10);
+        Assert.Equal(10, buffer.YBase);
+        Assert.Equal(10, buffer.YDisp);
+
+        // Act
+        buffer.ScrollToTop();
+
+        // Assert
+        Assert.Equal(0, buffer.YDisp);
+        // Line at yDisp (0) should be the original line with "X"
+        var visibleLine = buffer.Lines[buffer.YDisp];
+        Assert.Equal("X", visibleLine?[0].Content);
+    }
+
+    [Fact]
+    public void ScrollToBottom_AfterScrollingUp_ReturnsToActiveArea()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 5, 100);
+        buffer.ScrollUp(20);
+        buffer.ScrollToTop();
+        Assert.Equal(0, buffer.YDisp);
+
+        // Act
+        buffer.ScrollToBottom();
+
+        // Assert
+        Assert.Equal(buffer.YBase, buffer.YDisp);
+        Assert.True(buffer.IsAtBottom);
+    }
+
+    [Fact]
+    public void IsAtBottom_TrueInitially()
+    {
+        // Arrange & Act
+        var buffer = new TerminalBuffer(80, 24, 1000);
+
+        // Assert
+        Assert.True(buffer.IsAtBottom);
+    }
+
+    [Fact]
+    public void IsAtBottom_TrueAfterScrollUp()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 24, 1000);
+
+        // Act
+        buffer.ScrollUp(10);
+
+        // Assert - Should still be at bottom (auto-followed)
+        Assert.True(buffer.IsAtBottom);
+    }
+
+    [Fact]
+    public void IsAtBottom_FalseAfterScrollToTop()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 24, 1000);
+        buffer.ScrollUp(10);
+
+        // Act
+        buffer.ScrollToTop();
+
+        // Assert
+        Assert.False(buffer.IsAtBottom);
+    }
+
+    [Fact]
+    public void ScrollLines_RelativeScrolling_Works()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 10, 100);
+        buffer.ScrollUp(50); // Create lots of scrollback
+        buffer.ScrollToTop();
+        Assert.Equal(0, buffer.YDisp);
+
+        // Act - Scroll down 25 lines
+        buffer.ScrollLines(25);
+
+        // Assert
+        Assert.Equal(25, buffer.YDisp);
+
+        // Act - Scroll up 10 lines
+        buffer.ScrollLines(-10);
+
+        // Assert
+        Assert.Equal(15, buffer.YDisp);
+    }
+
+    [Fact]
+    public void ScrollLines_ClampsToValidRange()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 10, 100);
+        buffer.ScrollUp(20);
+
+        // Act - Try to scroll way past bottom
+        buffer.ScrollLines(1000);
+
+        // Assert - Should be clamped to yBase
+        Assert.Equal(buffer.YBase, buffer.YDisp);
+
+        // Act - Try to scroll way past top
+        buffer.ScrollLines(-1000);
+
+        // Assert - Should be clamped to 0
+        Assert.Equal(0, buffer.YDisp);
+    }
+
+    [Fact]
+    public void ViewportY_Property_ReadsAndWritesYDisp()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 10, 100);
+        buffer.ScrollUp(30);
+
+        // Act & Assert - Read
+        Assert.Equal(buffer.YDisp, buffer.ViewportY);
+
+        // Act - Write
+        buffer.ViewportY = 15;
+
+        // Assert
+        Assert.Equal(15, buffer.YDisp);
+        Assert.Equal(15, buffer.ViewportY);
+    }
+
+    [Fact]
+    public void ViewportY_ClampedToValidRange()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 10, 100);
+        buffer.ScrollUp(20);
+
+        // Act - Try to set beyond yBase
+        buffer.ViewportY = 100;
+
+        // Assert
+        Assert.Equal(buffer.YBase, buffer.ViewportY);
+
+        // Act - Try to set negative
+        buffer.ViewportY = -10;
+
+        // Assert
+        Assert.Equal(0, buffer.ViewportY);
+    }
+
+    [Fact]
+    public void GetAbsoluteY_CorrectAfterScrolling()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 10, 100);
+        buffer.ScrollUp(25);
+
+        // Act & Assert
+        // GetAbsoluteY converts viewport-relative Y to buffer-absolute Y
+        // For viewport row 0, absolute should be yBase + 0 = 25
+        Assert.Equal(25, buffer.GetAbsoluteY(0));
+        Assert.Equal(30, buffer.GetAbsoluteY(5));
+        Assert.Equal(34, buffer.GetAbsoluteY(9)); // Last viewport row
+    }
+
+    [Fact]
+    public void BufferLength_MatchesExpectedSize()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 10, 100);
+        Assert.Equal(10, buffer.Length); // Initially just viewport rows
+
+        // Act
+        buffer.ScrollUp(50);
+
+        // Assert - Should have grown to rows + scrollback used
+        Assert.Equal(60, buffer.Length); // 10 initial + 50 scrolled
+    }
+
+    [Fact]
+    public void LargeScrollback_HandlesCorrectly()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 24, 10000);
+
+        // Act - Simulate a lot of output
+        buffer.ScrollUp(5000);
+
+        // Assert
+        Assert.Equal(5000, buffer.YBase);
+        Assert.Equal(5000, buffer.YDisp);
+        Assert.Equal(5024, buffer.Length); // 24 rows + 5000 scrollback
+        Assert.True(buffer.IsAtBottom);
+    }
+
+    [Fact]
+    public void ScrollUp_WithScrollRegion_DoesNotAffectYBase()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 24, 1000);
+        buffer.SetScrollRegion(5, 15); // Scroll region in middle of screen
+
+        // Act
+        buffer.ScrollUp(3);
+
+        // Assert - yBase should not change when scroll region is set
+        Assert.Equal(0, buffer.YBase);
+        Assert.Equal(0, buffer.YDisp);
+    }
+
+    [Fact]
+    public void ScrollDown_WithScrollRegion_DoesNotAffectYBase()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 24, 1000);
+        buffer.SetScrollRegion(5, 15);
+
+        // Act
+        buffer.ScrollDown(3);
+
+        // Assert
+        Assert.Equal(0, buffer.YBase);
+        Assert.Equal(0, buffer.YDisp);
+    }
+
+    [Fact]
+    public void Cols_And_Rows_Properties_ReturnCorrectValues()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(100, 50, 500);
+
+        // Assert
+        Assert.Equal(100, buffer.Cols);
+        Assert.Equal(50, buffer.Rows);
+    }
+
+    [Fact]
+    public void Resize_UpdatesColsAndRows()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 24, 1000);
+
+        // Act
+        buffer.Resize(120, 40);
+
+        // Assert
+        Assert.Equal(120, buffer.Cols);
+        Assert.Equal(40, buffer.Rows);
+    }
+
+    [Fact]
+    public void Resize_AdjustsScrollBottom()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 24, 1000);
+        Assert.Equal(23, buffer.ScrollBottom);
+
+        // Act
+        buffer.Resize(80, 30);
+
+        // Assert - ScrollBottom should be updated to new rows - 1
+        Assert.Equal(29, buffer.ScrollBottom);
+    }
+
+    #endregion
 }
