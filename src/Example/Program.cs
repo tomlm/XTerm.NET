@@ -36,62 +36,65 @@ public class BasicExample
         // Example 6: Window manipulation events
         WindowManipulationExample();
         Console.ReadKey();
+
+        // Example 7: Alternate buffer usage
+        AlternateBufferExample();
+        Console.ReadKey();
     }
 
     static void BasicTerminalExample()
     {
-        Console.WriteLine("=== Basic Terminal Example ===\r\n");
+        Console.WriteLine("=== Basic Terminal Example ===");
 
         var terminal = new Terminal(new TerminalOptions
         {
             Cols = 80,
             Rows = 24,
             Scrollback = 1000,
-            // Enable EOL conversion so \r\n behaves like \r\r\n
         });
 
         var renderer = new ConsoleRenderer(terminal);
 
-        terminal.Write("Hello, XTerm.NET!\r\n");
-        terminal.Write("This is a terminal emulator.\r\n");
-        terminal.Write("It supports VT100/ANSI escape sequences.\r\n");
+        terminal.WriteLine("Hello, XTerm.NET!");
+        terminal.WriteLine("This is a terminal emulator.");
+        terminal.WriteLine("It supports VT100/ANSI escape sequences.");
 
         RenderTerminal(terminal, renderer);
     }
 
     static void ColoredOutputExample()
     {
-        Console.WriteLine("\r\n=== Colored Output Example ===\r\n");
+        Console.WriteLine("=== Colored Output Example ===");
 
         var terminal = new Terminal(new TerminalOptions { });
         var renderer = new ConsoleRenderer(terminal);
 
         // Standard colors
-        terminal.Write("\x1b[31mRed text\x1b[0m\r\n");
-        terminal.Write("\x1b[32mGreen text\x1b[0m\r\n");
-        terminal.Write("\x1b[34mBlue text\x1b[0m\r\n");
+        terminal.WriteLine("\x1b[31mRed text\x1b[0m");
+        terminal.WriteLine("\x1b[32mGreen text\x1b[0m");
+        terminal.WriteLine("\x1b[34mBlue text\x1b[0m");
 
         // Bold and italic
-        terminal.Write("\x1b[1mBold text\x1b[0m\r\n");
-        terminal.Write("\x1b[3mItalic text\x1b[0m\r\n");
-        terminal.Write("\x1b[1;32mBold green text\x1b[0m\r\n");
+        terminal.WriteLine("\x1b[1mBold text\x1b[0m");
+        terminal.WriteLine("\x1b[3mItalic text\x1b[0m");
+        terminal.WriteLine("\x1b[1;32mBold green text\x1b[0m");
 
         // Background colors
-        terminal.Write("\x1b[41;37mWhite on red\x1b[0m\r\n");
-        terminal.Write("\x1b[44;33mYellow on blue\x1b[0m\r\n");
+        terminal.WriteLine("\x1b[41;37mWhite on red\x1b[0m");
+        terminal.WriteLine("\x1b[44;33mYellow on blue\x1b[0m");
 
         // 256 colors
-        terminal.Write("\x1b[38;5;208mOrange text (256 color)\x1b[0m\r\n");
+        terminal.WriteLine("\x1b[38;5;208mOrange text (256 color)\x1b[0m");
 
         // True color (RGB)
-        terminal.Write("\x1b[38;2;255;100;200mPink text (RGB)\x1b[0m\r\n");
+        terminal.WriteLine("\x1b[38;2;255;100;200mPink text (RGB)\x1b[0m");
 
         RenderTerminal(terminal, renderer);
     }
 
     static void CursorMovementExample()
     {
-        Console.WriteLine("\r\n=== Cursor Movement Example ===\r\n");
+        Console.WriteLine("=== Cursor Movement Example ===");
 
         var terminal = new Terminal(new TerminalOptions { Cols = 40, Rows = 10, });
         var renderer = new ConsoleRenderer(terminal);
@@ -113,14 +116,14 @@ public class BasicExample
 
     static void BufferAccessExample()
     {
-        Console.WriteLine("\r\n=== Buffer Access Example ===\r\n");
+        Console.WriteLine("=== Buffer Access Example ===");
 
         var terminal = new Terminal(new TerminalOptions { Cols = 30, Rows = 5, });
         var renderer = new ConsoleRenderer(terminal);
 
-        terminal.Write("Line 1\r\n");
-        terminal.Write("\x1b[1;31mRed Line 2\x1b[0m\r\n");
-        terminal.Write("Line 3\r\n");
+        terminal.WriteLine("Line 1");
+        terminal.WriteLine("\x1b[1;31mRed Line 2\x1b[0m");
+        terminal.WriteLine("Line 3");
 
         // Access buffer directly
         var buffer = terminal.Buffer;
@@ -150,7 +153,7 @@ public class BasicExample
 
     static void EventHandlingExample()
     {
-        Console.WriteLine("\n=== Event Handling Example ===\n");
+        Console.WriteLine("=== Event Handling Example ===");
 
         var terminal = new Terminal(new TerminalOptions { ConvertEol = true });
         var renderer = new ConsoleRenderer(terminal);
@@ -173,16 +176,16 @@ public class BasicExample
 
         // Trigger events
         terminal.Write("\x1b]0;My Terminal Title\x07"); // Set title
-        terminal.Write("Line 1\n"); // Trigger line feed
+        terminal.WriteLine("Line 1"); // Trigger line feed
         terminal.Write("\x07"); // Bell
-        terminal.Write("Line 2\n");
+        terminal.WriteLine("Line 2");
 
         RenderTerminal(terminal, renderer);
     }
 
     static void WindowManipulationExample()
     {
-        Console.WriteLine("\n=== Window Manipulation Example ===\n");
+        Console.WriteLine("=== Window Manipulation Example ===");
 
         var terminal = new Terminal(new TerminalOptions
         {
@@ -307,7 +310,7 @@ public class BasicExample
         };
 
         // Send window manipulation commands
-        terminal.Write("Sending window manipulation commands...\n");
+        terminal.Write("Sending window manipulation commands...");
         RenderTerminal(terminal, renderer);
 
         terminal.Write("\x1b[3;100;200t"); // Move window to (100, 200)
@@ -323,9 +326,43 @@ public class BasicExample
         RenderTerminal(terminal, renderer);
     }
 
+    static void AlternateBufferExample()
+    {
+        Console.WriteLine("=== Alternate Buffer Example ===");
+
+        var terminal = new Terminal(new TerminalOptions
+        {
+            Cols = 40,
+            Rows = 10,
+            Scrollback = 50
+        });
+
+        var renderer = new ConsoleRenderer(terminal);
+
+        // Normal buffer content
+        terminal.WriteLine("Normal buffer line 1");
+        terminal.WriteLine("Normal buffer line 2");
+        terminal.WriteLine("Press any key to switch to the alternate buffer...");
+        RenderTerminal(terminal, renderer);
+        Console.ReadKey();
+
+        // Switch to alternate buffer
+        terminal.SwitchToAltBuffer();
+        terminal.WriteLine("Alt buffer line 1");
+        terminal.WriteLine("Alt buffer line 2");
+        terminal.WriteLine("Alt buffer is separate from scrollback.");
+        RenderTerminal(terminal, renderer);
+        Console.ReadKey();
+
+        // Switch back to normal buffer
+        terminal.SwitchToNormalBuffer();
+        terminal.WriteLine("Back on normal buffer; previous content is intact.");
+        RenderTerminal(terminal, renderer);
+    }
+
     static void RenderTerminal(Terminal terminal, ConsoleRenderer renderer)
     {
-        Console.WriteLine("\nTerminal output:");
+        Console.WriteLine("Terminal output:");
         Console.WriteLine(new string('-', terminal.Cols));
 
         // Use the ConsoleRenderer to render the terminal content

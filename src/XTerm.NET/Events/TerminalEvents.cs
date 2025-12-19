@@ -187,5 +187,18 @@ public static class TerminalEvents
             Request = request;
         }
     }
+
+    /// <summary>
+    /// Buffer change event - fired when the active buffer switches.
+    /// </summary>
+    public class BufferChangedEventArgs : EventArgs
+    {
+        public XTerm.Common.BufferType Buffer { get; }
+
+        public BufferChangedEventArgs(XTerm.Common.BufferType buffer)
+        {
+            Buffer = buffer;
+        }
+    }
 }
 

@@ -27,6 +27,8 @@ public class Terminal
     public Buffer.TerminalBuffer Buffer => _buffer;
     public int Cols { get; private set; }
     public int Rows { get; private set; }
+    public BufferType ActiveBuffer => _usingAltBuffer ? BufferType.Alternate : BufferType.Normal;
+    public bool IsAlternateBufferActive => _usingAltBuffer;
 
     // Terminal state
     public bool InsertMode { get; set; }
@@ -139,6 +141,11 @@ public class Terminal
     /// </summary>
     public event EventHandler<TerminalEvents.WindowInfoRequestedEventArgs>? WindowInfoRequested;
 
+    /// <summary>
+    /// Fired when the active buffer is changed.
+    /// </summary>
+    public event EventHandler<TerminalEvents.BufferChangedEventArgs>? BufferChanged;
+
     public Terminal(TerminalOptions? options = null)
     {
         Options = options ?? new TerminalOptions();
@@ -231,7 +238,7 @@ public class Terminal
     /// </summary>
     public void WriteLine(string data)
     {
-        Write(data + "\n");
+        Write(data + "\r\n");
     }
 
     /// <summary>
@@ -470,6 +477,7 @@ public class Terminal
         _buffer = _altBuffer!;
         _usingAltBuffer = true;
         _inputHandler.SetBuffer(_buffer);
+        BufferChanged?.Invoke(this, new TerminalEvents.BufferChangedEventArgs(BufferType.Alternate));
     }
 
     /// <summary>
@@ -483,6 +491,7 @@ public class Terminal
         _buffer = _normalBuffer!;
         _usingAltBuffer = false;
         _inputHandler.SetBuffer(_buffer);
+        BufferChanged?.Invoke(this, new TerminalEvents.BufferChangedEventArgs(BufferType.Normal));
     }
 
     /// <summary>

@@ -1,6 +1,15 @@
 namespace XTerm.Common;
 
 /// <summary>
+/// Identifies the active terminal buffer.
+/// </summary>
+public enum BufferType
+{
+    Normal,
+    Alternate
+}
+
+/// <summary>
 /// Cursor style for the terminal.
 /// </summary>
 public enum CursorStyle
