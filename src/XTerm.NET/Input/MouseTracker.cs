@@ -28,7 +28,6 @@ public class MouseTracker
     /// </summary>
     public string GenerateMouseEvent(MouseButton button, int x, int y, MouseEventType eventType, KeyModifiers modifiers = KeyModifiers.None)
     {
-        Debug.WriteLine($"button: {button}, x: {x}, y: {y}, eventType: {eventType}, modifiers: {modifiers}");
         // Check if this mode supports this event type
         if (!ShouldReportEvent(button, eventType))
             return string.Empty;
@@ -61,7 +60,6 @@ public class MouseTracker
     {
         if (TrackingMode == MouseTrackingMode.None)
             return false;
-        Debug.WriteLine($"TrackingMode: {TrackingMode}");
         return TrackingMode switch
         {
             MouseTrackingMode.X10 => eventType == MouseEventType.Down,
