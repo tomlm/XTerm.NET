@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace XTerm.Input;
 
 /// <summary>
@@ -26,6 +28,7 @@ public class MouseTracker
     /// </summary>
     public string GenerateMouseEvent(MouseButton button, int x, int y, MouseEventType eventType, KeyModifiers modifiers = KeyModifiers.None)
     {
+        Debug.WriteLine($"button: {button}, x: {x}, y: {y}, eventType: {eventType}, modifiers: {modifiers}");
         // Check if this mode supports this event type
         if (!ShouldReportEvent(button, eventType))
             return string.Empty;
@@ -58,7 +61,7 @@ public class MouseTracker
     {
         if (TrackingMode == MouseTrackingMode.None)
             return false;
-
+        Debug.WriteLine($"TrackingMode: {TrackingMode}");
         return TrackingMode switch
         {
             MouseTrackingMode.X10 => eventType == MouseEventType.Down,
@@ -91,7 +94,7 @@ public class MouseTracker
         // X10/VT200 format: ESC [ M Cb Cx Cy
         // Where Cb, Cx, Cy are encoded as value + 32 (to make printable ASCII)
         
-        int cb = EncodeButton(button, eventType, modifiers);
+        int cb = EncodeButtonDefault(button, eventType, modifiers);
         int cx = x + 1 + 32; // 1-based + 32 offset
         int cy = y + 1 + 32; // 1-based + 32 offset
 
@@ -105,7 +108,7 @@ public class MouseTracker
     private string GenerateUTF8Sequence(MouseButton button, int x, int y, MouseEventType eventType, KeyModifiers modifiers)
     {
         // Similar to default but uses UTF-8 encoding for coordinates > 223
-        int cb = EncodeButton(button, eventType, modifiers);
+        int cb = EncodeButtonDefault(button, eventType, modifiers);
         int cx = x + 1 + 32;
         int cy = y + 1 + 32;
 
@@ -116,9 +119,9 @@ public class MouseTracker
     {
         // SGR format: ESC [ < Cb ; Cx ; Cy M/m
         // M for button press, m for button release
-        // No encoding offset, coordinates are decimal numbers
+        // No encoding offset, coordinates are decimal numbers (1-based)
 
-        int cb = EncodeButton(button, eventType, modifiers);
+        int cb = EncodeButtonSGR(button, eventType, modifiers);
         int cx = x + 1; // 1-based
         int cy = y + 1; // 1-based
 
@@ -130,16 +133,19 @@ public class MouseTracker
     private string GenerateURXVTSequence(MouseButton button, int x, int y, MouseEventType eventType, KeyModifiers modifiers)
     {
         // URXVT format: ESC [ Cb ; Cx ; Cy M
-        int cb = EncodeButton(button, eventType, modifiers);
+        int cb = EncodeButtonDefault(button, eventType, modifiers);
         int cx = x + 1; // 1-based
         int cy = y + 1; // 1-based
 
         return $"\u001b[{cb};{cx};{cy}M";
     }
 
-    private int EncodeButton(MouseButton button, MouseEventType eventType, KeyModifiers modifiers)
+    /// <summary>
+    /// Encodes button for X10/VT200/UTF8/URXVT formats (includes +32 base).
+    /// </summary>
+    private int EncodeButtonDefault(MouseButton button, MouseEventType eventType, KeyModifiers modifiers)
     {
-        int cb = 32; // Base value
+        int cb = 32; // Base value for X10/VT200
 
         // Button encoding
         if (button == MouseButton.WheelUp)
@@ -158,6 +164,10 @@ public class MouseTracker
             {
                 cb += (int)_lastButton;
             }
+            else
+            {
+                cb += 3; // No button (for move without button down)
+            }
         }
         else if (eventType == MouseEventType.Up)
         {
@@ -168,6 +178,54 @@ public class MouseTracker
         {
             // Button down
             cb += (int)button;
+        }
+
+        // Add modifier flags
+        if ((modifiers & KeyModifiers.Shift) != 0) cb += 4;
+        if ((modifiers & KeyModifiers.Alt) != 0) cb += 8;
+        if ((modifiers & KeyModifiers.Control) != 0) cb += 16;
+
+        return cb;
+    }
+
+    /// <summary>
+    /// Encodes button for SGR format (no +32 base, preserves button info on release).
+    /// </summary>
+    private int EncodeButtonSGR(MouseButton button, MouseEventType eventType, KeyModifiers modifiers)
+    {
+        int cb = 0; // No base offset for SGR
+
+        // Button encoding
+        if (button == MouseButton.WheelUp)
+        {
+            cb = 64;
+        }
+        else if (button == MouseButton.WheelDown)
+        {
+            cb = 65;
+        }
+        else if (eventType == MouseEventType.Move || eventType == MouseEventType.Drag)
+        {
+            // Motion events - add motion flag (32)
+            cb = 32;
+            if (_isButtonDown && _lastButton != MouseButton.None)
+            {
+                cb += (int)_lastButton;
+            }
+            else
+            {
+                cb += 3; // No button pressed during move
+            }
+        }
+        else if (eventType == MouseEventType.Up)
+        {
+            // SGR preserves button info on release (terminator 'm' indicates release)
+            cb = (int)button;
+        }
+        else
+        {
+            // Button down
+            cb = (int)button;
         }
 
         // Add modifier flags
