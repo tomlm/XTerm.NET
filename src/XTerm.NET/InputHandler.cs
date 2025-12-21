@@ -1,8 +1,10 @@
+using NeoSmart.Unicode;
 using System.Text;
+using Wcwidth;
 using XTerm.Buffer;
 using XTerm.Common;
-using XTerm.Parser;
 using XTerm.Input;
+using XTerm.Parser;
 
 namespace XTerm;
 
@@ -1587,31 +1589,82 @@ public class InputHandler
 
     // Utility Methods
 
-    private int GetStringCellWidth(string str)
+    private int GetStringCellWidth(string text)
     {
-        // Simple width calculation - would need proper Unicode width handling
-        if (string.IsNullOrEmpty(str))
-            return 0;
-
-        // Basic implementation - should handle emoji, CJK, etc.
-        var runes = str.EnumerateRunes();
-        var width = 0;
-        foreach (var rune in runes)
+        ArgumentNullException.ThrowIfNull(text);
+        bool supportsComplexEmoji = true;
+        ushort width = 0;
+        ushort lastWidth = 0;
+        int regionalRuneCount = 0;
+        foreach (Rune rune in text.EnumerateRunes())
         {
-            // Simplified: check for wide characters
-            if (rune.Value >= 0x1100 && rune.Value <= 0x115F ||
-                rune.Value >= 0x2E80 && rune.Value <= 0x9FFF ||
-                rune.Value >= 0xAC00 && rune.Value <= 0xD7AF ||
-                rune.Value >= 0xF900 && rune.Value <= 0xFAFF ||
-                rune.Value >= 0x20000 && rune.Value <= 0x2FFFF)
+            int runeWidth = Emoji.IsEmoji(rune.ToString()) ? 2 : UnicodeCalculator.GetWidth(rune);
+            if (runeWidth >= 0)
             {
-                width += 2;
+                if (rune.Value == Emoji.ZeroWidthJoiner || rune.Value == Emoji.ObjectReplacementCharacter)
+                {
+                    if (supportsComplexEmoji)
+                        width -= lastWidth;
+                    else
+                        // we return the first emoji as the result because terminal doesn't support chaining them
+                        break;
+                }
+                else if (rune.Value == Codepoints.VariationSelectors.EmojiSymbol &&
+                         lastWidth == 1)
+                {
+                    // adjust for the emoji presentation, which is width 2
+                    width++;
+                    lastWidth = 2;
+                }
+                else if (rune.Value == Codepoints.VariationSelectors.TextSymbol &&
+                         lastWidth == 2)
+                {
+                    // adjust for the text presentation, which is width 1
+                    width--;
+                    lastWidth = 1;
+                }
+                else if (lastWidth > 0 &&
+                         (rune.Value >= Emoji.SkinTones.Light && rune.Value <= Emoji.SkinTones.Dark ||
+                          rune.Value == Codepoints.Keycap))
+                {
+                    // Emoji modifier (skin tone) or keycap extender should continue current glyph
+
+                    // else: combining — ignore
+                }
+                // regional indicator symbols
+                else if (rune.Value >= 0x1F1E6 && rune.Value <= 0x1F1FF)
+                {
+                    regionalRuneCount++;
+                    if (regionalRuneCount % 2 == 0)
+                        // every pair of regional indicator symbols form a single glyph
+                        width += (ushort)runeWidth;
+                    // If the last rune is a regional indicator symbol, continue the current glyph
+                }
+                else
+                {
+                    width += (ushort)runeWidth;
+                }
+
+
+                if (runeWidth > 0) lastWidth = (ushort)runeWidth;
             }
+            // Control chars return as width < 0
             else
             {
-                width += 1;
+                if (rune.Value == 0x9 /* tab */)
+                {
+                    // Avalonia uses hard coded 4 spaces for tabs (NOT column based tabstops), this may change in the future
+                    width += 4;
+                    lastWidth = 4;
+                }
+                else if (rune.Value == '\n')
+                {
+                    width += 1;
+                    lastWidth = 1;
+                }
             }
         }
+
         return width;
     }
 
