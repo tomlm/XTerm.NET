@@ -138,5 +138,10 @@ public enum TerminalMode
     /// <summary>
     /// Pixel Position Mouse Mode.
     /// </summary>
-    MouseReportPixel = 1016
+    MouseReportPixel = 1016,
+
+    /// <summary>
+    /// Win32 Input Mode.
+    /// </summary>
+    Win32InputMode = 9001
 }

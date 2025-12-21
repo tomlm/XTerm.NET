@@ -337,9 +337,9 @@ public class TerminalBuffer
     }
 
     /// <summary>
-    /// Moves the cursor to the specified position.
+    /// Moves the cursor to the specified position without any clamping.
     /// </summary>
-    public void MoveCursor(int x, int y)
+    public void SetCursorRaw(int x, int y)
     {
         _x = x;
         _y = y;

@@ -120,7 +120,7 @@ public class InputHandler
         }
 
         // Use MoveCursor to allow X to be one past the last column (pending wrap)
-        _buffer.MoveCursor(_buffer.X + width, _buffer.Y);
+        _buffer.SetCursorRaw(_buffer.X + width, _buffer.Y);
     }
 
     /// <summary>
@@ -1337,6 +1337,10 @@ public class InputHandler
                     _terminal.GetMouseTracker().Encoding = MouseEncoding.URXVT;
                     break;
                     
+                case TerminalMode.Win32InputMode:
+                    _terminal.Win32InputMode = true;
+                    break;
+                    
                 default:
                     System.Diagnostics.Debug.WriteLine($"Unhandled terminal mode: {terminalMode}");
                     break;
@@ -1449,6 +1453,10 @@ public class InputHandler
                 case TerminalMode.MouseReportSgr:
                 case TerminalMode.MouseReportUrxvt:
                     _terminal.GetMouseTracker().Encoding = MouseEncoding.Default;
+                    break;
+                    
+                case TerminalMode.Win32InputMode:
+                    _terminal.Win32InputMode = false;
                     break;
                     
                 default:

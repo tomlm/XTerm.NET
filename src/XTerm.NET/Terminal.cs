@@ -39,6 +39,7 @@ public class Terminal
     public bool CursorVisible { get; set; }
     public bool ReverseWraparound { get; set; }
     public bool SendFocusEvents { get; set; }
+    public bool Win32InputMode { get; set; }
     public string Title { get; set; }
     public string? CurrentDirectory { get; set; }
     public string? CurrentHyperlink { get; set; }

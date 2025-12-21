@@ -74,7 +74,7 @@ public class BufferTests
         var buffer = new TerminalBuffer(80, 24, 1000);
 
         // Act
-        buffer.MoveCursor(10, 5);
+        buffer.SetCursorRaw(10, 5);
 
         // Assert
         Assert.Equal(10, buffer.X);
@@ -480,7 +480,7 @@ public class BufferTests
         var x1 = buffer.X;
         var y1 = buffer.Y;
 
-        buffer.MoveCursor(50, 20);
+        buffer.SetCursorRaw(50, 20);
         var x2 = buffer.X;
         var y2 = buffer.Y;
 
