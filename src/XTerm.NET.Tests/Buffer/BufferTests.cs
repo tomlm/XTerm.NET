@@ -619,7 +619,7 @@ public class BufferTests
         // The active area's last line should be blank
         var lastActiveLine = buffer.Lines[buffer.YBase + buffer.Rows - 1];
         Assert.NotNull(lastActiveLine);
-        Assert.True(lastActiveLine[0].IsNull() || lastActiveLine[0].Content == "\0");
+        Assert.True(lastActiveLine[0].IsEmpty() || lastActiveLine[0].Content == "\0");
     }
 
     [Fact]

@@ -205,7 +205,7 @@ public class SelectionManager
         var startLine = buffer.Lines[buffer.YDisp + start.y];
         if (startLine != null)
         {
-            while (start.x > 0 && IsWordChar(startLine[start.x - 1].GetChars()))
+            while (start.x > 0 && IsWordChar(startLine[start.x - 1].Content))
             {
                 start.x--;
             }
@@ -215,7 +215,7 @@ public class SelectionManager
         var endLine = buffer.Lines[buffer.YDisp + end.y];
         if (endLine != null)
         {
-            while (end.x < _terminal.Cols - 1 && IsWordChar(endLine[end.x + 1].GetChars()))
+            while (end.x < _terminal.Cols - 1 && IsWordChar(endLine[end.x + 1].Content))
             {
                 end.x++;
             }

@@ -117,14 +117,6 @@ public static class Constants
     public const int CharDataWidthIndex = 2;
     public const int CharDataCodeIndex = 3;
     
-    public const int NullCellCode = 0x0020;
-    public const int NullCellWidth = 1;
-    public const char NullCellChar = ' ';
-    
-    public const int WhitespaceCellCode = 0x0020;
-    public const int WhitespaceCellWidth = 1;
-    public const char WhitespaceCellChar = ' ';
-    
     public const long MaxBufferSize = 4294967295;
 }
 

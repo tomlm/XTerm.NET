@@ -97,7 +97,7 @@ public class TerminalBuffer
         _x = 0;
         _scrollTop = 0;
         _scrollBottom = rows - 1;
-        _fillCell = BufferCell.Null;
+        _fillCell = BufferCell.Empty;
         SavedCursorState = new SavedCursor();
 
         // Initialize buffer with empty lines
@@ -120,14 +120,8 @@ public class TerminalBuffer
     /// </summary>
     public BufferLine GetBlankLine(AttributeData attr, bool isWrapped = false)
     {
-        var fillCell = new BufferCell
-        {
-            Content = Constants.NullCellChar.ToString(),
-            Width = Constants.NullCellWidth,
-            Attributes = attr,
-            CodePoint = Constants.NullCellCode
-        };
-
+        var fillCell = BufferCell.Empty;
+        fillCell.Attributes = attr;
         return new BufferLine(_cols, fillCell) { IsWrapped = isWrapped };
     }
 
@@ -291,7 +285,7 @@ public class TerminalBuffer
         _lines.Resize(newMaxLength);
 
         // Resize existing lines to the new column count
-        var fillCell = BufferCell.Null;
+        var fillCell = BufferCell.Empty;
         for (int i = 0; i < _lines.Length; i++)
         {
             _lines[i]?.Resize(newCols, fillCell);

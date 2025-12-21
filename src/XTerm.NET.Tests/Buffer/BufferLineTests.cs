@@ -75,8 +75,8 @@ public class BufferLineTests
         var cell2 = line[100];
 
         // Assert
-        Assert.True(cell.IsNull());
-        Assert.True(cell2.IsNull());
+        Assert.True(cell.IsEmpty());
+        Assert.True(cell2.IsEmpty());
     }
 
     [Fact]
@@ -173,7 +173,7 @@ public class BufferLineTests
     {
         // Arrange
         var line = new BufferLine(20);
-        var fillCell = BufferCell.Null;
+        var fillCell = BufferCell.Empty;
         line[15] = new BufferCell("A", 1, AttributeData.Default);
 
         // Act
@@ -188,7 +188,7 @@ public class BufferLineTests
     {
         // Arrange
         var line = new BufferLine(10);
-        var fillCell = BufferCell.Null;
+        var fillCell = BufferCell.Empty;
         line[5] = new BufferCell("A", 1, AttributeData.Default);
 
         // Act
@@ -210,11 +210,11 @@ public class BufferLineTests
         line.Fill(fillCell, 2, 5);
 
         // Assert
-        Assert.True(line[1].IsNull()); // Before range
+        Assert.True(line[1].IsEmpty()); // Before range
         Assert.Equal("F", line[2].Content);
         Assert.Equal("F", line[3].Content);
         Assert.Equal("F", line[4].Content);
-        Assert.True(line[5].IsNull()); // After range
+        Assert.True(line[5].IsEmpty()); // After range
     }
 
     [Fact]

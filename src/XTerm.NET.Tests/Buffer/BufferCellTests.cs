@@ -58,7 +58,7 @@ public class BufferCellTests
     public void Null_Property_ReturnsNullCell()
     {
         // Act
-        var cell = BufferCell.Null;
+        var cell = BufferCell.Empty;
 
         // Assert
         Assert.Equal(Constants.NullCellChar.ToString(), cell.Content);
@@ -70,22 +70,22 @@ public class BufferCellTests
     public void Whitespace_Property_ReturnsWhitespaceCell()
     {
         // Act
-        var cell = BufferCell.Whitespace;
+        var cell = BufferCell.Space;
 
         // Assert
-        Assert.Equal(Constants.WhitespaceCellChar.ToString(), cell.Content);
-        Assert.Equal(Constants.WhitespaceCellWidth, cell.Width);
-        Assert.Equal(Constants.WhitespaceCellCode, cell.CodePoint);
+        Assert.Equal(Constants.SpaceCellChar.ToString(), cell.Content);
+        Assert.Equal(Constants.SpaceCellWidth, cell.Width);
+        Assert.Equal(Constants.SpaceCellCode, cell.CodePoint);
     }
 
     [Fact]
     public void IsNull_NullCell_ReturnsTrue()
     {
         // Arrange
-        var cell = BufferCell.Null;
+        var cell = BufferCell.Empty;
 
         // Act & Assert
-        Assert.True(cell.IsNull());
+        Assert.True(cell.IsEmpty());
     }
 
     [Fact]
@@ -95,17 +95,17 @@ public class BufferCellTests
         var cell = new BufferCell("A", 1, AttributeData.Default);
 
         // Act & Assert
-        Assert.False(cell.IsNull());
+        Assert.False(cell.IsEmpty());
     }
 
     [Fact]
     public void IsWhitespace_WhitespaceCell_ReturnsTrue()
     {
         // Arrange
-        var cell = BufferCell.Whitespace;
+        var cell = BufferCell.Space;
 
         // Act & Assert
-        Assert.True(cell.IsWhitespace());
+        Assert.True(cell.IsSpace());
     }
 
     [Fact]
@@ -115,7 +115,7 @@ public class BufferCellTests
         var cell = new BufferCell("A", 1, AttributeData.Default);
 
         // Act & Assert
-        Assert.False(cell.IsWhitespace());
+        Assert.False(cell.IsSpace());
     }
 
     [Fact]

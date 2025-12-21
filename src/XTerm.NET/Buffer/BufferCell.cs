@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using XTerm.Common;
 
@@ -7,36 +8,23 @@ namespace XTerm.Buffer;
 /// Represents a single cell in the terminal buffer.
 /// Each cell contains a character, width, and attributes.
 /// </summary>
+[DebuggerDisplay("'{Content}'  [{Width}, {Attributes}, {CodePoint}]")]
 public struct BufferCell : IEquatable<BufferCell>
 {
-    public string Content;
-    public int Width;
-    public AttributeData Attributes;
-    public int CodePoint;
+    public string Content = String.Empty;
+    public int Width =0;
+    public AttributeData Attributes = AttributeData.Default;
+    public int CodePoint = 0;
 
-    public static BufferCell Null => new BufferCell
+    public static BufferCell Empty => new BufferCell();
+
+    public static BufferCell Space => new BufferCell
     {
-        Content = Constants.NullCellChar.ToString(),
-        Width = Constants.NullCellWidth,
+        Content = " ",
+        Width = 1,
         Attributes = AttributeData.Default,
-        CodePoint = Constants.NullCellCode
+        CodePoint = 0x20
     };
-
-    public static BufferCell Whitespace => new BufferCell
-    {
-        Content = Constants.WhitespaceCellChar.ToString(),
-        Width = Constants.WhitespaceCellWidth,
-        Attributes = AttributeData.Default,
-        CodePoint = Constants.WhitespaceCellCode
-    };
-
-    public BufferCell()
-    {
-        Content = Constants.NullCellChar.ToString();
-        Width = Constants.NullCellWidth;
-        Attributes = AttributeData.Default;
-        CodePoint = Constants.NullCellCode;
-    }
 
     public BufferCell(string content, int width, AttributeData attributes)
     {
@@ -54,15 +42,9 @@ public struct BufferCell : IEquatable<BufferCell>
         Content = char.ConvertFromUtf32(codePoint);
     }
 
-    public bool IsNull() => CodePoint == Constants.NullCellCode && Width == Constants.NullCellWidth;
+    public bool IsEmpty() => CodePoint == Empty.CodePoint;
 
-    public bool IsWhitespace() => CodePoint == Constants.WhitespaceCellCode;
-
-    public int GetWidth() => Width;
-
-    public string GetChars() => Content;
-
-    public int GetCode() => CodePoint;
+    public bool IsSpace() => CodePoint == Space.CodePoint;
 
     public bool Equals(BufferCell other)
     {

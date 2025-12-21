@@ -26,7 +26,7 @@ public class BufferLine : IEnumerable<BufferCell>
         _cells = new BufferCell[cols];
         _isWrapped = false;
 
-        var fill = fillCell ?? BufferCell.Null;
+        var fill = fillCell ?? BufferCell.Empty;
         for (int i = 0; i < cols; i++)
         {
             _cells[i] = fill.Clone();
@@ -41,7 +41,7 @@ public class BufferLine : IEnumerable<BufferCell>
         get
         {
             if (index < 0 || index >= _length)
-                return BufferCell.Null;
+                return BufferCell.Empty;
             return _cells[index];
         }
         set
@@ -183,7 +183,7 @@ public class BufferLine : IEnumerable<BufferCell>
     {
         for (int i = _length - 1; i >= 0; i--)
         {
-            if (!_cells[i].IsWhitespace())
+            if (!_cells[i].IsSpace())
                 return i + 1;
         }
         return 0;
