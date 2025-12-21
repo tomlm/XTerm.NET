@@ -12,7 +12,7 @@ namespace XTerm.Buffer;
 public struct BufferCell : IEquatable<BufferCell>
 {
     public string Content = String.Empty;
-    public int Width =0;
+    public int Width = 0;
     public AttributeData Attributes = AttributeData.Default;
     public int CodePoint = 0;
 
@@ -26,6 +26,11 @@ public struct BufferCell : IEquatable<BufferCell>
         CodePoint = 0x20
     };
 
+    public BufferCell()
+    {
+        Content = String.Empty;
+        Attributes = AttributeData.Default;
+    }
     public BufferCell(string content, int width, AttributeData attributes)
     {
         Content = content;
