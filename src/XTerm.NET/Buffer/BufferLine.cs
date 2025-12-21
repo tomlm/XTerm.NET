@@ -183,7 +183,7 @@ public class BufferLine : IEnumerable<BufferCell>
     {
         for (int i = _length - 1; i >= 0; i--)
         {
-            if (!_cells[i].IsSpace())
+            if (!_cells[i].IsSpace() && !_cells[i].IsEmpty())
                 return i + 1;
         }
         return 0;

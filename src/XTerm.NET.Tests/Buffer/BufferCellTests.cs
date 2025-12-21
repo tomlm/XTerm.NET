@@ -12,9 +12,9 @@ public class BufferCellTests
         var cell = new BufferCell();
 
         // Assert
-        Assert.Equal(Constants.NullCellChar.ToString(), cell.Content);
-        Assert.Equal(Constants.NullCellWidth, cell.Width);
-        Assert.Equal(Constants.NullCellCode, cell.CodePoint);
+        Assert.Equal(BufferCell.Empty.Content, cell.Content);
+        Assert.Equal(BufferCell.Empty.Width, cell.Width);
+        Assert.Equal(BufferCell.Empty.CodePoint, cell.CodePoint);
         Assert.Equal(AttributeData.Default, cell.Attributes);
     }
 
@@ -61,9 +61,9 @@ public class BufferCellTests
         var cell = BufferCell.Empty;
 
         // Assert
-        Assert.Equal(Constants.NullCellChar.ToString(), cell.Content);
-        Assert.Equal(Constants.NullCellWidth, cell.Width);
-        Assert.Equal(Constants.NullCellCode, cell.CodePoint);
+        Assert.Equal(BufferCell.Empty.Content, cell.Content);
+        Assert.Equal(BufferCell.Empty.Width, cell.Width);
+        Assert.Equal(BufferCell.Empty.CodePoint, cell.CodePoint);
     }
 
     [Fact]
@@ -73,9 +73,9 @@ public class BufferCellTests
         var cell = BufferCell.Space;
 
         // Assert
-        Assert.Equal(Constants.SpaceCellChar.ToString(), cell.Content);
-        Assert.Equal(Constants.SpaceCellWidth, cell.Width);
-        Assert.Equal(Constants.SpaceCellCode, cell.CodePoint);
+        Assert.Equal(BufferCell.Space.Content, cell.Content);
+        Assert.Equal(BufferCell.Space.Width, cell.Width);
+        Assert.Equal(BufferCell.Space.CodePoint, cell.CodePoint);
     }
 
     [Fact]
@@ -125,7 +125,7 @@ public class BufferCellTests
         var cell = new BufferCell("A", 2, AttributeData.Default);
 
         // Act
-        var width = cell.GetWidth();
+        var width = cell.Width;
 
         // Assert
         Assert.Equal(2, width);
@@ -139,7 +139,7 @@ public class BufferCellTests
         var cell = new BufferCell(content, 1, AttributeData.Default);
 
         // Act
-        var chars = cell.GetChars();
+        var chars = cell.Content;
 
         // Assert
         Assert.Equal(content, chars);
@@ -153,7 +153,7 @@ public class BufferCellTests
         var cell = new BufferCell(codePoint, 1, AttributeData.Default);
 
         // Act
-        var code = cell.GetCode();
+        var code = cell.CodePoint;
 
         // Assert
         Assert.Equal(codePoint, code);
