@@ -108,6 +108,8 @@ public class InputHandler
                 {
                     return; // Successfully combined, don't create new cell
                 }
+                else
+                    ;
                 // If we can't combine (e.g., at start of line), fall through to normal handling
             }
         }
