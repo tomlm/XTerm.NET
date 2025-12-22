@@ -70,7 +70,7 @@ public class ConsoleRenderer : IRenderer
                     
                     // Write the character
                     var content = cell.Content;
-                    if (string.IsNullOrEmpty(content) || cell.IsNull())
+                    if (string.IsNullOrEmpty(content))
                     {
                         sb.Append(' ');
                     }
