@@ -212,43 +212,36 @@ public class BasicExample
         terminal.WindowMoved += (sender, e) =>
         {
             Console.WriteLine($"[WINDOW EVENT] Move window to: ({e.X}, {e.Y})");
-            Console.ReadKey();
         };
 
         terminal.WindowResized += (sender, e) =>
         {
             Console.WriteLine($"[WINDOW EVENT] Resize window to: {e.Width}x{e.Height} pixels");
-            Console.ReadKey();
         };
 
         terminal.WindowMinimized += (sender, e) =>
         {
             Console.WriteLine("[WINDOW EVENT] Minimize window");
-            Console.ReadKey();
         };
 
         terminal.WindowMaximized += (sender, e) =>
         {
             Console.WriteLine("[WINDOW EVENT] Maximize window");
-            Console.ReadKey();
         };
 
         terminal.WindowRestored += (sender, e) =>
         {
             Console.WriteLine("[WINDOW EVENT] Restore window");
-            Console.ReadKey();
         };
 
         terminal.WindowRaised += (sender, e) =>
         {
             Console.WriteLine("[WINDOW EVENT] Raise window to front");
-            Console.ReadKey();
         };
 
         terminal.WindowLowered += (sender, e) =>
         {
             Console.WriteLine("[WINDOW EVENT] Lower window to back");
-            Console.ReadKey();
         };
 
         terminal.WindowInfoRequested += (sender, e) =>
@@ -312,16 +305,26 @@ public class BasicExample
         // Send window manipulation commands
         terminal.Write("Sending window manipulation commands...");
         RenderTerminal(terminal, renderer);
+        Console.ReadKey();
 
         terminal.Write("\x1b[3;100;200t"); // Move window to (100, 200)
+        Console.ReadKey();
         terminal.Write("\x1b[4;600;800t"); // Resize window to 800x600 pixels
+        Console.ReadKey();
         terminal.Write("\x1b[2t");         // Minimize window
+        Console.ReadKey();
         terminal.Write("\x1b[9;1t");       // Maximize window
+        Console.ReadKey();
         terminal.Write("\x1b[9;0t");       // Restore window
+        Console.ReadKey();
         terminal.Write("\x1b[5t");         // Raise window
+        Console.ReadKey();
         terminal.Write("\x1b[6t");         // Lower window
+        Console.ReadKey();
         terminal.Write("\x1b[21t");        // Query window title
+        Console.ReadKey();
         terminal.Write("\x1b[18t");        // Query text area size
+        Console.ReadKey();
 
         RenderTerminal(terminal, renderer);
     }
