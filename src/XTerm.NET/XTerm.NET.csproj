@@ -9,7 +9,7 @@
 <PropertyGroup>
     <Version>1.0.2</Version>
     <AssemblyVersion>1.0.2.0</AssemblyVersion>
-    <Description></Description>
+    <Description>Dotnet port of xterm.js, giving you ability to host console application.</Description>
     <Company>Iciclecreek</Company>
     <Authors>Tom Laird-McConnell</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
