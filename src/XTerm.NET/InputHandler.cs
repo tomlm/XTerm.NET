@@ -251,7 +251,7 @@ public class InputHandler
         }
 
         // Can't combine with empty cells
-        if (prevCell.IsSpace() || prevCell.IsEmpty())
+        if (prevCell.IsEmpty())
         {
             // Only allow combining with actual content, not empty/space cells
             // unless the space is the only content (which shouldn't happen for valid sequences)
