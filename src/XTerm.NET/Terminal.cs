@@ -82,11 +82,6 @@ public class Terminal
     public event EventHandler<TerminalEvents.LineFeedEventArgs>? LineFed;
 
     /// <summary>
-    /// Fired when the cursor moves.
-    /// </summary>
-    public event EventHandler? CursorMoved;
-
-    /// <summary>
     /// Fired when the current directory changes.
     /// </summary>
     public event EventHandler<TerminalEvents.DirectoryChangeEventArgs>? DirectoryChanged;
@@ -610,7 +605,6 @@ public class Terminal
         Resized = null;
         Scrolled = null;
         LineFed = null;
-        CursorMoved = null;
         DirectoryChanged = null;
         HyperlinkChanged = null;
         

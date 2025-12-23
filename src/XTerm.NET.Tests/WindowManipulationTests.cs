@@ -23,10 +23,31 @@ public class WindowManipulationTests
     {
         // Arrange & Act
         var terminal = CreateTerminal();
+        var moveEventFired = false;
+        var resizeEventFired = false;
+        var minimizeEventFired = false;
 
-        // Assert
-        // C# event - no null check needed
+        // Assert - Verify events can be subscribed to without error
+        terminal.WindowMoved += (sender, e) => moveEventFired = true;
+        terminal.WindowResized += (sender, e) => resizeEventFired = true;
+        terminal.WindowMinimized += (sender, e) => minimizeEventFired = true;
+        terminal.WindowMaximized += (sender, e) => { };
+        terminal.WindowRestored += (sender, e) => { };
+        terminal.WindowRaised += (sender, e) => { };
+        terminal.WindowLowered += (sender, e) => { };
+        terminal.WindowRefreshed += (sender, e) => { };
+        terminal.WindowFullscreened += (sender, e) => { };
+        terminal.WindowInfoRequested += (sender, e) => { };
+
+        // Verify terminal is properly initialized
         Assert.NotNull(terminal);
+        Assert.NotNull(terminal.Options);
+        Assert.NotNull(terminal.Options.WindowOptions);
+        
+        // Events should not have fired yet
+        Assert.False(moveEventFired);
+        Assert.False(resizeEventFired);
+        Assert.False(minimizeEventFired);
     }
 
     [Fact]
@@ -490,9 +511,24 @@ public class WindowManipulationTests
     {
         // Arrange
         var terminal = CreateTerminal();
+        var anyEventFired = false;
 
-        // Act & Assert - Should not throw
-        terminal.Write("\x1b[999t"); // Invalid operation
+        terminal.WindowMoved += (sender, e) => anyEventFired = true;
+        terminal.WindowResized += (sender, e) => anyEventFired = true;
+        terminal.WindowMinimized += (sender, e) => anyEventFired = true;
+        terminal.WindowMaximized += (sender, e) => anyEventFired = true;
+        terminal.WindowRestored += (sender, e) => anyEventFired = true;
+        terminal.WindowRaised += (sender, e) => anyEventFired = true;
+        terminal.WindowLowered += (sender, e) => anyEventFired = true;
+        terminal.WindowRefreshed += (sender, e) => anyEventFired = true;
+        terminal.WindowFullscreened += (sender, e) => anyEventFired = true;
+
+        // Act - Invalid operation code should be ignored without throwing
+        var exception = Record.Exception(() => terminal.Write("\x1b[999t"));
+
+        // Assert
+        Assert.Null(exception);
+        Assert.False(anyEventFired); // No valid event should fire for invalid operation
     }
 
     [Fact]
@@ -502,11 +538,26 @@ public class WindowManipulationTests
         var windowOptions = new WindowOptions { SetWinPosition = true };
         var terminal = CreateTerminal(windowOptions);
         var eventFired = false;
+        int capturedX = -1, capturedY = -1;
 
-        terminal.WindowMoved += (sender, e) => eventFired = true;
+        terminal.WindowMoved += (sender, e) =>
+        {
+            eventFired = true;
+            capturedX = e.X;
+            capturedY = e.Y;
+        };
 
-        // Act & Assert - Should not throw, may or may not fire with default values
-        terminal.Write("\x1b[3t"); // Missing x, y parameters
+        // Act - Missing parameters should be handled gracefully
+        var exception = Record.Exception(() => terminal.Write("\x1b[3t"));
+
+        // Assert
+        Assert.Null(exception);
+        // If event fires, parameters should default to 0
+        if (eventFired)
+        {
+            Assert.Equal(0, capturedX);
+            Assert.Equal(0, capturedY);
+        }
     }
 
     [Fact]
@@ -531,15 +582,21 @@ public class WindowManipulationTests
     [Fact]
     public void WindowInfoRequest_AllEnumValues_AreDefined()
     {
-        // Assert - Verify all enum values are defined
-        Assert.Equal(WindowInfoRequest.Position, WindowInfoRequest.Position);
-        Assert.Equal(WindowInfoRequest.SizePixels, WindowInfoRequest.SizePixels);
-        Assert.Equal(WindowInfoRequest.SizeCharacters, WindowInfoRequest.SizeCharacters);
-        Assert.Equal(WindowInfoRequest.ScreenSizePixels, WindowInfoRequest.ScreenSizePixels);
-        Assert.Equal(WindowInfoRequest.CellSizePixels, WindowInfoRequest.CellSizePixels);
-        Assert.Equal(WindowInfoRequest.Title, WindowInfoRequest.Title);
-        Assert.Equal(WindowInfoRequest.IconTitle, WindowInfoRequest.IconTitle);
-        Assert.Equal(WindowInfoRequest.State, WindowInfoRequest.State);
+        // Assert - Verify all expected enum values exist and have distinct values
+        var allValues = Enum.GetValues<WindowInfoRequest>();
+        
+        Assert.Contains(WindowInfoRequest.Position, allValues);
+        Assert.Contains(WindowInfoRequest.SizePixels, allValues);
+        Assert.Contains(WindowInfoRequest.SizeCharacters, allValues);
+        Assert.Contains(WindowInfoRequest.ScreenSizePixels, allValues);
+        Assert.Contains(WindowInfoRequest.CellSizePixels, allValues);
+        Assert.Contains(WindowInfoRequest.Title, allValues);
+        Assert.Contains(WindowInfoRequest.IconTitle, allValues);
+        Assert.Contains(WindowInfoRequest.State, allValues);
+
+        // Verify all values are unique
+        var uniqueValues = allValues.Distinct().ToList();
+        Assert.Equal(allValues.Length, uniqueValues.Count);
     }
 
     // ===== New Request/Response Tests =====

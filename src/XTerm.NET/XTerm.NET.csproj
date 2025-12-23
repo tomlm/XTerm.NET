@@ -7,8 +7,8 @@
     <RootNamespace>XTerm</RootNamespace>
   </PropertyGroup>
 <PropertyGroup>
-    <Version>0.1.0-beta</Version>
-    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <Description></Description>
     <Company>Iciclecreek</Company>
     <Authors>Tom Laird-McConnell</Authors>
@@ -34,6 +34,9 @@
   <ItemGroup>
     <PackageReference Include="Unicode.net" Version="2.0.0" />
     <PackageReference Include="Wcwidth" Version="3.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="Renderer\" />
   </ItemGroup>
 
 </Project>
