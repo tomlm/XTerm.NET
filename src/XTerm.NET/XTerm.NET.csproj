@@ -7,8 +7,8 @@
     <RootNamespace>XTerm</RootNamespace>
   </PropertyGroup>
 <PropertyGroup>
-    <Version>1.0.1</Version>
-    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+    <Version>1.0.2</Version>
+    <AssemblyVersion>1.0.2.0</AssemblyVersion>
     <Description></Description>
     <Company>Iciclecreek</Company>
     <Authors>Tom Laird-McConnell</Authors>
@@ -16,6 +16,7 @@
     <PackageProjectUrl>https://github.com/tomlm/XTerm.NET</PackageProjectUrl>
     <PackageIconUrl>https://raw.githubusercontent.com/tomlm/XTerm.NET/master/icon.png</PackageIconUrl>
     <PackageIcon>icon.png</PackageIcon>
+    <Keyword>xterm;terminal;</Keyword>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <RepositoryUrl>https://github.com/tomlm/XTerm.NET</RepositoryUrl>
