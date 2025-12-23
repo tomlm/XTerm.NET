@@ -2,7 +2,7 @@
 
 A .NET terminal emulator library inspired by [xterm.js](https://github.com/xtermjs/xterm.js).
 XTerm.NET provides a headless terminal emulator that parses and processes VT100/ANSI escape sequences, 
-- making it easy to build terminal applications or integrate terminal functionality into your .NET applications.
+making it easy to host conosole applications in your .NET applications.
 
 ## Features
 
