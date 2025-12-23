@@ -1,6 +1,8 @@
 ﻿# XTerm.NET
 
-A .NET terminal emulator library inspired by [xterm.js](https://github.com/xtermjs/xterm.js). XTerm.NET provides a headless terminal emulator that parses and processes VT100/ANSI escape sequences, making it easy to build terminal applications or integrate terminal functionality into your .NET applications.
+A .NET terminal emulator library inspired by [xterm.js](https://github.com/xtermjs/xterm.js).
+XTerm.NET provides a headless terminal emulator that parses and processes VT100/ANSI escape sequences, 
+- making it easy to build terminal applications or integrate terminal functionality into your .NET applications.
 
 ## Features
 
@@ -27,6 +29,12 @@ Install-Package XTerm.NET
 ```
 
 ## Usage
+The basic architecture is that the Terminal is a XxY array of Buffer Cell structures which represent each cell of the console screen.
+
+* Incoming text from a hosted process is written to the terminal and the terminal will interpret any ANSI VT Escape codes to 
+change color, underline, position etc.
+* The terminal host application calls Terminal.GenerateMouseEvent(), Terminal.GenerateKeyEvent() to send input to the console process.
+* Requests for information are modeled as events (GetWindowTitle, SetWindowTitle etc.).
 
 ### Creating a Terminal
 
