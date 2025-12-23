@@ -369,21 +369,15 @@ public class WindowManipulationTests
     }
 
     [Fact]
-    public void WindowManipulation_QueryWindowTitle_FiresOnWindowInfoRequest()
+    public void WindowManipulation_QueryWindowTitle_SendsDirectResponse()
     {
-        // Arrange
+        // Arrange - Window title query (21t) sends direct response using terminal's Title
         var windowOptions = new WindowOptions { GetWinTitle = true };
         var terminal = CreateTerminal(windowOptions);
         terminal.Title = "Test Title";
         
-        var requestReceived = false;
         var responseReceived = false;
         string capturedResponse = string.Empty;
-
-        terminal.WindowInfoRequested += (sender, e) =>
-        {
-            requestReceived = true;
-        };
 
         terminal.DataReceived += (sender, e) =>
         {
@@ -395,9 +389,9 @@ public class WindowManipulationTests
         terminal.Write("\x1b[21t"); // CSI 21 t
 
         // Assert
-        Assert.True(requestReceived);
         Assert.True(responseReceived);
         Assert.Contains("Test Title", capturedResponse);
+        Assert.Equal("\u001b]lTest Title\u0007", capturedResponse);
     }
 
     [Fact]
@@ -546,6 +540,431 @@ public class WindowManipulationTests
         Assert.Equal(WindowInfoRequest.Title, WindowInfoRequest.Title);
         Assert.Equal(WindowInfoRequest.IconTitle, WindowInfoRequest.IconTitle);
         Assert.Equal(WindowInfoRequest.State, WindowInfoRequest.State);
+    }
+
+    // ===== New Request/Response Tests =====
+
+    [Fact]
+    public void WindowInfoRequest_StateQuery_SendsResponseWhenHandled()
+    {
+        // Arrange
+        var windowOptions = new WindowOptions { GetWinState = true };
+        var terminal = CreateTerminal(windowOptions);
+        string? capturedResponse = null;
+
+        terminal.WindowInfoRequested += (sender, e) =>
+        {
+            if (e.Request == WindowInfoRequest.State)
+            {
+                e.Handled = true;
+                e.IsIconified = false; // Window is not minimized
+            }
+        };
+
+        terminal.DataReceived += (sender, e) =>
+        {
+            capturedResponse = e.Data;
+        };
+
+        // Act
+        terminal.Write("\x1b[11t"); // CSI 11 t - Query window state
+
+        // Assert
+        Assert.NotNull(capturedResponse);
+        Assert.Equal("\u001b[1t", capturedResponse); // 1 = not iconified
+    }
+
+    [Fact]
+    public void WindowInfoRequest_StateQuery_SendsIconifiedResponseWhenMinimized()
+    {
+        // Arrange
+        var windowOptions = new WindowOptions { GetWinState = true };
+        var terminal = CreateTerminal(windowOptions);
+        string? capturedResponse = null;
+
+        terminal.WindowInfoRequested += (sender, e) =>
+        {
+            if (e.Request == WindowInfoRequest.State)
+            {
+                e.Handled = true;
+                e.IsIconified = true; // Window is minimized
+            }
+        };
+
+        terminal.DataReceived += (sender, e) =>
+        {
+            capturedResponse = e.Data;
+        };
+
+        // Act
+        terminal.Write("\x1b[11t");
+
+        // Assert
+        Assert.NotNull(capturedResponse);
+        Assert.Equal("\u001b[2t", capturedResponse); // 2 = iconified
+    }
+
+    [Fact]
+    public void WindowInfoRequest_StateQuery_NoResponseWhenNotHandled()
+    {
+        // Arrange
+        var windowOptions = new WindowOptions { GetWinState = true };
+        var terminal = CreateTerminal(windowOptions);
+        string? capturedResponse = null;
+
+        terminal.WindowInfoRequested += (sender, e) =>
+        {
+            // Don't set Handled = true
+        };
+
+        terminal.DataReceived += (sender, e) =>
+        {
+            capturedResponse = e.Data;
+        };
+
+        // Act
+        terminal.Write("\x1b[11t");
+
+        // Assert
+        Assert.Null(capturedResponse); // No response when not handled
+    }
+
+    [Fact]
+    public void WindowInfoRequest_PositionQuery_SendsPositionResponse()
+    {
+        // Arrange
+        var windowOptions = new WindowOptions { GetWinPosition = true };
+        var terminal = CreateTerminal(windowOptions);
+        string? capturedResponse = null;
+
+        terminal.WindowInfoRequested += (sender, e) =>
+        {
+            if (e.Request == WindowInfoRequest.Position)
+            {
+                e.Handled = true;
+                e.X = 100;
+                e.Y = 200;
+            }
+        };
+
+        terminal.DataReceived += (sender, e) =>
+        {
+            capturedResponse = e.Data;
+        };
+
+        // Act
+        terminal.Write("\x1b[13t"); // CSI 13 t - Query window position
+
+        // Assert
+        Assert.NotNull(capturedResponse);
+        Assert.Equal("\u001b[3;100;200t", capturedResponse);
+    }
+
+    [Fact]
+    public void WindowInfoRequest_SizePixelsQuery_SendsSizeResponse()
+    {
+        // Arrange
+        var windowOptions = new WindowOptions { GetWinSizePixels = true };
+        var terminal = CreateTerminal(windowOptions);
+        string? capturedResponse = null;
+
+        terminal.WindowInfoRequested += (sender, e) =>
+        {
+            if (e.Request == WindowInfoRequest.SizePixels)
+            {
+                e.Handled = true;
+                e.WidthPixels = 800;
+                e.HeightPixels = 600;
+            }
+        };
+
+        terminal.DataReceived += (sender, e) =>
+        {
+            capturedResponse = e.Data;
+        };
+
+        // Act
+        terminal.Write("\x1b[14t"); // CSI 14 t - Query window size in pixels
+
+        // Assert
+        Assert.NotNull(capturedResponse);
+        Assert.Equal("\u001b[4;600;800t", capturedResponse); // Format: CSI 4 ; height ; width t
+    }
+
+    [Fact]
+    public void WindowInfoRequest_ScreenSizePixelsQuery_SendsScreenSizeResponse()
+    {
+        // Arrange
+        var windowOptions = new WindowOptions { GetScreenSizePixels = true };
+        var terminal = CreateTerminal(windowOptions);
+        string? capturedResponse = null;
+
+        terminal.WindowInfoRequested += (sender, e) =>
+        {
+            if (e.Request == WindowInfoRequest.ScreenSizePixels)
+            {
+                e.Handled = true;
+                e.WidthPixels = 1920;
+                e.HeightPixels = 1080;
+            }
+        };
+
+        terminal.DataReceived += (sender, e) =>
+        {
+            capturedResponse = e.Data;
+        };
+
+        // Act
+        terminal.Write("\x1b[15t"); // CSI 15 t - Query screen size in pixels
+
+        // Assert
+        Assert.NotNull(capturedResponse);
+        Assert.Equal("\u001b[5;1080;1920t", capturedResponse); // Format: CSI 5 ; height ; width t
+    }
+
+    [Fact]
+    public void WindowInfoRequest_CellSizePixelsQuery_SendsCellSizeResponse()
+    {
+        // Arrange
+        var windowOptions = new WindowOptions { GetCellSizePixels = true };
+        var terminal = CreateTerminal(windowOptions);
+        string? capturedResponse = null;
+
+        terminal.WindowInfoRequested += (sender, e) =>
+        {
+            if (e.Request == WindowInfoRequest.CellSizePixels)
+            {
+                e.Handled = true;
+                e.CellWidth = 8;
+                e.CellHeight = 16;
+            }
+        };
+
+        terminal.DataReceived += (sender, e) =>
+        {
+            capturedResponse = e.Data;
+        };
+
+        // Act
+        terminal.Write("\x1b[16t"); // CSI 16 t - Query cell size in pixels
+
+        // Assert
+        Assert.NotNull(capturedResponse);
+        Assert.Equal("\u001b[6;16;8t", capturedResponse); // Format: CSI 6 ; height ; width t
+    }
+
+    [Fact]
+    public void WindowInfoRequest_IconTitleQuery_SendsTitleResponse()
+    {
+        // Arrange
+        var windowOptions = new WindowOptions { GetIconTitle = true };
+        var terminal = CreateTerminal(windowOptions);
+        string? capturedResponse = null;
+
+        terminal.WindowInfoRequested += (sender, e) =>
+        {
+            if (e.Request == WindowInfoRequest.IconTitle)
+            {
+                e.Handled = true;
+                e.Title = "My Icon Title";
+            }
+        };
+
+        terminal.DataReceived += (sender, e) =>
+        {
+            capturedResponse = e.Data;
+        };
+
+        // Act
+        terminal.Write("\x1b[20t"); // CSI 20 t - Query icon title
+
+        // Assert
+        Assert.NotNull(capturedResponse);
+        Assert.Equal("\u001b]LMy Icon Title\u0007", capturedResponse); // Format: OSC L title BEL
+    }
+
+    [Fact]
+    public void WindowInfoRequest_IconTitleQuery_NoResponseWhenTitleIsNull()
+    {
+        // Arrange
+        var windowOptions = new WindowOptions { GetIconTitle = true };
+        var terminal = CreateTerminal(windowOptions);
+        string? capturedResponse = null;
+
+        terminal.WindowInfoRequested += (sender, e) =>
+        {
+            if (e.Request == WindowInfoRequest.IconTitle)
+            {
+                e.Handled = true;
+                e.Title = null; // Explicitly null
+            }
+        };
+
+        terminal.DataReceived += (sender, e) =>
+        {
+            capturedResponse = e.Data;
+        };
+
+        // Act
+        terminal.Write("\x1b[20t");
+
+        // Assert
+        Assert.Null(capturedResponse); // No response when title is null
+    }
+
+    [Fact]
+    public void WindowInfoRequest_TextAreaSizeQuery_SendsDirectResponse()
+    {
+        // Arrange - Text area size (18t) responds directly without event handler
+        var windowOptions = new WindowOptions { GetWinSizeChars = true };
+        var options = new TerminalOptions
+        {
+            Cols = 120,
+            Rows = 40,
+            WindowOptions = windowOptions
+        };
+        var terminal = new Terminal(options);
+        string? capturedResponse = null;
+
+        terminal.DataReceived += (sender, e) =>
+        {
+            capturedResponse = e.Data;
+        };
+
+        // Act
+        terminal.Write("\x1b[18t"); // CSI 18 t - Query text area size in characters
+
+        // Assert
+        Assert.NotNull(capturedResponse);
+        Assert.Equal("\u001b[8;40;120t", capturedResponse); // Format: CSI 8 ; rows ; cols t
+    }
+
+    [Fact]
+    public void WindowInfoRequest_ScreenSizeCharsQuery_SendsDirectResponse()
+    {
+        // Arrange - Screen size in chars (19t) responds directly
+        var windowOptions = new WindowOptions { GetScreenSizePixels = true };
+        var options = new TerminalOptions
+        {
+            Cols = 80,
+            Rows = 24,
+            WindowOptions = windowOptions
+        };
+        var terminal = new Terminal(options);
+        string? capturedResponse = null;
+
+        terminal.DataReceived += (sender, e) =>
+        {
+            capturedResponse = e.Data;
+        };
+
+        // Act
+        terminal.Write("\x1b[19t"); // CSI 19 t - Query screen size in characters
+
+        // Assert
+        Assert.NotNull(capturedResponse);
+        Assert.Equal("\u001b[9;24;80t", capturedResponse); // Format: CSI 9 ; rows ; cols t
+    }
+
+    [Fact]
+    public void WindowInfoRequest_TitleQuery_SendsDirectResponseFromTerminalTitle()
+    {
+        // Arrange - Window title (21t) uses terminal's current title
+        var windowOptions = new WindowOptions { GetWinTitle = true };
+        var terminal = CreateTerminal(windowOptions);
+        terminal.Title = "Terminal Window Title";
+        string? capturedResponse = null;
+
+        terminal.DataReceived += (sender, e) =>
+        {
+            capturedResponse = e.Data;
+        };
+
+        // Act
+        terminal.Write("\x1b[21t"); // CSI 21 t - Query window title
+
+        // Assert
+        Assert.NotNull(capturedResponse);
+        Assert.Equal("\u001b]lTerminal Window Title\u0007", capturedResponse); // Format: OSC l title BEL
+    }
+
+    [Fact]
+    public void WindowInfoRequest_EventArgsPropertiesInitializeCorrectly()
+    {
+        // Arrange
+        var windowOptions = new WindowOptions { GetWinPosition = true };
+        var terminal = CreateTerminal(windowOptions);
+        Events.TerminalEvents.WindowInfoRequestedEventArgs? capturedArgs = null;
+
+        terminal.WindowInfoRequested += (sender, e) =>
+        {
+            capturedArgs = e;
+        };
+
+        // Act
+        terminal.Write("\x1b[13t");
+
+        // Assert
+        Assert.NotNull(capturedArgs);
+        Assert.Equal(WindowInfoRequest.Position, capturedArgs.Request);
+        Assert.False(capturedArgs.Handled); // Default is false
+        Assert.Equal(0, capturedArgs.X); // Default is 0
+        Assert.Equal(0, capturedArgs.Y);
+        Assert.Equal(0, capturedArgs.WidthPixels);
+        Assert.Equal(0, capturedArgs.HeightPixels);
+        Assert.Equal(0, capturedArgs.CellWidth);
+        Assert.Equal(0, capturedArgs.CellHeight);
+        Assert.Null(capturedArgs.Title);
+        Assert.False(capturedArgs.IsIconified);
+    }
+
+    [Fact]
+    public void WindowInfoRequest_MultipleQueries_EachHandledIndependently()
+    {
+        // Arrange
+        var windowOptions = new WindowOptions 
+        { 
+            GetWinState = true, 
+            GetWinPosition = true,
+            GetWinSizePixels = true
+        };
+        var terminal = CreateTerminal(windowOptions);
+        var responses = new List<string>();
+
+        terminal.WindowInfoRequested += (sender, e) =>
+        {
+            e.Handled = true;
+            switch (e.Request)
+            {
+                case WindowInfoRequest.State:
+                    e.IsIconified = false;
+                    break;
+                case WindowInfoRequest.Position:
+                    e.X = 50;
+                    e.Y = 75;
+                    break;
+                case WindowInfoRequest.SizePixels:
+                    e.WidthPixels = 640;
+                    e.HeightPixels = 480;
+                    break;
+            }
+        };
+
+        terminal.DataReceived += (sender, e) =>
+        {
+            responses.Add(e.Data);
+        };
+
+        // Act
+        terminal.Write("\x1b[11t"); // State
+        terminal.Write("\x1b[13t"); // Position
+        terminal.Write("\x1b[14t"); // Size
+
+        // Assert
+        Assert.Equal(3, responses.Count);
+        Assert.Equal("\u001b[1t", responses[0]); // Not iconified
+        Assert.Equal("\u001b[3;50;75t", responses[1]); // Position
+        Assert.Equal("\u001b[4;480;640t", responses[2]); // Size
     }
 
     [Fact]

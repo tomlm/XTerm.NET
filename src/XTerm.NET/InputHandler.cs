@@ -1344,50 +1344,68 @@ public class InputHandler
             case 11: // Report window state (iconified or not)
                 if (_terminal.Options.WindowOptions.GetWinState)
                 {
-                    _terminal.RaiseWindowInfoRequested(WindowInfoRequest.State);
-                    // Response: CSI 1 t (not iconified) or CSI 2 t (iconified)
-                    // Application should call terminal.OnData.Fire to respond
+                    var args = _terminal.RaiseWindowInfoRequested(WindowInfoRequest.State);
+                    if (args.Handled)
+                    {
+                        // Response: CSI 1 t (not iconified) or CSI 2 t (iconified)
+                        var stateCode = args.IsIconified ? 2 : 1;
+                        _terminal.RaiseDataReceived($"\u001b[{stateCode}t");
+                    }
                 }
                 break;
 
             case 13: // Report window position
                 if (_terminal.Options.WindowOptions.GetWinPosition)
                 {
-                    _terminal.RaiseWindowInfoRequested(WindowInfoRequest.Position);
-                    // Response: CSI 3 ; x ; y t
+                    var args = _terminal.RaiseWindowInfoRequested(WindowInfoRequest.Position);
+                    if (args.Handled)
+                    {
+                        // Response: CSI 3 ; x ; y t
+                        _terminal.RaiseDataReceived($"\u001b[3;{args.X};{args.Y}t");
+                    }
                 }
                 break;
 
             case 14: // Report window size in pixels
                 if (_terminal.Options.WindowOptions.GetWinSizePixels)
                 {
-                    _terminal.RaiseWindowInfoRequested(WindowInfoRequest.SizePixels);
-                    // Response: CSI 4 ; height ; width t
+                    var args = _terminal.RaiseWindowInfoRequested(WindowInfoRequest.SizePixels);
+                    if (args.Handled)
+                    {
+                        // Response: CSI 4 ; height ; width t
+                        _terminal.RaiseDataReceived($"\u001b[4;{args.HeightPixels};{args.WidthPixels}t");
+                    }
                 }
                 break;
 
             case 15: // Report screen size in pixels
                 if (_terminal.Options.WindowOptions.GetScreenSizePixels)
                 {
-                    _terminal.RaiseWindowInfoRequested(WindowInfoRequest.ScreenSizePixels);
-                    // Response: CSI 5 ; height ; width t
+                    var args = _terminal.RaiseWindowInfoRequested(WindowInfoRequest.ScreenSizePixels);
+                    if (args.Handled)
+                    {
+                        // Response: CSI 5 ; height ; width t
+                        _terminal.RaiseDataReceived($"\u001b[5;{args.HeightPixels};{args.WidthPixels}t");
+                    }
                 }
                 break;
 
             case 16: // Report character cell size in pixels
                 if (_terminal.Options.WindowOptions.GetCellSizePixels)
                 {
-                    _terminal.RaiseWindowInfoRequested(WindowInfoRequest.CellSizePixels);
-                    // Response: CSI 6 ; height ; width t
+                    var args = _terminal.RaiseWindowInfoRequested(WindowInfoRequest.CellSizePixels);
+                    if (args.Handled)
+                    {
+                        // Response: CSI 6 ; height ; width t
+                        _terminal.RaiseDataReceived($"\u001b[6;{args.CellHeight};{args.CellWidth}t");
+                    }
                 }
                 break;
 
             case 18: // Report text area size in characters
                 if (_terminal.Options.WindowOptions.GetWinSizeChars)
                 {
-                    _terminal.RaiseWindowInfoRequested(WindowInfoRequest.SizeCharacters);
                     // Response: CSI 8 ; rows ; cols t
-                    // Or respond directly:
                     _terminal.RaiseDataReceived($"\u001b[8;{_terminal.Rows};{_terminal.Cols}t");
                 }
                 break;
@@ -1403,20 +1421,21 @@ public class InputHandler
             case 20: // Report icon label
                 if (_terminal.Options.WindowOptions.GetIconTitle)
                 {
-                    _terminal.RaiseWindowInfoRequested(WindowInfoRequest.IconTitle);
-                    // Response: OSC L label ST
+                    var args = _terminal.RaiseWindowInfoRequested(WindowInfoRequest.IconTitle);
+                    if (args.Handled && args.Title != null)
+                    {
+                        // Response: OSC L label ST
+                        _terminal.RaiseDataReceived($"\u001b]L{args.Title}\u0007");
+                    }
                 }
                 break;
 
             case 21: // Report window title
                 if (_terminal.Options.WindowOptions.GetWinTitle)
                 {
-                    _terminal.RaiseWindowInfoRequested(WindowInfoRequest.Title);
-                    // Response: OSC l title ST or just return current title
-                    if (!string.IsNullOrEmpty(_terminal.Title))
-                    {
-                        _terminal.RaiseDataReceived($"\u001b]l{_terminal.Title}\u0007");
-                    }
+                    // Response: OSC l title ST - use the terminal's current title
+                    var title = _terminal.Title ?? string.Empty;
+                    _terminal.RaiseDataReceived($"\u001b]l{title}\u0007");
                 }
                 break;
 

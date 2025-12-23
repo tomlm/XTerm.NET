@@ -469,8 +469,12 @@ public class Terminal
     internal void RaiseWindowFullscreened() => 
         WindowFullscreened?.Invoke(this, EventArgs.Empty);
     
-    internal void RaiseWindowInfoRequested(WindowInfoRequest request) => 
-        WindowInfoRequested?.Invoke(this, new TerminalEvents.WindowInfoRequestedEventArgs(request));
+    internal TerminalEvents.WindowInfoRequestedEventArgs RaiseWindowInfoRequested(WindowInfoRequest request)
+    {
+        var args = new TerminalEvents.WindowInfoRequestedEventArgs(request);
+        WindowInfoRequested?.Invoke(this, args);
+        return args;
+    }
 
     /// <summary>
     /// Updates cursor style and blink settings and notifies listeners if changed.
