@@ -2,7 +2,6 @@
 using XTerm;
 using XTerm.Common;
 using XTerm.Options;
-using XTerm.Renderer;
 
 namespace XTerm.Examples;
 

@@ -28,271 +28,213 @@ Install-Package XTerm.NET
 
 ## Usage
 
-### Basic Terminal Setup
+### Creating a Terminal
+
+Create a terminal instance with default settings (80 columns × 24 rows):
+
+```csharp
+using XTerm;
+
+var terminal = new Terminal();
+```
+
+Or customize the terminal with `TerminalOptions`:
 
 ```csharp
 using XTerm;
 using XTerm.Options;
 
-// Create a terminal with custom options
 var terminal = new Terminal(new TerminalOptions
 {
-    Cols = 80,
-    Rows = 24,
-    Scrollback = 1000
+    Cols = 120,                   // Number of columns
+    Rows = 40,                    // Number of rows
+    Scrollback = 1000,            // Scrollback buffer lines (0 to disable)
+    CursorStyle = CursorStyle.Block,
+    CursorBlink = true,
+    TermName = "xterm"            // Terminal type for identification
 });
-
-// Write text to the terminal
-terminal.WriteLine("Hello, XTerm.NET!");
-terminal.Write("This is inline text.");
 ```
 
-### Working with Colors and Styles
+### Resizing the Terminal
 
-XTerm.NET processes ANSI escape sequences for colors and text styling:
+Resize the terminal dynamically to match your UI or window size:
 
 ```csharp
-// Standard colors
+// Resize to new dimensions
+terminal.Resize(cols: 120, rows: 50);
+
+// Query current size
+int currentCols = terminal.Cols;
+int currentRows = terminal.Rows;
+```
+
+### Writing Content to the Terminal
+
+Write text and ANSI escape sequences to the terminal:
+
+```csharp
+// Write text (no automatic newline)
+terminal.Write("Hello, ");
+
+// Write a line (adds \r\n)
+terminal.WriteLine("XTerm.NET!");
+
+// Write with ANSI colors and styles
 terminal.WriteLine("\x1b[31mRed text\x1b[0m");
-terminal.WriteLine("\x1b[32mGreen text\x1b[0m");
-terminal.WriteLine("\x1b[34mBlue text\x1b[0m");
-
-// Bold and italic
-terminal.WriteLine("\x1b[1mBold text\x1b[0m");
-terminal.WriteLine("\x1b[3mItalic text\x1b[0m");
 terminal.WriteLine("\x1b[1;32mBold green text\x1b[0m");
+terminal.WriteLine("\x1b[38;2;255;100;200mTrue color (RGB) text\x1b[0m");
 
-// Background colors
-terminal.WriteLine("\x1b[41;37mWhite on red\x1b[0m");
-
-// 256 colors
-terminal.WriteLine("\x1b[38;5;208mOrange text (256 color)\x1b[0m");
-
-// True color (RGB)
-terminal.WriteLine("\x1b[38;2;255;100;200mPink text (RGB)\x1b[0m");
+// Position the cursor and draw
+terminal.Write("\x1b[5;10HText at row 5, column 10");
 ```
 
-### Cursor Movement
-
-```csharp
-// Move cursor to specific position (row 5, column 20)
-terminal.Write("\x1b[5;20HText at position");
-
-// Draw a box
-terminal.Write("\x1b[2;2H+----------+");
-terminal.Write("\x1b[3;2H|  Box     |");
-terminal.Write("\x1b[4;2H+----------+");
-```
-
-### Accessing the Buffer
+Access the buffer to read terminal content:
 
 ```csharp
 var buffer = terminal.Buffer;
 
 // Get cursor position
-Console.WriteLine($"Cursor: ({buffer.X}, {buffer.Y})");
+int cursorX = buffer.X;
+int cursorY = buffer.Y;
 
-// Access a specific line
+// Read a line as a string
+string lineContent = terminal.GetLine(0);
+
+// Or access the buffer line directly
 var line = buffer.Lines[0];
 string content = line?.TranslateToString(trimRight: true) ?? "";
-
-// Examine cell attributes
-var cell = line?[0];
-if (cell.HasValue)
-{
-    var c = cell.Value;
-    Console.WriteLine($"Character: '{c.Content}'");
-    Console.WriteLine($"Bold: {c.Attributes.IsBold()}");
-    Console.WriteLine($"Foreground: {c.Attributes.GetFgColor()}");
-}
 ```
 
-### Event Handling
+### Hooking Up Events
+
+Subscribe to events to integrate the terminal into your application:
 
 ```csharp
-// Subscribe to terminal events
-terminal.TitleChanged += (sender, e) =>
+// Data sent back from the terminal (e.g., query responses)
+terminal.DataReceived += (sender, e) =>
 {
-    Console.WriteLine($"Title changed to: {e.Title}");
+    // Send e.Data to your connected process/PTY
+    Console.WriteLine($"Terminal sent: {e.Data}");
 };
 
+// Terminal title changed (via OSC escape sequence)
+terminal.TitleChanged += (sender, e) =>
+{
+    // Update your window title
+    Console.WriteLine($"Title: {e.Title}");
+};
+
+// Terminal resized
+terminal.Resized += (sender, e) =>
+{
+    // Notify your PTY/process of the new size
+    Console.WriteLine($"Resized to {e.Cols}x{e.Rows}");
+};
+
+// Bell character received
 terminal.BellRang += (sender, e) =>
 {
+    // Play a sound or flash the window
     Console.WriteLine("Bell!");
 };
 
+// Line feed occurred (useful for tracking output)
 terminal.LineFed += (sender, e) =>
 {
-    Console.WriteLine("Line feed occurred");
+    // Trigger a render update
 };
 
-terminal.Resized += (sender, e) =>
+// Cursor style changed
+terminal.CursorStyleChanged += (sender, e) =>
 {
-    Console.WriteLine($"Terminal resized to {e.Cols}x{e.Rows}");
+    // Update cursor rendering
+    Console.WriteLine($"Cursor: {e.Style}, Blink: {e.Blink}");
 };
 
-// Trigger title change via escape sequence
-terminal.Write("\x1b]0;My Terminal Title\x07");
-```
-
-### Keyboard Input Generation
-
-Generate escape sequences for keyboard input to send to a connected process:
-
-```csharp
-using XTerm.Input;
-
-// Generate escape sequence for arrow keys
-string upArrow = terminal.GenerateKeyInput(Key.UpArrow);
-string downArrow = terminal.GenerateKeyInput(Key.DownArrow);
-
-// With modifiers
-string ctrlC = terminal.GenerateCharInput('c', KeyModifiers.Control);
-string shiftTab = terminal.GenerateKeyInput(Key.Tab, KeyModifiers.Shift);
-
-// Character input
-string charSequence = terminal.GenerateCharInput('a', KeyModifiers.Alt);
-```
-
-### Mouse Input Generation
-
-```csharp
-using XTerm.Input;
-
-// Generate mouse event escape sequences
-string mouseClick = terminal.GenerateMouseEvent(
-    MouseButton.Left,
-    x: 10,
-    y: 5,
-    MouseEventType.Down,
-    KeyModifiers.None
-);
-
-// Focus events
-string focusIn = terminal.GenerateFocusEvent(focused: true);
-string focusOut = terminal.GenerateFocusEvent(focused: false);
-```
-
-### Alternate Buffer
-
-Applications like vim or less use the alternate buffer to preserve the main screen:
-
-```csharp
-// Write to normal buffer
-terminal.WriteLine("Normal buffer content");
-
-// Switch to alternate buffer
-terminal.SwitchToAltBuffer();
-terminal.WriteLine("Alternate buffer content");
-
-// Switch back — normal buffer content is preserved
-terminal.SwitchToNormalBuffer();
-```
-
-### Resizing the Terminal
-
-```csharp
-// Resize terminal to new dimensions
-terminal.Resize(cols: 120, rows: 40);
-
-// Handle resize event
-terminal.Resized += (sender, e) =>
+// Buffer switched (normal ↔ alternate)
+terminal.BufferChanged += (sender, e) =>
 {
-    Console.WriteLine($"New size: {e.Cols}x{e.Rows}");
+    Console.WriteLine($"Switched to {e.BufferType} buffer");
 };
 ```
 
-### Window Manipulation Events
-
-Handle window manipulation escape sequences (used by some terminal applications):
+**Window manipulation events** (used by some terminal applications):
 
 ```csharp
-terminal.WindowMoved += (sender, e) =>
-{
-    Console.WriteLine($"Move window to: ({e.X}, {e.Y})");
-};
-
-terminal.WindowResized += (sender, e) =>
-{
-    Console.WriteLine($"Resize to: {e.Width}x{e.Height}");
-};
-
+terminal.WindowMoved += (sender, e) => Console.WriteLine($"Move to ({e.X}, {e.Y})");
+terminal.WindowResized += (sender, e) => Console.WriteLine($"Resize to {e.Width}x{e.Height}");
 terminal.WindowMinimized += (sender, e) => Console.WriteLine("Minimize");
 terminal.WindowMaximized += (sender, e) => Console.WriteLine("Maximize");
 terminal.WindowRestored += (sender, e) => Console.WriteLine("Restore");
 ```
 
-### Terminal Options
+### Rendering the Buffer
 
-Customize terminal behavior with `TerminalOptions`:
-
-```csharp
-var options = new TerminalOptions
-{
-    Cols = 80,                    // Number of columns
-    Rows = 24,                    // Number of rows
-    Scrollback = 1000,            // Scrollback buffer lines
-    CursorStyle = CursorStyle.Block,
-    CursorBlink = true,
-    ConvertEol = false,           // Convert LF to CRLF
-    TermName = "xterm",           // Terminal type for identification
-    Theme = new ThemeOptions
-    {
-        Foreground = "#ffffff",
-        Background = "#000000",
-        Cursor = "#ffffff"
-    }
-};
-
-var terminal = new Terminal(options);
-```
-
-## Building a Renderer
-
-XTerm.NET is headless and requires you to implement rendering. Here's a simple console renderer example:
+XTerm.NET is headless — you provide the rendering logic for your UI framework (Console, WPF, MAUI, Avalonia, etc.). Walk over the terminal buffer and render each cell according to its content and attributes:
 
 ```csharp
-public class SimpleConsoleRenderer
+void RenderTerminal(Terminal terminal)
 {
-    private readonly Terminal _terminal;
+    var buffer = terminal.Buffer;
 
-    public SimpleConsoleRenderer(Terminal terminal)
+    for (int row = 0; row < terminal.Rows; row++)
     {
-        _terminal = terminal;
-    }
+        var line = buffer.Lines[buffer.YDisp + row];
+        if (line == null) continue;
 
-    public void Render()
-    {
-        for (int row = 0; row < _terminal.Rows; row++)
+        for (int col = 0; col < terminal.Cols; col++)
         {
-            var line = _terminal.Buffer.Lines[row];
-            if (line != null)
-            {
-                Console.WriteLine(line.TranslateToString(trimRight: true));
-            }
+            BufferCell cell = line[col];
+
+            // Skip empty cells or continuation cells (wide character's second cell)
+            if (cell.Width == 0) continue;
+
+            // Get the character content
+            string character = cell.Content;
+
+            // Get foreground/background colors
+            int fgColor = cell.Attributes.GetFgColor();
+            int bgColor = cell.Attributes.GetBgColor();
+            int fgMode = cell.Attributes.GetFgColorMode();  // 0=default, 1=256-color, 2=RGB
+            int bgMode = cell.Attributes.GetBgColorMode();
+
+            // Check text style attributes
+            bool isBold = cell.Attributes.IsBold();
+            bool isDim = cell.Attributes.IsDim();
+            bool isItalic = cell.Attributes.IsItalic();
+            bool isUnderline = cell.Attributes.IsUnderline();
+            bool isBlink = cell.Attributes.IsBlink();
+            bool isInverse = cell.Attributes.IsInverse();
+            bool isInvisible = cell.Attributes.IsInvisible();
+            bool isStrikethrough = cell.Attributes.IsStrikethrough();
+            bool isOverline = cell.Attributes.IsOverline();
+
+            // Render the cell at (col, row) with the appropriate styling
+            // Your rendering code here — e.g., DrawText(col, row, character, fg, bg, styles...)
         }
+    }
+
+    // Render the cursor if visible
+    if (terminal.CursorVisible)
+    {
+        int cursorX = buffer.X;
+        int cursorY = buffer.Y;
+        CursorStyle style = terminal.Options.CursorStyle;  // Block, Underline, or Bar
+        bool blink = terminal.Options.CursorBlink;
+
+        // Draw cursor at (cursorX, cursorY) with the appropriate style
     }
 }
 ```
 
-For more advanced rendering (WPF, MAUI, etc.), iterate through cells and read their attributes:
+**Color mode values:**
+- `0` — Default terminal color (use theme foreground/background)
+- `1` — 256-color palette index (0–255)
+- `2` — True color RGB (extract with `color & 0xFF` for each channel)
 
-```csharp
-for (int row = 0; row < terminal.Rows; row++)
-{
-    var line = terminal.Buffer.Lines[row];
-    for (int col = 0; col < terminal.Cols; col++)
-    {
-        var cell = line?[col];
-        if (cell.HasValue)
-        {
-            var c = cell.Value;
-            // Access: c.Content, c.Attributes.IsBold(), c.Attributes.GetFgColor(), etc.
-            // Render the cell with appropriate styling
-        }
-    }
-}
-```
+**Handling wide characters:**
+
+Wide characters (e.g., CJK ideographs, emoji) have `Width = 2`. The first cell contains the character, and the second cell has `Width = 0` as a placeholder — skip it during rendering but allocate space for the double-width glyph.
 
 ## License
 

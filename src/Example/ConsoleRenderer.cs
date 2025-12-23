@@ -1,5 +1,4 @@
 ﻿// See https://aka.ms/new-console-template for more information
-using XTerm.Renderer;
 using System.Text;
 
 namespace XTerm.Examples;
@@ -7,33 +6,13 @@ namespace XTerm.Examples;
 /// <summary>
 /// Example of implementing a custom renderer.
 /// </summary>
-public class ConsoleRenderer : IRenderer
+public class ConsoleRenderer 
 {
     private readonly Terminal _terminal;
-
-    public RenderDimensions Dimensions { get; private set; }
 
     public ConsoleRenderer(Terminal terminal)
     {
         _terminal = terminal;
-        Dimensions = new RenderDimensions
-        {
-            Scaled = new Renderer.Dimensions
-            {
-                CellWidth = 10,
-                CellHeight = 20,
-                CanvasWidth = terminal.Cols * 10,
-                CanvasHeight = terminal.Rows * 20
-            },
-            Actual = new Renderer.Dimensions
-            {
-                CellWidth = 10,
-                CellHeight = 20,
-                CanvasWidth = terminal.Cols * 10,
-                CanvasHeight = terminal.Rows * 20
-            },
-            DevicePixelRatio = 1.0
-        };
     }
 
     public void Render(int start, int end)
@@ -223,7 +202,7 @@ public class ConsoleRenderer : IRenderer
         }
     }
 
-    public void RenderCursor(int x, int y, CursorRenderOptions options)
+    public void RenderCursor(int x, int y)
     {
         // Position cursor in console
         if (y < Console.WindowHeight && x < Console.WindowWidth)
@@ -231,12 +210,4 @@ public class ConsoleRenderer : IRenderer
             Console.SetCursorPosition(x, y);
         }
     }
-
-    public void Resize(int cols, int rows) { }
-    public void HandleDevicePixelRatioChange() { }
-    public void Clear() => Console.Clear();
-    public void RegisterCharacterAtlas(ICharAtlas atlas) { }
-    public void HandleColorChange() { }
-    public void HandleOptionsChange() { }
-    public void Dispose() { }
 }
