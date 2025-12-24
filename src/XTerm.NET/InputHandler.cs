@@ -1548,6 +1548,22 @@ public class InputHandler
                     _terminal.GetMouseTracker().Encoding = MouseEncoding.URXVT;
                     break;
 
+                case TerminalMode.EightBitInput:
+                    _terminal.EightBitInput = true;
+                    break;
+
+                case TerminalMode.NumLock:
+                    // NumLock modifier handling - acknowledge but no specific action needed
+                    break;
+
+                case TerminalMode.MetaSendsEscape:
+                    _terminal.MetaSendsEscape = true;
+                    break;
+
+                case TerminalMode.AltSendsEscape:
+                    _terminal.AltSendsEscape = true;
+                    break;
+
                 case TerminalMode.Win32InputMode:
                     _terminal.Win32InputMode = true;
                     break;
@@ -1664,6 +1680,22 @@ public class InputHandler
                 case TerminalMode.MouseReportSgr:
                 case TerminalMode.MouseReportUrxvt:
                     _terminal.GetMouseTracker().Encoding = MouseEncoding.Default;
+                    break;
+
+                case TerminalMode.EightBitInput:
+                    _terminal.EightBitInput = false;
+                    break;
+
+                case TerminalMode.NumLock:
+                    // NumLock modifier handling - acknowledge but no specific action needed
+                    break;
+
+                case TerminalMode.MetaSendsEscape:
+                    _terminal.MetaSendsEscape = false;
+                    break;
+
+                case TerminalMode.AltSendsEscape:
+                    _terminal.AltSendsEscape = false;
                     break;
 
                 case TerminalMode.Win32InputMode:

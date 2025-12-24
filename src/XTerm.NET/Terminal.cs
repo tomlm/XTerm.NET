@@ -40,6 +40,25 @@ public class Terminal
     public bool ReverseWraparound { get; set; }
     public bool SendFocusEvents { get; set; }
     public bool Win32InputMode { get; set; }
+    
+    /// <summary>
+    /// When enabled, the eighth bit of input characters is used for Meta key.
+    /// Mode 1034 (eightBitInput).
+    /// </summary>
+    public bool EightBitInput { get; set; }
+    
+    /// <summary>
+    /// When enabled, pressing Meta+key sends ESC followed by the key.
+    /// Mode 1036 (metaSendsEscape).
+    /// </summary>
+    public bool MetaSendsEscape { get; set; } = true;
+    
+    /// <summary>
+    /// When enabled, pressing Alt+key sends ESC followed by the key.
+    /// Mode 1039 (altSendsEscape).
+    /// </summary>
+    public bool AltSendsEscape { get; set; }
+    
     public string Title { get; set; }
     public string? CurrentDirectory { get; set; }
     public string? CurrentHyperlink { get; set; }
@@ -287,6 +306,10 @@ public class Terminal
         CursorVisible = true;
         ReverseWraparound = false;
         SendFocusEvents = false;
+        EightBitInput = false;
+        MetaSendsEscape = true;  // Default is enabled
+        AltSendsEscape = false;
+        Win32InputMode = false;
 
         // Reset cursor
         _buffer.SetCursor(0, 0);

@@ -141,6 +141,29 @@ public enum TerminalMode
     MouseReportPixel = 1016,
 
     /// <summary>
+    /// Interpret Meta/Alt key (eightBitInput).
+    /// When set, the Meta key sets the eighth bit of input characters.
+    /// </summary>
+    EightBitInput = 1034,
+
+    /// <summary>
+    /// Enable special modifiers for Alt and NumLock keys (numLock).
+    /// </summary>
+    NumLock = 1035,
+
+    /// <summary>
+    /// Meta sends escape (metaSendsEscape).
+    /// When set, pressing Meta+key sends ESC followed by the key.
+    /// </summary>
+    MetaSendsEscape = 1036,
+
+    /// <summary>
+    /// Alt sends escape (altSendsEscape).
+    /// When set, pressing Alt+key sends ESC followed by the key.
+    /// </summary>
+    AltSendsEscape = 1039,
+
+    /// <summary>
     /// Win32 Input Mode.
     /// </summary>
     Win32InputMode = 9001
