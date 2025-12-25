@@ -361,6 +361,9 @@ public class ModeHandlingTests
         terminal.OriginMode = true;
         terminal.CursorVisible = false;
         terminal.SendFocusEvents = true;
+        terminal.Win32InputMode = true;
+        terminal.MetaSendsEscape = true;
+        terminal.AltSendsEscape = true;
 
         // Act
         terminal.Reset();
@@ -373,5 +376,322 @@ public class ModeHandlingTests
         Assert.False(terminal.OriginMode);
         Assert.True(terminal.CursorVisible); // Default is true
         Assert.False(terminal.SendFocusEvents);
+        Assert.False(terminal.Win32InputMode);
+        Assert.False(terminal.MetaSendsEscape);
+        Assert.False(terminal.AltSendsEscape);
     }
+
+    #region Win32InputMode Tests
+
+    [Fact]
+    public void SetMode_Win32InputMode_EnablesWin32InputMode()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        Assert.False(terminal.Win32InputMode);
+
+        // Act - DEC private mode 9001
+        terminal.Write($"\x1B[?{(int)TerminalMode.Win32InputMode}h");
+
+        // Assert
+        Assert.True(terminal.Win32InputMode);
+    }
+
+    [Fact]
+    public void ResetMode_Win32InputMode_DisablesWin32InputMode()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        terminal.Win32InputMode = true;
+
+        // Act - DEC private mode 9001
+        terminal.Write($"\x1B[?{(int)TerminalMode.Win32InputMode}l");
+
+        // Assert
+        Assert.False(terminal.Win32InputMode);
+    }
+
+    [Fact]
+    public void SetMode_Win32InputMode_DisablesMetaSendsEscape()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        terminal.MetaSendsEscape = true;
+        Assert.True(terminal.MetaSendsEscape);
+
+        // Act - Enable Win32InputMode
+        terminal.Write($"\x1B[?{(int)TerminalMode.Win32InputMode}h");
+
+        // Assert - MetaSendsEscape should be disabled
+        Assert.True(terminal.Win32InputMode);
+        Assert.False(terminal.MetaSendsEscape);
+    }
+
+    [Fact]
+    public void SetMode_Win32InputMode_DisablesAltSendsEscape()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        terminal.AltSendsEscape = true;
+        Assert.True(terminal.AltSendsEscape);
+
+        // Act - Enable Win32InputMode
+        terminal.Write($"\x1B[?{(int)TerminalMode.Win32InputMode}h");
+
+        // Assert - AltSendsEscape should be disabled
+        Assert.True(terminal.Win32InputMode);
+        Assert.False(terminal.AltSendsEscape);
+    }
+
+    [Fact]
+    public void SetMode_Win32InputMode_DisablesBothEscapeModes()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        terminal.MetaSendsEscape = true;
+        terminal.AltSendsEscape = true;
+
+        // Act - Enable Win32InputMode
+        terminal.Write($"\x1B[?{(int)TerminalMode.Win32InputMode}h");
+
+        // Assert - Both escape modes should be disabled
+        Assert.True(terminal.Win32InputMode);
+        Assert.False(terminal.MetaSendsEscape);
+        Assert.False(terminal.AltSendsEscape);
+    }
+
+    #endregion
+
+    #region MetaSendsEscape Tests
+
+    [Fact]
+    public void SetMode_MetaSendsEscape_EnablesMetaSendsEscape()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        Assert.False(terminal.MetaSendsEscape);
+
+        // Act - DEC private mode 1036
+        terminal.Write($"\x1B[?{(int)TerminalMode.MetaSendsEscape}h");
+
+        // Assert
+        Assert.True(terminal.MetaSendsEscape);
+    }
+
+    [Fact]
+    public void ResetMode_MetaSendsEscape_DisablesMetaSendsEscape()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        terminal.MetaSendsEscape = true;
+
+        // Act - DEC private mode 1036
+        terminal.Write($"\x1B[?{(int)TerminalMode.MetaSendsEscape}l");
+
+        // Assert
+        Assert.False(terminal.MetaSendsEscape);
+    }
+
+    [Fact]
+    public void SetMode_MetaSendsEscape_DisablesWin32InputMode()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        terminal.Win32InputMode = true;
+        Assert.True(terminal.Win32InputMode);
+
+        // Act - Enable MetaSendsEscape
+        terminal.Write($"\x1B[?{(int)TerminalMode.MetaSendsEscape}h");
+
+        // Assert - Win32InputMode should be disabled
+        Assert.True(terminal.MetaSendsEscape);
+        Assert.False(terminal.Win32InputMode);
+    }
+
+    #endregion
+
+    #region AltSendsEscape Tests
+
+    [Fact]
+    public void SetMode_AltSendsEscape_EnablesAltSendsEscape()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        Assert.False(terminal.AltSendsEscape);
+
+        // Act - DEC private mode 1039
+        terminal.Write($"\x1B[?{(int)TerminalMode.AltSendsEscape}h");
+
+        // Assert
+        Assert.True(terminal.AltSendsEscape);
+    }
+
+    [Fact]
+    public void ResetMode_AltSendsEscape_DisablesAltSendsEscape()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        terminal.AltSendsEscape = true;
+
+        // Act - DEC private mode 1039
+        terminal.Write($"\x1B[?{(int)TerminalMode.AltSendsEscape}l");
+
+        // Assert
+        Assert.False(terminal.AltSendsEscape);
+    }
+
+    [Fact]
+    public void SetMode_AltSendsEscape_DisablesWin32InputMode()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        terminal.Win32InputMode = true;
+        Assert.True(terminal.Win32InputMode);
+
+        // Act - Enable AltSendsEscape
+        terminal.Write($"\x1B[?{(int)TerminalMode.AltSendsEscape}h");
+
+        // Assert - Win32InputMode should be disabled
+        Assert.True(terminal.AltSendsEscape);
+        Assert.False(terminal.Win32InputMode);
+    }
+
+    #endregion
+
+    #region Mode Switching Scenarios
+
+    [Fact]
+    public void ModeSwitching_Win32ToMeta_SwitchesCorrectly()
+    {
+        // Arrange - Start with Win32InputMode enabled (like cmd.exe)
+        var terminal = CreateTerminal();
+        terminal.Write($"\x1B[?{(int)TerminalMode.Win32InputMode}h");
+        Assert.True(terminal.Win32InputMode);
+
+        // Act - Switch to MetaSendsEscape (like EDIT does)
+        terminal.Write($"\x1B[?{(int)TerminalMode.MetaSendsEscape}h");
+
+        // Assert
+        Assert.False(terminal.Win32InputMode);
+        Assert.True(terminal.MetaSendsEscape);
+    }
+
+    [Fact]
+    public void ModeSwitching_MetaToWin32_SwitchesCorrectly()
+    {
+        // Arrange - Start with MetaSendsEscape enabled
+        var terminal = CreateTerminal();
+        terminal.Write($"\x1B[?{(int)TerminalMode.MetaSendsEscape}h");
+        Assert.True(terminal.MetaSendsEscape);
+
+        // Act - Switch back to Win32InputMode (like when EDIT exits and cmd.exe regains control)
+        terminal.Write($"\x1B[?{(int)TerminalMode.Win32InputMode}h");
+
+        // Assert
+        Assert.True(terminal.Win32InputMode);
+        Assert.False(terminal.MetaSendsEscape);
+    }
+
+    [Fact]
+    public void ModeSwitching_DisableMetaThenEnableWin32_WorksCorrectly()
+    {
+        // Arrange - Start with MetaSendsEscape enabled
+        var terminal = CreateTerminal();
+        terminal.Write($"\x1B[?{(int)TerminalMode.MetaSendsEscape}h");
+        Assert.True(terminal.MetaSendsEscape);
+
+        // Act - First disable Meta, then enable Win32 (explicit cleanup scenario)
+        terminal.Write($"\x1B[?{(int)TerminalMode.MetaSendsEscape}l");
+        terminal.Write($"\x1B[?{(int)TerminalMode.Win32InputMode}h");
+
+        // Assert
+        Assert.True(terminal.Win32InputMode);
+        Assert.False(terminal.MetaSendsEscape);
+    }
+
+    [Fact]
+    public void ModeSwitching_ChildProcessScenario_CmdToEditAndBack()
+    {
+        // This simulates: cmd.exe -> user runs EDIT -> EDIT exits -> back to cmd.exe
+        var terminal = CreateTerminal();
+
+        // Step 1: cmd.exe starts and enables Win32InputMode
+        terminal.Write($"\x1B[?{(int)TerminalMode.Win32InputMode}h");
+        Assert.True(terminal.Win32InputMode);
+        Assert.False(terminal.MetaSendsEscape);
+
+        // Step 2: User runs EDIT, which enables MetaSendsEscape
+        terminal.Write($"\x1B[?{(int)TerminalMode.MetaSendsEscape}h");
+        Assert.False(terminal.Win32InputMode);
+        Assert.True(terminal.MetaSendsEscape);
+
+        // Step 3: User exits EDIT, which disables MetaSendsEscape
+        terminal.Write($"\x1B[?{(int)TerminalMode.MetaSendsEscape}l");
+        Assert.False(terminal.Win32InputMode);
+        Assert.False(terminal.MetaSendsEscape);
+
+        // Step 4: cmd.exe regains control and re-enables Win32InputMode
+        terminal.Write($"\x1B[?{(int)TerminalMode.Win32InputMode}h");
+        Assert.True(terminal.Win32InputMode);
+        Assert.False(terminal.MetaSendsEscape);
+    }
+
+    [Fact]
+    public void ModeSwitching_MultipleApps_ComplexScenario()
+    {
+        // Simulates: cmd.exe -> FAR Manager -> vim (nested child processes)
+        var terminal = CreateTerminal();
+
+        // cmd.exe starts
+        terminal.Write($"\x1B[?{(int)TerminalMode.Win32InputMode}h");
+        Assert.True(terminal.Win32InputMode);
+
+        // FAR Manager starts (also uses Win32, re-asserts mode)
+        terminal.Write($"\x1B[?{(int)TerminalMode.Win32InputMode}h");
+        Assert.True(terminal.Win32InputMode);
+
+        // vim starts from FAR, uses AltSendsEscape
+        terminal.Write($"\x1B[?{(int)TerminalMode.AltSendsEscape}h");
+        Assert.False(terminal.Win32InputMode);
+        Assert.True(terminal.AltSendsEscape);
+
+        // vim exits
+        terminal.Write($"\x1B[?{(int)TerminalMode.AltSendsEscape}l");
+        Assert.False(terminal.AltSendsEscape);
+
+        // FAR re-enables Win32
+        terminal.Write($"\x1B[?{(int)TerminalMode.Win32InputMode}h");
+        Assert.True(terminal.Win32InputMode);
+
+        // FAR exits, cmd.exe re-enables Win32
+        terminal.Write($"\x1B[?{(int)TerminalMode.Win32InputMode}h");
+        Assert.True(terminal.Win32InputMode);
+    }
+
+    #endregion
+
+    #region Default Values Tests
+
+    [Fact]
+    public void DefaultValues_Win32InputMode_IsFalse()
+    {
+        var terminal = CreateTerminal();
+        Assert.False(terminal.Win32InputMode);
+    }
+
+    [Fact]
+    public void DefaultValues_MetaSendsEscape_IsFalse()
+    {
+        var terminal = CreateTerminal();
+        Assert.False(terminal.MetaSendsEscape);
+    }
+
+    [Fact]
+    public void DefaultValues_AltSendsEscape_IsFalse()
+    {
+        var terminal = CreateTerminal();
+        Assert.False(terminal.AltSendsEscape);
+    }
+
+    #endregion
 }

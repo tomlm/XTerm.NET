@@ -1557,15 +1557,28 @@ public class InputHandler
                     break;
 
                 case TerminalMode.MetaSendsEscape:
+                    System.Diagnostics.Debug.WriteLine($">>> Mode {mode} MetaSendsEscape ENABLED (disabling Win32InputMode)");
                     _terminal.MetaSendsEscape = true;
+                    // MetaSendsEscape is incompatible with Win32InputMode for Alt key handling
+                    // When explicitly requesting ESC+char for meta keys, disable Win32 input
+                    _terminal.Win32InputMode = false;
                     break;
 
                 case TerminalMode.AltSendsEscape:
+                    System.Diagnostics.Debug.WriteLine($">>> Mode {mode} AltSendsEscape ENABLED (disabling Win32InputMode)");
                     _terminal.AltSendsEscape = true;
+                    // AltSendsEscape is incompatible with Win32InputMode for Alt key handling
+                    // When explicitly requesting ESC+char for Alt keys, disable Win32 input
+                    _terminal.Win32InputMode = false;
                     break;
 
                 case TerminalMode.Win32InputMode:
+                    System.Diagnostics.Debug.WriteLine($">>> Mode {mode} Win32InputMode ENABLED (disabling MetaSendsEscape and AltSendsEscape)");
                     _terminal.Win32InputMode = true;
+                    // Win32InputMode is incompatible with MetaSendsEscape/AltSendsEscape
+                    // When enabling Win32 input mode, disable ESC+char modes
+                    _terminal.MetaSendsEscape = false;
+                    _terminal.AltSendsEscape = false;
                     break;
 
                 default:
@@ -1691,14 +1704,17 @@ public class InputHandler
                     break;
 
                 case TerminalMode.MetaSendsEscape:
+                    System.Diagnostics.Debug.WriteLine($">>> Mode {mode} MetaSendsEscape DISABLED");
                     _terminal.MetaSendsEscape = false;
                     break;
 
                 case TerminalMode.AltSendsEscape:
+                    System.Diagnostics.Debug.WriteLine($">>> Mode {mode} AltSendsEscape DISABLED");
                     _terminal.AltSendsEscape = false;
                     break;
 
                 case TerminalMode.Win32InputMode:
+                    System.Diagnostics.Debug.WriteLine($">>> Mode {mode} Win32InputMode DISABLED");
                     _terminal.Win32InputMode = false;
                     break;
 

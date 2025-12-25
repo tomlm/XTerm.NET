@@ -51,7 +51,7 @@ public class Terminal
     /// When enabled, pressing Meta+key sends ESC followed by the key.
     /// Mode 1036 (metaSendsEscape).
     /// </summary>
-    public bool MetaSendsEscape { get; set; } = true;
+    public bool MetaSendsEscape { get; set; }
     
     /// <summary>
     /// When enabled, pressing Alt+key sends ESC followed by the key.
@@ -307,7 +307,7 @@ public class Terminal
         ReverseWraparound = false;
         SendFocusEvents = false;
         EightBitInput = false;
-        MetaSendsEscape = true;  // Default is enabled
+        MetaSendsEscape = false;  // Default is disabled
         AltSendsEscape = false;
         Win32InputMode = false;
 
