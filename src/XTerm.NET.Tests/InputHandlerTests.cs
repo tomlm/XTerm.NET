@@ -1253,4 +1253,511 @@ public class InputHandlerTests
     }
 
     #endregion
+
+    #region Additional CSI Command Tests
+    
+    [Fact]
+    public void HandleCsi_InsertChars_InsertsBlankCharacters()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        
+        // Print some characters
+        for (int i = 0; i < 10; i++)
+        {
+            handler.Print(((char)('A' + i)).ToString());
+        }
+        
+        // Move cursor to position 3
+        terminal.Buffer.SetCursor(3, 0);
+        var params_ = new Params();
+        params_.AddParam(2); // Insert 2 blank characters
+
+        // Act
+        handler.HandleCsi("@", params_);
+
+        // Assert - Characters should be shifted right
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.Equal("A", line[0].Content);
+        Assert.Equal("B", line[1].Content);
+        Assert.Equal("C", line[2].Content);
+        // Positions 3 and 4 should now be blank
+        Assert.Equal(" ", line[3].Content);
+        Assert.Equal(" ", line[4].Content);
+        Assert.Equal("D", line[5].Content); // D shifted from position 3 to 5
+    }
+
+    #endregion
+
+    #region Extended SGR Attribute Tests
+
+    [Fact]
+    public void HandleCsi_SgrDim_SetsDimAttribute()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(2); // Dim
+
+        // Act
+        handler.HandleCsi("m", params_);
+        handler.Print("D");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.True(line[0].Attributes.IsDim());
+    }
+
+    [Fact]
+    public void HandleCsi_SgrBlink_SetsBlinkAttribute()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(5); // Blink
+
+        // Act
+        handler.HandleCsi("m", params_);
+        handler.Print("B");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.True(line[0].Attributes.IsBlink());
+    }
+
+    [Fact]
+    public void HandleCsi_SgrInverse_SetsInverseAttribute()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(7); // Inverse
+
+        // Act
+        handler.HandleCsi("m", params_);
+        handler.Print("I");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.True(line[0].Attributes.IsInverse());
+    }
+
+    [Fact]
+    public void HandleCsi_SgrHidden_SetsHiddenAttribute()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(8); // Hidden/Invisible
+
+        // Act
+        handler.HandleCsi("m", params_);
+        handler.Print("H");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.True(line[0].Attributes.IsInvisible());
+    }
+
+    [Fact]
+    public void HandleCsi_SgrStrikethrough_SetsStrikethroughAttribute()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(9); // Strikethrough
+
+        // Act
+        handler.HandleCsi("m", params_);
+        handler.Print("S");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.True(line[0].Attributes.IsStrikethrough());
+    }
+
+    [Fact]
+    public void HandleCsi_Sgr256ColorForeground_SetsForegroundColor()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(38); // Extended foreground
+        params_.AddParam(5);  // 256-color mode
+        params_.AddParam(196); // Color index (bright red)
+
+        // Act
+        handler.HandleCsi("m", params_);
+        handler.Print("C");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.Equal(196, line[0].Attributes.GetFgColor());
+    }
+
+    [Fact]
+    public void HandleCsi_Sgr256ColorBackground_SetsBackgroundColor()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(48); // Extended background
+        params_.AddParam(5);  // 256-color mode
+        params_.AddParam(21); // Color index (blue)
+
+        // Act
+        handler.HandleCsi("m", params_);
+        handler.Print("C");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.Equal(21, line[0].Attributes.GetBgColor());
+    }
+
+    [Fact]
+    public void HandleCsi_SgrTrueColorForeground_SetsForegroundRGB()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(38); // Extended foreground
+        params_.AddParam(2);  // TrueColor mode
+        params_.AddParam(255); // Red
+        params_.AddParam(128); // Green
+        params_.AddParam(64);  // Blue
+
+        // Act
+        handler.HandleCsi("m", params_);
+        handler.Print("T");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        // TrueColor mode is stored in the color mode bits
+        Assert.True(line[0].Attributes.GetFgColorMode() > 0);
+    }
+
+    [Fact]
+    public void HandleCsi_SgrTrueColorBackground_SetsBackgroundRGB()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(48); // Extended background
+        params_.AddParam(2);  // TrueColor mode
+        params_.AddParam(64);  // Red
+        params_.AddParam(128); // Green
+        params_.AddParam(255); // Blue
+
+        // Act
+        handler.HandleCsi("m", params_);
+        handler.Print("T");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        // TrueColor mode is stored in the color mode bits
+        Assert.True(line[0].Attributes.GetBgColorMode() > 0);
+    }
+
+    [Fact]
+    public void HandleCsi_SgrBrightForegroundColors_SetsCorrectColor()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(91); // Bright red foreground (90-97)
+
+        // Act
+        handler.HandleCsi("m", params_);
+        handler.Print("R");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        // Bright colors are 90-97, mapped to color indices 8-15
+        Assert.Equal(9, line[0].Attributes.GetFgColor()); // 91 - 82 = 9 (bright red)
+    }
+
+    [Fact]
+    public void HandleCsi_SgrBrightBackgroundColors_SetsCorrectColor()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(102); // Bright green background (100-107)
+
+        // Act
+        handler.HandleCsi("m", params_);
+        handler.Print("G");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        // Bright background colors are 100-107, mapped to color indices 8-15
+        Assert.Equal(10, line[0].Attributes.GetBgColor()); // 102 - 92 = 10 (bright green)
+    }
+
+    [Fact]
+    public void HandleCsi_SgrResetBold_ResetsBoldOnly()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        
+        // Set bold and italic
+        var params1 = new Params();
+        params1.AddParam(1); // Bold
+        params1.AddParam(3); // Italic
+        handler.HandleCsi("m", params1);
+        handler.Print("B");
+        
+        // Reset bold only
+        var params2 = new Params();
+        params2.AddParam(22); // Reset bold/dim
+
+        // Act
+        handler.HandleCsi("m", params2);
+        handler.Print("N");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.True(line[0].Attributes.IsBold());    // "B" was printed with bold
+        Assert.True(line[0].Attributes.IsItalic()); // "B" also has italic
+        Assert.False(line[1].Attributes.IsBold());   // "N" was printed after reset - NOT bold
+        Assert.True(line[1].Attributes.IsItalic()); // Italic should remain
+    }
+
+    [Fact]
+    public void HandleCsi_SgrResetItalic_ResetsItalicOnly()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        
+        // Set bold and italic
+        var params1 = new Params();
+        params1.AddParam(1); // Bold
+        params1.AddParam(3); // Italic
+        handler.HandleCsi("m", params1);
+        handler.Print("I");
+        
+        // Reset italic only
+        var params2 = new Params();
+        params2.AddParam(23); // Reset italic
+
+        // Act
+        handler.HandleCsi("m", params2);
+        handler.Print("N");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.True(line[0].Attributes.IsItalic());
+        Assert.False(line[1].Attributes.IsItalic());
+    }
+
+    [Fact]
+    public void HandleCsi_SgrResetUnderline_ResetsUnderlineOnly()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params1 = new Params();
+        params1.AddParam(1); // Bold
+        params1.AddParam(4); // Underline
+        handler.HandleCsi("m", params1);
+        handler.Print("U");
+        
+        // Reset underline only
+        var params2 = new Params();
+        params2.AddParam(24); // Reset underline
+
+        // Act
+        handler.HandleCsi("m", params2);
+        handler.Print("N");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.True(line[0].Attributes.IsUnderline());
+        Assert.False(line[1].Attributes.IsUnderline());
+    }
+
+    [Fact]
+    public void HandleCsi_SgrDefaultForeground_ResetsForegroundColor()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        
+        // Set foreground color
+        var params1 = new Params();
+        params1.AddParam(31); // Red
+        handler.HandleCsi("m", params1);
+        handler.Print("R");
+        
+        // Reset to default foreground
+        var params2 = new Params();
+        params2.AddParam(39); // Default foreground
+
+        // Act
+        handler.HandleCsi("m", params2);
+        handler.Print("D");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.Equal(1, line[0].Attributes.GetFgColor()); // Red
+        Assert.Equal(256, line[1].Attributes.GetFgColor()); // Default foreground is 256
+    }
+
+    [Fact]
+    public void HandleCsi_SgrDefaultBackground_ResetsBackgroundColor()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        
+        // Set background color
+        var params1 = new Params();
+        params1.AddParam(42); // Green background
+        handler.HandleCsi("m", params1);
+        handler.Print("G");
+        
+        // Reset to default background
+        var params2 = new Params();
+        params2.AddParam(49); // Default background
+
+        // Act
+        handler.HandleCsi("m", params2);
+        handler.Print("D");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.Equal(2, line[0].Attributes.GetBgColor()); // Green
+        Assert.Equal(257, line[1].Attributes.GetBgColor()); // Default background is 257
+    }
+
+    #endregion
+
+    #region ESC Sequence Tests
+
+    [Fact]
+    public void HandleEsc_SaveCursor_SavesCursorPosition()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetCursor(15, 10);
+
+        // Act - ESC 7 (Save Cursor)
+        handler.HandleEsc("7", "");
+
+        // Move cursor elsewhere
+        terminal.Buffer.SetCursor(30, 20);
+        Assert.Equal(30, terminal.Buffer.X);
+        Assert.Equal(20, terminal.Buffer.Y);
+
+        // Act - Restore Cursor
+        handler.HandleEsc("8", "");
+
+        // Assert
+        Assert.Equal(15, terminal.Buffer.X);
+        Assert.Equal(10, terminal.Buffer.Y);
+    }
+
+    [Fact]
+    public void HandleEsc_RestoreCursor_WithoutSave_MovesToOrigin()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetCursor(10, 5);
+
+        // Act - ESC 8 without prior save
+        handler.HandleEsc("8", "");
+
+        // Assert - Should move to origin or default position
+        Assert.Equal(0, terminal.Buffer.X);
+        Assert.Equal(0, terminal.Buffer.Y);
+    }
+
+    [Fact]
+    public void HandleEsc_RIS_ResetsTerminal()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetCursor(20, 10);
+        terminal.InsertMode = true;
+        terminal.OriginMode = true;
+
+        // Act - ESC c (RIS - Reset to Initial State)
+        handler.HandleEsc("c", "");
+
+        // Assert
+        Assert.Equal(0, terminal.Buffer.X);
+        Assert.Equal(0, terminal.Buffer.Y);
+        Assert.False(terminal.InsertMode);
+        Assert.False(terminal.OriginMode);
+    }
+
+    #endregion
+
+    #region C0 Control Character Tests
+
+    [Fact]
+    public void Terminal_FormFeed_TreatedAsLineFeed()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        terminal.Buffer.SetCursor(5, 3);
+        var initialY = terminal.Buffer.Y;
+
+        // Act - Form Feed (FF, 0x0C) is typically treated as line feed
+        terminal.Write("\x0C");
+
+        // Assert
+        Assert.Equal(initialY + 1, terminal.Buffer.Y);
+    }
+
+    [Fact]
+    public void Terminal_VerticalTab_TreatedAsLineFeed()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        terminal.Buffer.SetCursor(5, 3);
+        var initialY = terminal.Buffer.Y;
+
+        // Act - Vertical Tab (VT, 0x0B) is typically treated as line feed
+        terminal.Write("\x0B");
+
+        // Assert
+        Assert.Equal(initialY + 1, terminal.Buffer.Y);
+    }
+
+    #endregion
 }

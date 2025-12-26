@@ -930,8 +930,17 @@ public class InputHandler
     {
         var count = Math.Max(parameters.GetParam(0, 1), 1);
         var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
-        line?.CopyCellsFrom(line, _buffer.X, _buffer.X + count,
+        if (line == null)
+            return;
+
+        // Shift cells right from cursor position
+        line.CopyCellsFrom(line, _buffer.X, _buffer.X + count,
             _terminal.Cols - _buffer.X - count, false);
+
+        // Blank the inserted cells at cursor position
+        var emptyCell = BufferCell.Space;
+        emptyCell.Attributes = _curAttr.Clone();
+        line.Fill(emptyCell, _buffer.X, Math.Min(_buffer.X + count, _terminal.Cols));
     }
 
     private void DeleteChars(Params parameters)
