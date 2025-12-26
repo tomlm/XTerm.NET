@@ -854,4 +854,403 @@ public class InputHandlerTests
     }
 
     #endregion
+
+    #region Additional CSI Command Tests
+
+    [Fact]
+    public void HandleCsi_CursorNextLine_MovesCursorDownAndToColumn1()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetCursor(20, 5);
+        var params_ = new Params();
+        params_.AddParam(3); // Move down 3 lines
+
+        // Act
+        handler.HandleCsi("E", params_);
+
+        // Assert
+        Assert.Equal(0, terminal.Buffer.X); // Column should be 0
+        Assert.Equal(8, terminal.Buffer.Y); // Row 5 + 3 = 8
+    }
+
+    [Fact]
+    public void HandleCsi_CursorPreviousLine_MovesCursorUpAndToColumn1()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetCursor(20, 10);
+        var params_ = new Params();
+        params_.AddParam(4); // Move up 4 lines
+
+        // Act
+        handler.HandleCsi("F", params_);
+
+        // Assert
+        Assert.Equal(0, terminal.Buffer.X); // Column should be 0
+        Assert.Equal(6, terminal.Buffer.Y); // Row 10 - 4 = 6
+    }
+
+    [Fact]
+    public void HandleCsi_CursorCharAbsolute_MovesToColumn()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetCursor(5, 10);
+        var params_ = new Params();
+        params_.AddParam(25); // Move to column 25 (1-based)
+
+        // Act
+        handler.HandleCsi("G", params_);
+
+        // Assert
+        Assert.Equal(24, terminal.Buffer.X); // 25 - 1 = 24 (0-based)
+        Assert.Equal(10, terminal.Buffer.Y); // Row should be unchanged
+    }
+
+    [Fact]
+    public void HandleCsi_CursorForwardTab_MovesToNextTabStop()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetCursor(5, 0);
+        var params_ = new Params();
+        params_.AddParam(1); // Move to next tab stop
+
+        // Act
+        handler.HandleCsi("I", params_);
+
+        // Assert - Default tab width is 8, so from position 5, next tab stop is 8
+        Assert.Equal(8, terminal.Buffer.X);
+    }
+
+    [Fact]
+    public void HandleCsi_CursorForwardTab_MultipleTabStops()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetCursor(0, 0);
+        var params_ = new Params();
+        params_.AddParam(3); // Move 3 tab stops
+
+        // Act
+        handler.HandleCsi("I", params_);
+
+        // Assert - 3 tab stops from 0: 8, 16, 24
+        Assert.Equal(24, terminal.Buffer.X);
+    }
+
+    [Fact]
+    public void HandleCsi_DeleteChars_DeletesCharacters()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        
+        // Print some characters
+        for (int i = 0; i < 10; i++)
+        {
+            handler.Print(((char)('A' + i)).ToString());
+        }
+        
+        // Move cursor to position 3
+        terminal.Buffer.SetCursor(3, 0);
+        var params_ = new Params();
+        params_.AddParam(2); // Delete 2 characters
+
+        // Act
+        handler.HandleCsi("P", params_);
+
+        // Assert - Characters should be shifted left
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.Equal("A", line[0].Content);
+        Assert.Equal("B", line[1].Content);
+        Assert.Equal("C", line[2].Content);
+        Assert.Equal("F", line[3].Content); // D and E were deleted, F moved here
+    }
+
+    [Fact]
+    public void HandleCsi_ScrollUp_ScrollsBufferUp()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        
+        // Print content on multiple lines
+        for (int i = 0; i < 5; i++)
+        {
+            terminal.Buffer.SetCursor(0, i);
+            handler.Print(((char)('A' + i)).ToString());
+        }
+        
+        var params_ = new Params();
+        params_.AddParam(2); // Scroll up 2 lines
+
+        // Act
+        handler.HandleCsi("S", params_);
+
+        // Assert - Content should have scrolled up
+        // Viewport line 0 should now contain what was on viewport line 2
+        // Access viewport using YBase offset
+        var viewportLine0 = terminal.Buffer.Lines[terminal.Buffer.YBase];
+        Assert.NotNull(viewportLine0);
+        Assert.Equal("C", viewportLine0[0].Content);
+    }
+
+    [Fact]
+    public void HandleCsi_ScrollDown_ScrollsBufferDown()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        
+        // Print content on multiple lines
+        for (int i = 0; i < 5; i++)
+        {
+            terminal.Buffer.SetCursor(0, i);
+            handler.Print(((char)('A' + i)).ToString());
+        }
+        
+        var params_ = new Params();
+        params_.AddParam(2); // Scroll down 2 lines
+
+        // Act
+        handler.HandleCsi("T", params_);
+
+        // Assert - Content should have scrolled down, new blank lines at top
+        var line2 = terminal.Buffer.Lines[2];
+        Assert.NotNull(line2);
+        // Line 2 now contains what was on line 0
+        Assert.Equal("A", line2[0].Content);
+    }
+
+    [Fact]
+    public void HandleCsi_EraseChars_ErasesCharactersAtCursor()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        
+        // Print some characters
+        for (int i = 0; i < 10; i++)
+        {
+            handler.Print("X");
+        }
+        
+        // Move cursor to position 3
+        terminal.Buffer.SetCursor(3, 0);
+        var params_ = new Params();
+        params_.AddParam(4); // Erase 4 characters
+
+        // Act
+        handler.HandleCsi("X", params_);
+
+        // Assert - Characters at positions 3-6 should be erased (spaces)
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.Equal("X", line[2].Content);
+        Assert.Equal(" ", line[3].Content);
+        Assert.Equal(" ", line[4].Content);
+        Assert.Equal(" ", line[5].Content);
+        Assert.Equal(" ", line[6].Content);
+        Assert.Equal("X", line[7].Content);
+    }
+
+    [Fact]
+    public void HandleCsi_CursorBackwardTab_MovesToPreviousTabStop()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetCursor(20, 0);
+        var params_ = new Params();
+        params_.AddParam(1); // Move to previous tab stop
+
+        // Act
+        handler.HandleCsi("Z", params_);
+
+        // Assert - From position 20, previous tab stop is 16
+        Assert.Equal(16, terminal.Buffer.X);
+    }
+
+    [Fact]
+    public void HandleCsi_CursorBackwardTab_MultipleTabStops()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetCursor(25, 0);
+        var params_ = new Params();
+        params_.AddParam(2); // Move back 2 tab stops
+
+        // Act
+        handler.HandleCsi("Z", params_);
+
+        // Assert - From position 25: first back to 24, then to 16
+        // Tab stops at 0, 8, 16, 24, so from 25 going back 2 stops: 24 -> 16
+        Assert.Equal(16, terminal.Buffer.X);
+    }
+
+    [Fact]
+    public void HandleCsi_LinePositionAbsolute_MovesToRow()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetCursor(15, 5);
+        var params_ = new Params();
+        params_.AddParam(12); // Move to row 12 (1-based)
+
+        // Act
+        handler.HandleCsi("d", params_);
+
+        // Assert
+        Assert.Equal(15, terminal.Buffer.X); // Column should be unchanged
+        Assert.Equal(11, terminal.Buffer.Y); // 12 - 1 = 11 (0-based)
+    }
+
+    [Fact]
+    public void HandleCsi_SaveRestoreCursorAnsi_SavesAndRestoresPosition()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetCursor(10, 5);
+
+        // Act - Save cursor
+        handler.HandleCsi("s", new Params());
+
+        // Move cursor elsewhere
+        terminal.Buffer.SetCursor(30, 15);
+        Assert.Equal(30, terminal.Buffer.X);
+        Assert.Equal(15, terminal.Buffer.Y);
+
+        // Act - Restore cursor
+        handler.HandleCsi("u", new Params());
+
+        // Assert - Cursor should be back to saved position
+        Assert.Equal(10, terminal.Buffer.X);
+        Assert.Equal(5, terminal.Buffer.Y);
+    }
+
+    [Fact]
+    public void HandleCsi_EraseInDisplay_ClearAbove()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        
+        // Fill some lines
+        for (int i = 0; i < 5; i++)
+        {
+            terminal.Buffer.SetCursor(0, i);
+            handler.Print("X");
+        }
+        
+        terminal.Buffer.SetCursor(0, 3);
+        var params_ = new Params();
+        params_.AddParam(1); // Erase above
+
+        // Act
+        handler.HandleCsi("J", params_);
+
+        // Assert - Lines 0-2 should be cleared, lines 3-4 should have content
+        Assert.NotEqual("X", terminal.Buffer.Lines[0]?[0].Content);
+        Assert.NotEqual("X", terminal.Buffer.Lines[1]?[0].Content);
+        Assert.NotEqual("X", terminal.Buffer.Lines[2]?[0].Content);
+        Assert.Equal("X", terminal.Buffer.Lines[4]?[0].Content);
+    }
+
+    [Fact]
+    public void HandleCsi_EraseInDisplay_ClearAll()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        
+        // Fill some lines
+        for (int i = 0; i < 5; i++)
+        {
+            terminal.Buffer.SetCursor(0, i);
+            handler.Print("X");
+        }
+        
+        terminal.Buffer.SetCursor(0, 2);
+        var params_ = new Params();
+        params_.AddParam(2); // Erase all
+
+        // Act
+        handler.HandleCsi("J", params_);
+
+        // Assert - All visible lines should be cleared
+        for (int i = 0; i < 5; i++)
+        {
+            Assert.NotEqual("X", terminal.Buffer.Lines[i]?[0].Content);
+        }
+    }
+
+    [Fact]
+    public void HandleCsi_EraseInLine_ErasesToLeft()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        
+        // Print some characters
+        for (int i = 0; i < 10; i++)
+        {
+            handler.Print("X");
+        }
+        
+        terminal.Buffer.SetCursor(5, 0);
+        var params_ = new Params();
+        params_.AddParam(1); // Erase to left
+
+        // Act
+        handler.HandleCsi("K", params_);
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.NotEqual("X", line[0].Content);
+        Assert.NotEqual("X", line[5].Content); // Cursor position included
+        Assert.Equal("X", line[6].Content); // Right of cursor preserved
+    }
+
+    [Fact]
+    public void HandleCsi_EraseInLine_ErasesEntireLine()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        
+        // Print some characters
+        for (int i = 0; i < 10; i++)
+        {
+            handler.Print("X");
+        }
+        
+        terminal.Buffer.SetCursor(5, 0);
+        var params_ = new Params();
+        params_.AddParam(2); // Erase entire line
+
+        // Act
+        handler.HandleCsi("K", params_);
+
+        // Assert - Entire line should be cleared
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        for (int i = 0; i < 10; i++)
+        {
+            Assert.NotEqual("X", line[i].Content);
+        }
+    }
+
+    #endregion
 }
