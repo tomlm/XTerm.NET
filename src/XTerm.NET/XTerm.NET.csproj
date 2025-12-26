@@ -36,8 +36,5 @@
     <PackageReference Include="Unicode.net" Version="2.0.0" />
     <PackageReference Include="Wcwidth" Version="3.0.0" />
   </ItemGroup>
-  <ItemGroup>
-    <Folder Include="Renderer\" />
-  </ItemGroup>
 
 </Project>
