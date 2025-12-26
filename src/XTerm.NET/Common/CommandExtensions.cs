@@ -48,8 +48,8 @@ public static class CsiCommandExtensions
     /// <returns>The corresponding CsiCommand enum value, or Unknown if not recognized</returns>
     public static CsiCommand ToCsiCommand(this string identifier)
     {
-        // Handle DEC private mode sequences (e.g., "?h", "?l")
-        var cleaned = identifier.TrimStart('?');
+        // Handle DEC private mode sequences (e.g., "?h", "?l", ">c")
+        var cleaned = identifier.TrimStart('?', '>');
         return _commandMap.GetValueOrDefault(cleaned, CsiCommand.Unknown);
     }
     
@@ -57,10 +57,10 @@ public static class CsiCommandExtensions
     /// Checks if a CSI identifier represents a DEC private mode sequence.
     /// </summary>
     /// <param name="identifier">The CSI identifier</param>
-    /// <returns>True if the identifier starts with '?', indicating a DEC private mode</returns>
+    /// <returns>True if the identifier starts with '?' or '>', indicating a DEC private mode</returns>
     public static bool IsPrivateMode(this string identifier)
     {
-        return identifier.StartsWith('?');
+        return identifier.StartsWith('?') || identifier.StartsWith('>');
     }
 }
 

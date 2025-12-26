@@ -586,6 +586,7 @@ public class InputHandlerTests
     [Fact]
     public void HandleCsi_SelectCursorStyle_SteadyBar_RaisesEvent()
     {
+        // Arrange
         var terminal = CreateTerminal();
         var handler = new InputHandler(terminal);
         var params_ = new Params();
@@ -594,12 +595,263 @@ public class InputHandlerTests
         TerminalEvents.CursorStyleChangedEventArgs? received = null;
         terminal.CursorStyleChanged += (_, e) => received = e;
 
+        // Act
         handler.HandleCsi(" q", params_);
 
+        // Assert
         Assert.Equal(CursorStyle.Bar, terminal.Options.CursorStyle);
         Assert.False(terminal.Options.CursorBlink);
         Assert.NotNull(received);
         Assert.Equal(CursorStyle.Bar, received!.Style);
         Assert.False(received.Blink);
     }
+
+    #region DeviceStatusReport Tests
+
+    [Fact]
+    public void HandleCsi_DSR_OperatingStatus_ReportsOk()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(5); // Operating status query
+
+        string? receivedData = null;
+        terminal.DataReceived += (_, e) => receivedData = e.Data;
+
+        // Act
+        handler.HandleCsi("n", params_);
+
+        // Assert - Should respond with CSI 0 n (OK)
+        Assert.Equal("\u001b[0n", receivedData);
+    }
+
+    [Fact]
+    public void HandleCsi_DSR_CursorPositionReport_ReportsPosition()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetCursor(10, 5); // 0-based: col 10, row 5
+        var params_ = new Params();
+        params_.AddParam(6); // Cursor position query
+
+        string? receivedData = null;
+        terminal.DataReceived += (_, e) => receivedData = e.Data;
+
+        // Act
+        handler.HandleCsi("n", params_);
+
+        // Assert - Should respond with CSI row ; col R (1-based)
+        Assert.Equal("\u001b[6;11R", receivedData); // row 6, col 11 (1-based)
+    }
+
+    [Fact]
+    public void HandleCsi_DSR_CursorPositionReport_AtOrigin()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetCursor(0, 0); // Top-left corner
+        var params_ = new Params();
+        params_.AddParam(6);
+
+        string? receivedData = null;
+        terminal.DataReceived += (_, e) => receivedData = e.Data;
+
+        // Act
+        handler.HandleCsi("n", params_);
+
+        // Assert - Should respond with CSI 1 ; 1 R
+        Assert.Equal("\u001b[1;1R", receivedData);
+    }
+
+    [Fact]
+    public void HandleCsi_DSR_CursorPositionReport_WithOriginMode()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        
+        // Set scroll region from row 5 to row 20 (0-based: 4 to 19)
+        terminal.Buffer.SetScrollRegion(4, 19);
+        terminal.OriginMode = true;
+        
+        // Cursor at row 10, col 5 (0-based)
+        terminal.Buffer.SetCursor(5, 10);
+        
+        var params_ = new Params();
+        params_.AddParam(6);
+
+        string? receivedData = null;
+        terminal.DataReceived += (_, e) => receivedData = e.Data;
+
+        // Act
+        handler.HandleCsi("n", params_);
+
+        // Assert - Row should be adjusted for scroll region
+        // Row 10 - ScrollTop 4 = 6, then +1 for 1-based = 7
+        // Col 5 + 1 = 6
+        Assert.Equal("\u001b[7;6R", receivedData);
+    }
+
+    [Fact]
+    public void HandleCsi_DSR_Private_ExtendedCursorPositionReport()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetCursor(15, 8); // 0-based: col 15, row 8
+        var params_ = new Params();
+        params_.AddParam(6); // Extended cursor position query
+
+        string? receivedData = null;
+        terminal.DataReceived += (_, e) => receivedData = e.Data;
+
+        // Act - Use "?n" for private mode
+        handler.HandleCsi("?n", params_);
+
+        // Assert - Should respond with CSI ? row ; col R (1-based)
+        Assert.Equal("\u001b[?9;16R", receivedData); // row 9, col 16 (1-based)
+    }
+
+    [Fact]
+    public void HandleCsi_DSR_Private_PrinterStatus()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(15); // Printer status query
+
+        string? receivedData = null;
+        terminal.DataReceived += (_, e) => receivedData = e.Data;
+
+        // Act
+        handler.HandleCsi("?n", params_);
+
+        // Assert - Should respond with CSI ? 13 n (no printer)
+        Assert.Equal("\u001b[?13n", receivedData);
+    }
+
+    [Fact]
+    public void HandleCsi_DSR_Private_UdkStatus()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(25); // UDK status query
+
+        string? receivedData = null;
+        terminal.DataReceived += (_, e) => receivedData = e.Data;
+
+        // Act
+        handler.HandleCsi("?n", params_);
+
+        // Assert - Should respond with CSI ? 21 n (UDK locked)
+        Assert.Equal("\u001b[?21n", receivedData);
+    }
+
+    [Fact]
+    public void HandleCsi_DSR_Private_KeyboardStatus()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(26); // Keyboard status query
+
+        string? receivedData = null;
+        terminal.DataReceived += (_, e) => receivedData = e.Data;
+
+        // Act
+        handler.HandleCsi("?n", params_);
+
+        // Assert - Should respond with CSI ? 27 ; 1 ; 0 ; 0 n (keyboard ready)
+        Assert.Equal("\u001b[?27;1;0;0n", receivedData);
+    }
+
+    [Fact]
+    public void HandleCsi_DSR_UnknownReport_DoesNotRespond()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(99); // Unknown report type
+
+        string? receivedData = null;
+        terminal.DataReceived += (_, e) => receivedData = e.Data;
+
+        // Act
+        handler.HandleCsi("n", params_);
+
+        // Assert - Should not send any response
+        Assert.Null(receivedData);
+    }
+
+    [Fact]
+    public void HandleCsi_DSR_Private_UnknownReport_DoesNotRespond()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(99); // Unknown private report type
+
+        string? receivedData = null;
+        terminal.DataReceived += (_, e) => receivedData = e.Data;
+
+        // Act
+        handler.HandleCsi("?n", params_);
+
+        // Assert - Should not send any response
+        Assert.Null(receivedData);
+    }
+
+    #endregion
+
+    #region DeviceAttributes Tests
+
+    [Fact]
+    public void HandleCsi_DA_Primary_ReportsDeviceAttributes()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(0); // Primary DA
+
+        string? receivedData = null;
+        terminal.DataReceived += (_, e) => receivedData = e.Data;
+
+        // Act
+        handler.HandleCsi("c", params_);
+
+        // Assert - Should respond with CSI ? 1 ; 2 c (VT100 with AVO)
+        Assert.Equal("\u001b[?1;2c", receivedData);
+    }
+
+    [Fact]
+    public void HandleCsi_DA_Secondary_ReportsTerminalId()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var params_ = new Params();
+        params_.AddParam(0); // Secondary DA
+
+        string? receivedData = null;
+        terminal.DataReceived += (_, e) => receivedData = e.Data;
+
+        // Act - Use ">c" for secondary DA
+        handler.HandleCsi(">c", params_);
+
+        // Assert - Should respond with CSI > 0 ; 10 ; 0 c
+        Assert.Equal("\u001b[>0;10;0c", receivedData);
+    }
+
+    #endregion
 }
