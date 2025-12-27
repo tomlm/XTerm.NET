@@ -103,6 +103,13 @@ public enum CsiCommand
     CursorBackwardTab,
     
     /// <summary>
+    /// Tab Clear (CSI g).
+    /// Ps = 0: Clear current column tab stop.
+    /// Ps = 3: Clear all tab stops.
+    /// </summary>
+    TabClear,
+    
+    /// <summary>
     /// Device Attributes (CSI c).
     /// </summary>
     DeviceAttributes,

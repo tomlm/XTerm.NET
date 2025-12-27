@@ -39,6 +39,12 @@ public enum TerminalMode
     SmoothScroll = 4,
     
     /// <summary>
+    /// Reverse Video (DECSCNM).
+    /// When set, the entire screen is displayed in reverse video.
+    /// </summary>
+    ReverseVideo = 5,
+    
+    /// <summary>
     /// Origin Mode (DECOM).
     /// </summary>
     Origin = 6,
@@ -57,6 +63,18 @@ public enum TerminalMode
     /// Text Cursor Enable (DECTCEM).
     /// </summary>
     ShowCursor = 25,
+    
+    /// <summary>
+    /// National Replacement Character Set Mode (DECNRCM).
+    /// When set, enables national replacement character sets.
+    /// </summary>
+    NationalCharset = 42,
+    
+    /// <summary>
+    /// Reverse Wraparound Mode.
+    /// When set, allows backspace to wrap from column 0 to the previous line.
+    /// </summary>
+    ReverseWraparound = 45,
     
     /// <summary>
     /// Application Keypad (DECNKM).

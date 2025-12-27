@@ -416,6 +416,10 @@ public class InputHandler
                 CursorBackwardTab(parameters);
                 break;
 
+            case CsiCommand.TabClear:
+                TabClear(parameters);
+                break;
+
             case CsiCommand.DeviceAttributes:
                 DeviceAttributes(parameters, isPrivate);
                 break;
@@ -1065,6 +1069,25 @@ public class InputHandler
         }
     }
 
+    private void TabClear(Params parameters)
+    {
+        // TBC - Tab Clear (CSI g)
+        // Ps = 0: Clear tab stop at current column (default)
+        // Ps = 3: Clear all tab stops
+        // Note: We use fixed tab stops, so this is acknowledged but has no effect
+        // A full implementation would maintain a list of custom tab stops
+        var mode = parameters.GetParam(0, 0);
+        switch (mode)
+        {
+            case 0:
+                // Clear current column tab stop - acknowledged but no action
+                break;
+            case 3:
+                // Clear all tab stops - acknowledged but no action
+                break;
+        }
+    }
+
     private void DeviceAttributes(Params parameters, bool isPrivate)
     {
         // DA - Device Attributes (CSI c or CSI > c)
@@ -1519,17 +1542,43 @@ public class InputHandler
                     _terminal.ApplicationCursorKeys = true;
                     break;
 
+                case TerminalMode.InsertMode:
+                    // Mode 4: In DEC private mode context, this is SmoothScroll (DECSCLM)
+                    // InsertMode and SmoothScroll share value 4 in the enum
+                    // Smooth scroll is acknowledged but has no effect in modern terminals
+                    break;
+
+                case TerminalMode.ReverseVideo:
+                    _terminal.ReverseVideo = true;
+                    break;
+
                 case TerminalMode.Origin:
                     _terminal.OriginMode = true;
                     _buffer.SetCursor(0, 0);
                     break;
 
                 case TerminalMode.Wraparound:
+                    // Mode 7: Wraparound mode
+                    // Wraparound and AutoWrapMode share value 7 in the enum
                     _terminal.Options.Wraparound = true;
+                    break;
+
+                case TerminalMode.AutoRepeat:
+                    // Auto repeat is typically always enabled in modern terminals
+                    // This mode is acknowledged but has no effect
                     break;
 
                 case TerminalMode.ShowCursor:
                     _terminal.CursorVisible = true;
+                    break;
+
+                case TerminalMode.NationalCharset:
+                    // National replacement character set mode
+                    // Acknowledged but typically no specific action needed for modern use
+                    break;
+
+                case TerminalMode.ReverseWraparound:
+                    _terminal.ReverseWraparound = true;
                     break;
 
                 case TerminalMode.AppKeypad:
@@ -1683,17 +1732,41 @@ public class InputHandler
                     _terminal.ApplicationCursorKeys = false;
                     break;
 
+                case TerminalMode.InsertMode:
+                    // Mode 4: In DEC private mode context, this is SmoothScroll (DECSCLM)
+                    // Smooth scroll is acknowledged but has no effect in modern terminals
+                    break;
+
+                case TerminalMode.ReverseVideo:
+                    _terminal.ReverseVideo = false;
+                    break;
+
                 case TerminalMode.Origin:
                     _terminal.OriginMode = false;
                     _buffer.SetCursor(0, 0);
                     break;
 
                 case TerminalMode.Wraparound:
+                    // Mode 7: Wraparound mode
                     _terminal.Options.Wraparound = false;
+                    break;
+
+                case TerminalMode.AutoRepeat:
+                    // Auto repeat is typically always enabled in modern terminals
+                    // This mode is acknowledged but has no effect
                     break;
 
                 case TerminalMode.ShowCursor:
                     _terminal.CursorVisible = false;
+                    break;
+
+                case TerminalMode.NationalCharset:
+                    // National replacement character set mode
+                    // Acknowledged but typically no specific action needed for modern use
+                    break;
+
+                case TerminalMode.ReverseWraparound:
+                    _terminal.ReverseWraparound = false;
                     break;
 
                 case TerminalMode.AppKeypad:

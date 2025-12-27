@@ -38,6 +38,7 @@ public class Terminal
     public bool OriginMode { get; set; }
     public bool CursorVisible { get; set; }
     public bool ReverseWraparound { get; set; }
+    public bool ReverseVideo { get; set; }
     public bool SendFocusEvents { get; set; }
     public bool Win32InputMode { get; set; }
     
@@ -305,6 +306,7 @@ public class Terminal
         OriginMode = false;
         CursorVisible = true;
         ReverseWraparound = false;
+        ReverseVideo = false;
         SendFocusEvents = false;
         EightBitInput = false;
         MetaSendsEscape = false;  // Default is disabled

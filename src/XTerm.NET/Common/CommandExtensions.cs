@@ -29,6 +29,7 @@ public static class CsiCommandExtensions
         { "c", CsiCommand.DeviceAttributes },
         { "d", CsiCommand.LinePositionAbsolute },
         { "f", CsiCommand.CursorPosition }, // HVP - same as CUP
+        { "g", CsiCommand.TabClear },
         { "h", CsiCommand.SetMode },
         { "l", CsiCommand.ResetMode },
         { "m", CsiCommand.SelectGraphicRendition },
