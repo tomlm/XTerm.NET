@@ -12,6 +12,7 @@ public class BufferLine : IEnumerable<BufferCell>
     private BufferCell[] _cells;
     private int _length;
     private bool _isWrapped;
+    private LineAttribute _lineAttribute;
 
     public int Length => _length;
 
@@ -20,6 +21,26 @@ public class BufferLine : IEnumerable<BufferCell>
         get => _isWrapped;
         set => _isWrapped = value;
     }
+
+    /// <summary>
+    /// Gets or sets the DEC line attribute (double-width/double-height).
+    /// Set via ESC # sequences: ESC # 3 (top), ESC # 4 (bottom), ESC # 5 (normal), ESC # 6 (double-width).
+    /// </summary>
+    public LineAttribute LineAttribute
+    {
+        get => _lineAttribute;
+        set
+        {
+            _lineAttribute = value;
+            Cache = null;
+        }
+    }
+
+    /// <summary>
+    /// Returns true if this line has a double-width attribute (DECDWL or DECDHL).
+    /// Double-width lines can only display cols/2 characters.
+    /// </summary>
+    public bool IsDoubleWidth => _lineAttribute.IsDoubleWidth();
 
     /// <summary>
     /// Cache object - this will be cleared on writes to the bufferline.
@@ -31,6 +52,7 @@ public class BufferLine : IEnumerable<BufferCell>
         _length = cols;
         _cells = new BufferCell[cols];
         _isWrapped = false;
+        _lineAttribute = LineAttribute.Normal;
 
         var fill = fillCell ?? BufferCell.Empty;
         for (int i = 0; i < cols; i++)
@@ -209,6 +231,7 @@ public class BufferLine : IEnumerable<BufferCell>
     {
         var newLine = new BufferLine(_length);
         newLine._isWrapped = _isWrapped;
+        newLine._lineAttribute = _lineAttribute;
         for (int i = 0; i < _length; i++)
         {
             newLine._cells[i] = _cells[i].Clone();
@@ -233,6 +256,7 @@ public class BufferLine : IEnumerable<BufferCell>
             _cells[i] = line._cells[i].Clone();
         }
         _isWrapped = line._isWrapped;
+        _lineAttribute = line._lineAttribute;
         this.Cache = line.Cache;
     }
 

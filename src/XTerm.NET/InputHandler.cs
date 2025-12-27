@@ -536,8 +536,40 @@ public class InputHandler
                 case '+': // Designate G3 character set
                     SetCharset(CharsetMode.G3, finalChar);
                     break;
+                case '#': // DEC line attribute sequences
+                    HandleDecLineAttribute(finalChar);
+                    break;
             }
         }
+    }
+
+    private void HandleDecLineAttribute(string finalChar)
+    {
+        var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
+        if (line == null) return;
+        switch (finalChar)
+        {
+            case "3": line.LineAttribute = LineAttribute.DoubleHeightTop; break;
+            case "4": line.LineAttribute = LineAttribute.DoubleHeightBottom; break;
+            case "5": line.LineAttribute = LineAttribute.Normal; break;
+            case "6": line.LineAttribute = LineAttribute.DoubleWidth; break;
+            case "8": FillScreenWithE(); break;
+        }
+    }
+
+    private void FillScreenWithE()
+    {
+        var cell = new BufferCell('E', 1, AttributeData.Default);
+        for (int row = 0; row < _terminal.Rows; row++)
+        {
+            var line = _buffer.Lines[_buffer.YBase + row];
+            if (line != null)
+            {
+                line.LineAttribute = LineAttribute.Normal;
+                line.Fill(cell);
+            }
+        }
+        _buffer.SetCursor(0, 0);
     }
 
     private void SetCharset(CharsetMode mode, string charsetId)

@@ -433,4 +433,101 @@ public class BufferLineTests
         // Assert
         Assert.False(line.IsWrapped);
     }
+
+    [Fact]
+    public void LineAttribute_DefaultsToNormal()
+    {
+        // Arrange & Act
+        var line = new BufferLine(10);
+
+        // Assert
+        Assert.Equal(LineAttribute.Normal, line.LineAttribute);
+        Assert.False(line.IsDoubleWidth);
+    }
+
+    [Fact]
+    public void LineAttribute_CanBeSetToDoubleWidth()
+    {
+        // Arrange
+        var line = new BufferLine(10);
+
+        // Act
+        line.LineAttribute = LineAttribute.DoubleWidth;
+
+        // Assert
+        Assert.Equal(LineAttribute.DoubleWidth, line.LineAttribute);
+        Assert.True(line.IsDoubleWidth);
+    }
+
+    [Fact]
+    public void LineAttribute_DoubleHeightTop_IsDoubleWidth()
+    {
+        // Arrange
+        var line = new BufferLine(10);
+
+        // Act
+        line.LineAttribute = LineAttribute.DoubleHeightTop;
+
+        // Assert
+        Assert.Equal(LineAttribute.DoubleHeightTop, line.LineAttribute);
+        Assert.True(line.IsDoubleWidth);
+    }
+
+    [Fact]
+    public void LineAttribute_DoubleHeightBottom_IsDoubleWidth()
+    {
+        // Arrange
+        var line = new BufferLine(10);
+
+        // Act
+        line.LineAttribute = LineAttribute.DoubleHeightBottom;
+
+        // Assert
+        Assert.Equal(LineAttribute.DoubleHeightBottom, line.LineAttribute);
+        Assert.True(line.IsDoubleWidth);
+    }
+
+    [Fact]
+    public void Clone_PreservesLineAttribute()
+    {
+        // Arrange
+        var line = new BufferLine(10);
+        line.LineAttribute = LineAttribute.DoubleWidth;
+
+        // Act
+        var clone = line.Clone();
+
+        // Assert
+        Assert.Equal(LineAttribute.DoubleWidth, clone.LineAttribute);
+    }
+
+    [Fact]
+    public void CopyFrom_PreservesLineAttribute()
+    {
+        // Arrange
+        var srcLine = new BufferLine(10);
+        srcLine.LineAttribute = LineAttribute.DoubleHeightTop;
+
+        var destLine = new BufferLine(10);
+
+        // Act
+        destLine.CopyFrom(srcLine);
+
+        // Assert
+        Assert.Equal(LineAttribute.DoubleHeightTop, destLine.LineAttribute);
+    }
+
+    [Fact]
+    public void LineAttribute_SetClearsCache()
+    {
+        // Arrange
+        var line = new BufferLine(10);
+        line.Cache = new object();
+
+        // Act
+        line.LineAttribute = LineAttribute.DoubleWidth;
+
+        // Assert
+        Assert.Null(line.Cache);
+    }
 }
