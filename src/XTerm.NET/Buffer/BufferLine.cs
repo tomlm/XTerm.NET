@@ -14,11 +14,17 @@ public class BufferLine : IEnumerable<BufferCell>
     private bool _isWrapped;
 
     public int Length => _length;
+
     public bool IsWrapped
     {
         get => _isWrapped;
         set => _isWrapped = value;
     }
+
+    /// <summary>
+    /// Cache object - this will be cleared on writes to the bufferline.
+    /// </summary>
+    public object? Cache { get; set; }
 
     public BufferLine(int cols, BufferCell? fillCell = null)
     {
@@ -31,6 +37,7 @@ public class BufferLine : IEnumerable<BufferCell>
         {
             _cells[i] = fill.Clone();
         }
+        Cache = null;
     }
 
     /// <summary>
@@ -47,7 +54,10 @@ public class BufferLine : IEnumerable<BufferCell>
         set
         {
             if (index >= 0 && index < _length)
+            {
                 _cells[index] = value;
+                Cache = null;
+            }
         }
     }
 
@@ -71,6 +81,7 @@ public class BufferLine : IEnumerable<BufferCell>
         if (index >= 0 && index < _length)
         {
             _cells[index] = cell.Clone();
+            Cache = null;
         }
     }
 
@@ -108,7 +119,7 @@ public class BufferLine : IEnumerable<BufferCell>
             Array.Copy(_cells, newCells, cols);
             _cells = newCells;
         }
-
+        Cache = null;
         _length = cols;
     }
 
@@ -124,6 +135,7 @@ public class BufferLine : IEnumerable<BufferCell>
         {
             _cells[i] = fillCell.Clone();
         }
+        Cache = null;
     }
 
     /// <summary>
@@ -151,6 +163,7 @@ public class BufferLine : IEnumerable<BufferCell>
                 }
             }
         }
+        Cache = null;
     }
 
     /// <summary>
@@ -200,6 +213,7 @@ public class BufferLine : IEnumerable<BufferCell>
         {
             newLine._cells[i] = _cells[i].Clone();
         }
+        newLine.Cache = this.Cache;
         return newLine;
     }
 
@@ -219,6 +233,7 @@ public class BufferLine : IEnumerable<BufferCell>
             _cells[i] = line._cells[i].Clone();
         }
         _isWrapped = line._isWrapped;
+        this.Cache = line.Cache;
     }
 
     public IEnumerator<BufferCell> GetEnumerator()
