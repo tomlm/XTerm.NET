@@ -1219,6 +1219,9 @@ public class InputHandler
                 case 24: // Not underline
                     _curAttr.SetUnderline(false);
                     break;
+                case 25: // Not blink
+                    _curAttr.SetBlink(false);
+                    break;
                 case 27: // Not inverse
                     _curAttr.SetInverse(false);
                     break;
