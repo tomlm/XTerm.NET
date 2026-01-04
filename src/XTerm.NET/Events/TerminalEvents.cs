@@ -150,6 +150,7 @@ public static class TerminalEvents
     /// </summary>
     public class WindowMovedEventArgs : EventArgs
     {
+        // coord in pixels
         public int X { get; }
         public int Y { get; }
         
@@ -165,7 +166,10 @@ public static class TerminalEvents
     /// </summary>
     public class WindowResizedEventArgs : EventArgs
     {
+        // width in pixels
         public int Width { get; }
+        
+        // height in pixels
         public int Height { get; }
         
         public WindowResizedEventArgs(int width, int height)
