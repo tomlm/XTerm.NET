@@ -1,3 +1,4 @@
+using System.Text;
 using XTerm.Common;
 
 namespace XTerm.Buffer;
@@ -337,5 +338,20 @@ public class TerminalBuffer
     {
         _x = x;
         _y = y;
+    }
+
+    public string PrintViewport()
+    {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < _rows; i++)
+        {
+            var line = GetLine(_yDisp + i);
+            foreach(var cell in line)
+            {
+                sb.Append(cell.Content);
+            }
+            sb.AppendLine();
+        }
+        return sb.ToString();
     }
 }
