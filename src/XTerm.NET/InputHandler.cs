@@ -457,35 +457,12 @@ public class InputHandler
                 break;
 
             case CsiCommand.SetMode:
-                if (isPrivate)
-                {
-                    // DEC Private Mode Set (CSI ? Pm h)
-                    for (int i = 0; i < parameters.Length; i++)
-                    {
-                        var mode = parameters.GetParam(i, 0);
-                        SetModeInternal(mode, isPrivate: true);
-                    }
-                }
-                else
-                {
-                    SetMode(parameters);
-                }
+                SetCSIModeParameters(parameters, isPrivate: isPrivate);
                 break;
 
             case CsiCommand.ResetMode:
-                if (isPrivate)
-                {
-                    // DEC Private Mode Reset (CSI ? Pm l)
-                    for (int i = 0; i < parameters.Length; i++)
-                    {
-                        var mode = parameters.GetParam(i, 0);
-                        ResetModeInternal(mode, isPrivate: true);
-                    }
-                }
-                else
-                {
-                    ResetMode(parameters);
-                }
+                // DEC Private Mode Reset (CSI ? Pm l)
+                ResetCSIModeParameters(parameters, isPrivate: isPrivate);
                 break;
 
             case CsiCommand.Unknown:
@@ -1516,16 +1493,16 @@ public class InputHandler
         }
     }
 
-    private void SetMode(Params parameters)
+    private void SetCSIModeParameters(Params parameters, bool isPrivate)
     {
         for (int i = 0; i < parameters.Length; i++)
         {
             var mode = parameters.GetParam(i, 0);
-            SetModeInternal(mode, isPrivate: false);
+            SetCSIMode(mode, isPrivate: isPrivate);
         }
     }
 
-    private void SetModeInternal(int mode, bool isPrivate)
+    private void SetCSIMode(int mode, bool isPrivate)
     {
         if (isPrivate)
         {
@@ -1533,7 +1510,7 @@ public class InputHandler
             // Convert int to TerminalMode enum
             if (!Enum.IsDefined(typeof(TerminalMode), mode))
             {
-                System.Diagnostics.Debug.WriteLine($"Unknown terminal mode: {mode}");
+                System.Diagnostics.Debug.WriteLine($"Unknown CSI private terminal mode: {mode}");
                 return;
             }
 
@@ -1675,7 +1652,7 @@ public class InputHandler
                     break;
 
                 default:
-                    System.Diagnostics.Debug.WriteLine($"Unhandled terminal mode: {terminalMode}");
+                    System.Diagnostics.Debug.WriteLine($"Unhandled CSI private terminal mode: {terminalMode}");
                     break;
             }
         }
@@ -1684,7 +1661,7 @@ public class InputHandler
             // ANSI Modes (SM)
             if (!Enum.IsDefined(typeof(TerminalMode), mode))
             {
-                System.Diagnostics.Debug.WriteLine($"Unknown terminal mode: {mode}");
+                System.Diagnostics.Debug.WriteLine($"Unknown CSI terminal mode: {mode}");
                 return;
             }
 
@@ -1701,29 +1678,29 @@ public class InputHandler
                     break;
 
                 default:
-                    System.Diagnostics.Debug.WriteLine($"Unhandled terminal mode: {terminalMode}");
+                    System.Diagnostics.Debug.WriteLine($"Unhandled CSI terminal mode: {terminalMode}");
                     break;
             }
         }
     }
 
-    private void ResetMode(Params parameters)
+    private void ResetCSIModeParameters(Params parameters, bool isPrivate)
     {
         for (int i = 0; i < parameters.Length; i++)
         {
             var mode = parameters.GetParam(i, 0);
-            ResetModeInternal(mode, isPrivate: false);
+            ResetCSIMode(mode, isPrivate: isPrivate);
         }
     }
 
-    private void ResetModeInternal(int mode, bool isPrivate)
+    private void ResetCSIMode(int mode, bool isPrivate)
     {
         if (isPrivate)
         {
             // DEC Private Modes (DECRST)
             if (!Enum.IsDefined(typeof(TerminalMode), mode))
             {
-                System.Diagnostics.Debug.WriteLine($"Unknown terminal mode: {mode}");
+                System.Diagnostics.Debug.WriteLine($"Unknown private reset terminal mode: {mode}");
                 return;
             }
 
@@ -1845,7 +1822,7 @@ public class InputHandler
             // ANSI Modes (RM)
             if (!Enum.IsDefined(typeof(TerminalMode), mode))
             {
-                System.Diagnostics.Debug.WriteLine($"Unknown terminal mode: {mode}");
+                System.Diagnostics.Debug.WriteLine($"Unknown CSI reset terminal mode: {mode}");
                 return;
             }
 
@@ -1862,7 +1839,7 @@ public class InputHandler
                     break;
 
                 default:
-                    System.Diagnostics.Debug.WriteLine($"Unhandled terminal mode: {terminalMode}");
+                    System.Diagnostics.Debug.WriteLine($"Unhandled CSI reset terminal mode: {terminalMode}");
                     break;
             }
         }
