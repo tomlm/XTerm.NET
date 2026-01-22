@@ -924,4 +924,173 @@ public class BufferTests
     }
 
     #endregion
+    #region Alternate Buffer (No Scrollback) Tests
+
+    [Fact]
+    public void AlternateBuffer_NoScrollback_YBaseRemainsZero()
+    {
+        // Arrange - Create buffer with NO scrollback (like alternate buffer)
+        var buffer = new TerminalBuffer(80, 24, 0);
+
+        // Act - Scroll up multiple times
+        buffer.ScrollUp(10);
+
+        // Assert - YBase should remain 0 since there's no scrollback
+        Assert.Equal(0, buffer.YBase);
+        Assert.Equal(0, buffer.YDisp);
+    }
+
+    [Fact]
+    public void AlternateBuffer_NoScrollback_ViewportYRemainsZero()
+    {
+        // Arrange - Create buffer with NO scrollback (like alternate buffer)
+        var buffer = new TerminalBuffer(80, 24, 0);
+
+        // Act - Scroll up
+        buffer.ScrollUp(5);
+
+        // Assert - ViewportY should remain 0
+        Assert.Equal(0, buffer.ViewportY);
+    }
+
+    [Fact]
+    public void AlternateBuffer_NoScrollback_ScrollUpWithScrollRegion_YBaseRemainsZero()
+    {
+        // Arrange - Create buffer with NO scrollback (like alternate buffer)
+        var buffer = new TerminalBuffer(80, 24, 0);
+        
+        // Set a scroll region (as asciiquarium does with DECSTBM)
+        buffer.SetScrollRegion(0, 10);
+
+        // Act - Scroll within the region
+        buffer.ScrollUp(3);
+
+        // Assert - YBase and YDisp should remain 0
+        Assert.Equal(0, buffer.YBase);
+        Assert.Equal(0, buffer.YDisp);
+        Assert.Equal(0, buffer.ViewportY);
+    }
+
+    [Fact]
+    public void AlternateBuffer_NoScrollback_ScrollUpAtTopOfScreen_YBaseRemainsZero()
+    {
+        // Arrange - Create buffer with NO scrollback (like alternate buffer)
+        // This simulates the exact case that caused the asciiquarium bug
+        var buffer = new TerminalBuffer(80, 50, 0);
+        
+        // Scroll region starting at top (row 0) - this is the case that was broken
+        buffer.SetScrollRegion(0, 5);
+
+        // Act - Scroll up (e.g., when content exits the scroll region at top)
+        buffer.ScrollUp(1);
+
+        // Assert - YBase should NOT increment because there's no scrollback capacity
+        Assert.Equal(0, buffer.YBase);
+        Assert.Equal(0, buffer.YDisp);
+    }
+
+    [Fact]
+    public void AlternateBuffer_NoScrollback_MultipleScrollOperations_YBaseRemainsZero()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(80, 24, 0);
+
+        // Act - Multiple scroll operations with different regions
+        buffer.SetScrollRegion(0, 5);
+        buffer.ScrollUp(2);
+        
+        buffer.SetScrollRegion(10, 20);
+        buffer.ScrollUp(3);
+        buffer.ScrollDown(1);
+        
+        buffer.ResetScrollRegion();
+        buffer.ScrollUp(5);
+
+        // Assert - YBase should still be 0
+        Assert.Equal(0, buffer.YBase);
+        Assert.Equal(0, buffer.YDisp);
+    }
+
+    [Fact]
+    public void AlternateBuffer_NoScrollback_LinesStillShift()
+    {
+        // Arrange
+        var buffer = new TerminalBuffer(10, 5, 0);
+        
+        // Put some content in the buffer
+        var line0 = buffer.GetLine(0);
+        var cell = new BufferCell { Content = "A", Width = 1 };
+        line0?.SetCell(0, ref cell);
+        
+        var line1 = buffer.GetLine(1);
+        cell = new BufferCell { Content = "B", Width = 1 };
+        line1?.SetCell(0, ref cell);
+
+        // Act - Scroll up (should shift lines, not add to scrollback)
+        buffer.ScrollUp(1);
+
+        // Assert - Line with "B" should now be at position 0
+        var newLine0 = buffer.GetLine(0);
+        Assert.Equal("B", newLine0?[0].Content);
+        
+        // YBase should remain 0
+        Assert.Equal(0, buffer.YBase);
+    }
+
+    [Fact]
+    public void AlternateBuffer_NoScrollback_ScrollRegionAtTop_ContentScrollsCorrectly()
+    {
+        // Arrange - This tests the DECSTBM case like [1;5r
+        var buffer = new TerminalBuffer(10, 10, 0);
+        
+        // Set scroll region from row 0 to row 4 (5 rows)
+        buffer.SetScrollRegion(0, 4);
+        
+        // Put content in the scroll region
+        for (int i = 0; i <= 4; i++)
+        {
+            var line = buffer.GetLine(i);
+            var cell = new BufferCell { Content = ((char)('A' + i)).ToString(), Width = 1 };
+            line?.SetCell(0, ref cell);
+        }
+        
+        // Put content below scroll region (should not be affected)
+        var lineBelow = buffer.GetLine(5);
+        var bellowCell = new BufferCell { Content = "X", Width = 1 };
+        lineBelow?.SetCell(0, ref bellowCell);
+
+        // Act - Scroll up within the region
+        buffer.ScrollUp(1);
+
+        // Assert - Content should have scrolled within the region
+        Assert.Equal("B", buffer.GetLine(0)?[0].Content); // A scrolled out
+        Assert.Equal("C", buffer.GetLine(1)?[0].Content);
+        Assert.Equal("D", buffer.GetLine(2)?[0].Content);
+        Assert.Equal("E", buffer.GetLine(3)?[0].Content);
+        // Line 4 should be blank (new line inserted at bottom of scroll region)
+        
+        // Content below scroll region should be unchanged
+        Assert.Equal("X", buffer.GetLine(5)?[0].Content);
+        
+        // YBase should remain 0
+        Assert.Equal(0, buffer.YBase);
+        Assert.Equal(0, buffer.YDisp);
+    }
+
+    [Fact]
+    public void NormalBuffer_WithScrollback_ScrollUpAtTop_YBaseIncrements()
+    {
+        // Arrange - Create buffer WITH scrollback (normal buffer)
+        var buffer = new TerminalBuffer(80, 24, 1000);
+
+        // Act - Scroll up with scroll region at top
+        buffer.SetScrollRegion(0, 23);
+        buffer.ScrollUp(5);
+
+        // Assert - YBase SHOULD increment because we have scrollback
+        Assert.Equal(5, buffer.YBase);
+        Assert.Equal(5, buffer.YDisp);
+    }
+
+    #endregion
 }
