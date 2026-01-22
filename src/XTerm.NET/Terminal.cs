@@ -334,7 +334,7 @@ public class Terminal
         for (int i = 0; i < Rows; i++)
         {
             var line = _buffer.Lines[i];
-            line?.Fill(BufferCell.Empty);
+            line?.Fill(BufferCell.Space);
         }
         _buffer.SetCursor(0, 0);
     }

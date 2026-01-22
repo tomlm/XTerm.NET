@@ -17,7 +17,6 @@ public class TerminalBuffer
     private int _scrollTop;
     private int _cols;
     private int _rows;
-    private readonly BufferCell _fillCell;
 
     /// <summary>
     /// The absolute line index of the top of the viewport in the buffer.
@@ -98,13 +97,12 @@ public class TerminalBuffer
         _x = 0;
         _scrollTop = 0;
         _scrollBottom = rows - 1;
-        _fillCell = BufferCell.Empty;
         SavedCursorState = new SavedCursor();
 
         // Initialize buffer with empty lines
         for (int i = 0; i < rows; i++)
         {
-            _lines.Push(new BufferLine(cols, _fillCell));
+            _lines.Push(new BufferLine(cols, BufferCell.Space));
         }
     }
 
@@ -121,7 +119,7 @@ public class TerminalBuffer
     /// </summary>
     public BufferLine GetBlankLine(AttributeData attr, bool isWrapped = false)
     {
-        var fillCell = BufferCell.Empty;
+        var fillCell = BufferCell.Space;
         fillCell.Attributes = attr;
         return new BufferLine(_cols, fillCell) { IsWrapped = isWrapped };
     }
@@ -286,7 +284,7 @@ public class TerminalBuffer
         _lines.Resize(newMaxLength);
 
         // Resize existing lines to the new column count
-        var fillCell = BufferCell.Empty;
+        var fillCell = BufferCell.Space;
         for (int i = 0; i < _lines.Length; i++)
         {
             _lines[i]?.Resize(newCols, fillCell);
