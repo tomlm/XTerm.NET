@@ -963,6 +963,10 @@ public class InputHandler
         if (line == null)
             return;
 
+        // Limit count to remaining characters on line
+        var remaining = _terminal.Cols - _buffer.X;
+        count = Math.Min(count, remaining);
+
         line.CopyCellsFrom(line, _buffer.X + count, _buffer.X,
             _terminal.Cols - _buffer.X - count, false);
 

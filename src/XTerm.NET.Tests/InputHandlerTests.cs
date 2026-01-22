@@ -1760,4 +1760,162 @@ public class InputHandlerTests
     }
 
     #endregion
+    #region DeleteChars BCE Tests
+
+    [Fact]
+    public void HandleCsi_DeleteChars_FillsVacatedCellsWithSpaces()
+    {
+        // Arrange
+        var terminal = CreateTerminal(20, 24);
+        var handler = new InputHandler(terminal);
+        
+        // Print characters across the entire width
+        for (int i = 0; i < 20; i++)
+        {
+            handler.Print("X");
+        }
+        
+        // Move cursor to position 5
+        terminal.Buffer.SetCursor(5, 0);
+        var params_ = new Params();
+        params_.AddParam(3); // Delete 3 characters
+
+        // Act
+        handler.HandleCsi("P", params_);
+
+        // Assert - Characters should be shifted left
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        
+        // Positions 0-4 should be unchanged
+        for (int i = 0; i < 5; i++)
+        {
+            Assert.Equal("X", line[i].Content);
+        }
+        
+        // Position 5 should now have what was at position 8
+        Assert.Equal("X", line[5].Content);
+        
+        // The last 3 cells (17, 18, 19) should now be spaces (vacated by shift)
+        Assert.Equal(" ", line[17].Content);
+        Assert.Equal(" ", line[18].Content);
+        Assert.Equal(" ", line[19].Content);
+    }
+
+    [Fact]
+    public void HandleCsi_DeleteChars_BCE_VacatedCellsUseCurrentAttributes()
+    {
+        // Arrange - This tests the BCE (Background Color Erase) behavior
+        // When deleting characters, the vacated cells at the right edge
+        // should be filled with the CURRENT background color/attributes
+        var terminal = CreateTerminal(20, 24);
+        var handler = new InputHandler(terminal);
+        
+        // Print characters with default attributes
+        for (int i = 0; i < 20; i++)
+        {
+            handler.Print("X");
+        }
+        
+        // Set a specific background color before deleting
+        var sgrParams = new Params();
+        sgrParams.AddParam(44); // Blue background
+        handler.HandleCsi("m", sgrParams);
+        
+        // Move cursor to position 5
+        terminal.Buffer.SetCursor(5, 0);
+        var params_ = new Params();
+        params_.AddParam(3); // Delete 3 characters
+
+        // Act
+        handler.HandleCsi("P", params_);
+
+        // Assert - The vacated cells should have the blue background
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        
+        // The last 3 cells should be spaces with the current (blue) background
+        Assert.Equal(" ", line[17].Content);
+        Assert.Equal(" ", line[18].Content);
+        Assert.Equal(" ", line[19].Content);
+        
+        // And they should have the blue background (color index 4)
+        Assert.Equal(4, line[17].Attributes.GetBgColor());
+        Assert.Equal(4, line[18].Attributes.GetBgColor());
+        Assert.Equal(4, line[19].Attributes.GetBgColor());
+    }
+
+    [Fact]
+    public void HandleCsi_DeleteChars_AtEndOfLine_StillClearsCorrectly()
+    {
+        // Arrange
+        var terminal = CreateTerminal(20, 24);
+        var handler = new InputHandler(terminal);
+        
+        // Print characters
+        for (int i = 0; i < 20; i++)
+        {
+            handler.Print(((char)('A' + (i % 26))).ToString());
+        }
+        
+        // Move cursor near end of line
+        terminal.Buffer.SetCursor(17, 0);
+        var params_ = new Params();
+        params_.AddParam(2); // Delete 2 characters
+
+        // Act
+        handler.HandleCsi("P", params_);
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        
+        // Position 17 should now have what was at 19
+        Assert.Equal("T", line[17].Content); // 'T' was at position 19
+        
+        // Positions 18 and 19 should be spaces
+        Assert.Equal(" ", line[18].Content);
+        Assert.Equal(" ", line[19].Content);
+    }
+
+    [Fact]
+    public void HandleCsi_DeleteChars_MoreThanRemaining_ClearsToEndOfLine()
+    {
+        // Arrange
+        var terminal = CreateTerminal(20, 24);
+        var handler = new InputHandler(terminal);
+        
+        // Print characters
+        for (int i = 0; i < 20; i++)
+        {
+            handler.Print("X");
+        }
+        
+        // Move cursor to position 15 and try to delete 10 chars (only 5 remaining)
+        terminal.Buffer.SetCursor(15, 0);
+        var params_ = new Params();
+        params_.AddParam(10); // Delete 10 characters (more than available)
+
+        // Act
+        handler.HandleCsi("P", params_);
+
+        // Assert - All cells from cursor to end should be cleared
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        
+        // Positions 0-14 should be unchanged
+        for (int i = 0; i < 15; i++)
+        {
+            Assert.Equal("X", line[i].Content);
+        }
+        
+        // Positions 15-19 should be spaces
+        for (int i = 15; i < 20; i++)
+        {
+            Assert.Equal(" ", line[i].Content);
+        }
+    }
+
+    #endregion
+
 }
