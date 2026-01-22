@@ -960,8 +960,16 @@ public class InputHandler
     {
         var count = Math.Max(parameters.GetParam(0, 1), 1);
         var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
-        line?.CopyCellsFrom(line, _buffer.X + count, _buffer.X,
+        if (line == null)
+            return;
+
+        line.CopyCellsFrom(line, _buffer.X + count, _buffer.X,
             _terminal.Cols - _buffer.X - count, false);
+
+        // Fill vacated cells at right edge with current attributes (BCE)
+        var emptyCell = BufferCell.Space;
+        emptyCell.Attributes = _curAttr;
+        line.Fill(emptyCell, _terminal.Cols - count, _terminal.Cols);
     }
 
     private void EraseChars(Params parameters)
