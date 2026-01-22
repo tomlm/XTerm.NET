@@ -78,15 +78,4 @@ public struct BufferCell : IEquatable<BufferCell>
     {
         return !left.Equals(right);
     }
-
-    public BufferCell Clone()
-    {
-        return new BufferCell
-        {
-            Content = Content,
-            Width = Width,
-            Attributes = Attributes.Clone(),
-            CodePoint = CodePoint
-        };
-    }
 }

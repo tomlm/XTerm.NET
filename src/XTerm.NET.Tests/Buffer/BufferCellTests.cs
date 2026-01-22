@@ -218,7 +218,7 @@ public class BufferCellTests
         var cell = new BufferCell("A", 1, attr);
 
         // Act
-        var clone = cell.Clone();
+        var clone = cell;
 
         // Assert
         Assert.Equal(cell.Content, clone.Content);

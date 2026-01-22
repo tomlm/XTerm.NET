@@ -92,22 +92,6 @@ public class BufferLineTests
     }
 
     [Fact]
-    public void LoadCell_LoadsCellData()
-    {
-        // Arrange
-        var line = new BufferLine(10);
-        var cell = new BufferCell("C", 1, AttributeData.Default);
-        line[2] = cell;
-        var target = new BufferCell();
-
-        // Act
-        target = line.LoadCell(2, target);
-
-        // Assert
-        Assert.Equal("C", target.Content);
-    }
-
-    [Fact]
     public void SetCell_SetsCell()
     {
         // Arrange
@@ -115,7 +99,7 @@ public class BufferLineTests
         var cell = new BufferCell("D", 1, AttributeData.Default);
 
         // Act
-        line.SetCell(4, cell);
+        line.SetCell(4, ref cell);
 
         // Assert
         Assert.Equal("D", line[4].Content);
@@ -210,11 +194,11 @@ public class BufferLineTests
         line.Fill(fillCell, 2, 5);
 
         // Assert
-        Assert.True(line[1].IsEmpty()); // Before range
+        Assert.True(line[1].IsSpace()); // Before range
         Assert.Equal("F", line[2].Content);
         Assert.Equal("F", line[3].Content);
         Assert.Equal("F", line[4].Content);
-        Assert.True(line[5].IsEmpty()); // After range
+        Assert.True(line[5].IsSpace()); // After range
     }
 
     [Fact]

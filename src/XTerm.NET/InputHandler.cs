@@ -48,11 +48,11 @@ public class InputHandler
     /// </summary>
     private static bool IsCombiningCharacter(int codePoint)
     {
-        // Variation Selectors (U+FE00–U+FE0F)
+        // Variation Selectors (U+FE00ï¿½U+FE0F)
         if (codePoint >= 0xFE00 && codePoint <= 0xFE0F)
             return true;
 
-        // Variation Selectors Supplement (U+E0100–U+E01EF)
+        // Variation Selectors Supplement (U+E0100ï¿½U+E01EF)
         if (codePoint >= 0xE0100 && codePoint <= 0xE01EF)
             return true;
 
@@ -60,27 +60,27 @@ public class InputHandler
         if (codePoint == ZeroWidthJoiner)
             return true;
 
-        // Combining Diacritical Marks (U+0300–U+036F)
+        // Combining Diacritical Marks (U+0300ï¿½U+036F)
         if (codePoint >= 0x0300 && codePoint <= 0x036F)
             return true;
 
-        // Combining Diacritical Marks Extended (U+1AB0–U+1AFF)
+        // Combining Diacritical Marks Extended (U+1AB0ï¿½U+1AFF)
         if (codePoint >= 0x1AB0 && codePoint <= 0x1AFF)
             return true;
 
-        // Combining Diacritical Marks Supplement (U+1DC0–U+1DFF)
+        // Combining Diacritical Marks Supplement (U+1DC0ï¿½U+1DFF)
         if (codePoint >= 0x1DC0 && codePoint <= 0x1DFF)
             return true;
 
-        // Combining Diacritical Marks for Symbols (U+20D0–U+20FF)
+        // Combining Diacritical Marks for Symbols (U+20D0ï¿½U+20FF)
         if (codePoint >= 0x20D0 && codePoint <= 0x20FF)
             return true;
 
-        // Combining Half Marks (U+FE20–U+FE2F)
+        // Combining Half Marks (U+FE20ï¿½U+FE2F)
         if (codePoint >= 0xFE20 && codePoint <= 0xFE2F)
             return true;
 
-        // Emoji Modifiers / Skin Tones (U+1F3FB–U+1F3FF)
+        // Emoji Modifiers / Skin Tones (U+1F3FBï¿½U+1F3FF)
         if (codePoint >= 0x1F3FB && codePoint <= 0x1F3FF)
             return true;
 
@@ -161,7 +161,7 @@ public class InputHandler
         {
             Content = translatedData,
             Width = width,
-            Attributes = _curAttr.Clone(),
+            Attributes = _curAttr,
             CodePoint = translatedData.Length > 0 ? char.ConvertToUtf32(translatedData, 0) : 0
         };
 
@@ -173,7 +173,7 @@ public class InputHandler
         }
 
         // Set the cell
-        line?.SetCell(_buffer.X, cell);
+        line?.SetCell(_buffer.X, ref cell);
 
         // Handle wide characters
         if (width == 2)
@@ -182,8 +182,8 @@ public class InputHandler
             if (_buffer.X + 1 < _terminal.Cols)
             {
                 var spacer = BufferCell.Empty;
-                spacer.Attributes = _curAttr.Clone();
-                line?.SetCell(_buffer.X + 1, spacer);
+                spacer.Attributes = _curAttr;
+                line?.SetCell(_buffer.X + 1, ref spacer);
             }
         }
 
@@ -285,7 +285,7 @@ public class InputHandler
             CodePoint = prevCell.CodePoint  // Keep the original base code point
         };
 
-        line.SetCell(prevX, updatedCell);
+        line.SetCell(prevX, ref updatedCell);
 
         // Handle width changes
         if (newWidth != prevCell.Width)
@@ -299,7 +299,7 @@ public class InputHandler
                     // Use BufferCell.Spacer with the previous cell's attributes
                     var spacer = BufferCell.Empty;
                     spacer.Attributes = prevCell.Attributes;
-                    line.SetCell(prevX + 1, spacer);
+                    line.SetCell(prevX + 1, ref spacer);
 
                     // Adjust cursor if we're after this cell
                     if (_buffer.X > prevX)
@@ -316,7 +316,7 @@ public class InputHandler
                     // Use BufferCell.Whitespace with the previous cell's attributes
                     var emptyCell = BufferCell.Space;
                     emptyCell.Attributes = prevCell.Attributes;
-                    line.SetCell(prevX + 1, emptyCell);
+                    line.SetCell(prevX + 1, ref emptyCell);
 
                     // Adjust cursor if we're after this cell
                     if (_buffer.X > prevX + 1)
@@ -860,7 +860,7 @@ public class InputHandler
     {
         var mode = parameters.GetParam(0, 0);
         var emptyCell = BufferCell.Space;
-        emptyCell.Attributes = _curAttr.Clone();
+        emptyCell.Attributes = _curAttr;
 
         switch (mode)
         {
@@ -896,7 +896,7 @@ public class InputHandler
             return;
 
         var emptyCell = BufferCell.Space;
-        emptyCell.Attributes = _curAttr.Clone();
+        emptyCell.Attributes = _curAttr;
 
         switch (mode)
         {
@@ -952,7 +952,7 @@ public class InputHandler
 
         // Blank the inserted cells at cursor position
         var emptyCell = BufferCell.Space;
-        emptyCell.Attributes = _curAttr.Clone();
+        emptyCell.Attributes = _curAttr;
         line.Fill(emptyCell, _buffer.X, Math.Min(_buffer.X + count, _terminal.Cols));
     }
 
@@ -970,7 +970,7 @@ public class InputHandler
         var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
 
         var emptyCell = BufferCell.Space;
-        emptyCell.Attributes = _curAttr.Clone();
+        emptyCell.Attributes = _curAttr;
 
         line?.Fill(emptyCell, _buffer.X, Math.Min(_buffer.X + count, _terminal.Cols));
     }
@@ -1929,13 +1929,13 @@ public class InputHandler
     {
         _buffer.SavedCursorState.X = _buffer.X;
         _buffer.SavedCursorState.Y = _buffer.Y;
-        _buffer.SavedCursorState.Attr = _curAttr.Clone();
+        _buffer.SavedCursorState.Attr = _curAttr;
     }
 
     private void RestoreCursor()
     {
         _buffer.SetCursor(_buffer.SavedCursorState.X, _buffer.SavedCursorState.Y);
-        _curAttr = _buffer.SavedCursorState.Attr.Clone();
+        _curAttr = _buffer.SavedCursorState.Attr;
     }
 
     // Utility Methods
@@ -1980,7 +1980,7 @@ public class InputHandler
                 {
                     // Emoji modifier (skin tone) or keycap extender should continue current glyph
 
-                    // else: combining — ignore
+                    // else: combining ï¿½ ignore
                 }
                 // regional indicator symbols
                 else if (rune.Value >= 0x1F1E6 && rune.Value <= 0x1F1FF)

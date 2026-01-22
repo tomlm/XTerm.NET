@@ -605,7 +605,8 @@ public class BufferTests
         
         // Write content to first line
         var line0 = buffer.Lines[0];
-        line0?.SetCell(0, new BufferCell("A", 1, AttributeData.Default));
+        var cell = new BufferCell("A", 1, AttributeData.Default);
+        line0?.SetCell(0, ref cell);
 
         // Act - Scroll up once
         buffer.ScrollUp(1);
@@ -619,7 +620,7 @@ public class BufferTests
         // The active area's last line should be blank
         var lastActiveLine = buffer.Lines[buffer.YBase + buffer.Rows - 1];
         Assert.NotNull(lastActiveLine);
-        Assert.True(lastActiveLine[0].IsEmpty() || lastActiveLine[0].Content == "\0");
+        Assert.True(lastActiveLine[0].IsSpace() || lastActiveLine[0].Content == " ");
     }
 
     [Fact]
@@ -632,7 +633,8 @@ public class BufferTests
         for (int i = 0; i < 5; i++)
         {
             var line = buffer.Lines[i];
-            line?.SetCell(0, new BufferCell(((char)('A' + i)).ToString(), 1, AttributeData.Default));
+            var cell = new BufferCell(((char)('A' + i)).ToString(), 1, AttributeData.Default);
+            line.SetCell(0, ref cell);
         }
 
         // Act - Scroll up 3 times
@@ -655,7 +657,8 @@ public class BufferTests
         var buffer = new TerminalBuffer(80, 5, 100);
         
         // Mark line 0
-        buffer.Lines[0]?.SetCell(0, new BufferCell("X", 1, AttributeData.Default));
+        var cell = new BufferCell("X", 1, AttributeData.Default);
+        buffer.Lines[0]?.SetCell(0, ref cell);
         
         // Scroll up to create scrollback
         buffer.ScrollUp(10);

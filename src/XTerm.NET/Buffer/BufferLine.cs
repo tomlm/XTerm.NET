@@ -54,10 +54,10 @@ public class BufferLine : IEnumerable<BufferCell>
         _isWrapped = false;
         _lineAttribute = LineAttribute.Normal;
 
-        var fill = fillCell ?? BufferCell.Empty;
+        var fill = fillCell ?? BufferCell.Space;
         for (int i = 0; i < cols; i++)
         {
-            _cells[i] = fill.Clone();
+            _cells[i] = fill;
         }
         Cache = null;
     }
@@ -84,25 +84,13 @@ public class BufferLine : IEnumerable<BufferCell>
     }
 
     /// <summary>
-    /// Gets the cell data at a specific column.
-    /// </summary>
-    public BufferCell LoadCell(int index, BufferCell cell)
-    {
-        if (index >= 0 && index < _length)
-        {
-            cell = _cells[index].Clone();
-        }
-        return cell;
-    }
-
-    /// <summary>
     /// Sets a cell at a specific column.
     /// </summary>
-    public void SetCell(int index, BufferCell cell)
+    public void SetCell(int index, ref BufferCell cell)
     {
         if (index >= 0 && index < _length)
         {
-            _cells[index] = cell.Clone();
+            _cells[index] = cell;
             Cache = null;
         }
     }
@@ -131,7 +119,7 @@ public class BufferLine : IEnumerable<BufferCell>
             Array.Copy(_cells, newCells, _length);
             for (int i = _length; i < cols; i++)
             {
-                newCells[i] = fillCell.Clone();
+                newCells[i] = fillCell;
             }
             _cells = newCells;
         }
@@ -155,7 +143,7 @@ public class BufferLine : IEnumerable<BufferCell>
 
         for (int i = startCol; i < endCol && i < _length; i++)
         {
-            _cells[i] = fillCell.Clone();
+            _cells[i] = fillCell;
         }
         Cache = null;
     }
@@ -171,7 +159,7 @@ public class BufferLine : IEnumerable<BufferCell>
             {
                 if (destCol + i < _length && srcCol + i < src._length)
                 {
-                    _cells[destCol + i] = src._cells[srcCol + i].Clone();
+                    _cells[destCol + i] = src._cells[srcCol + i];
                 }
             }
         }
@@ -181,7 +169,7 @@ public class BufferLine : IEnumerable<BufferCell>
             {
                 if (destCol + i < _length && srcCol + i < src._length)
                 {
-                    _cells[destCol + i] = src._cells[srcCol + i].Clone();
+                    _cells[destCol + i] = src._cells[srcCol + i];
                 }
             }
         }
@@ -234,7 +222,7 @@ public class BufferLine : IEnumerable<BufferCell>
         newLine._lineAttribute = _lineAttribute;
         for (int i = 0; i < _length; i++)
         {
-            newLine._cells[i] = _cells[i].Clone();
+            newLine._cells[i] = _cells[i];
         }
         newLine.Cache = this.Cache;
         return newLine;
@@ -253,7 +241,7 @@ public class BufferLine : IEnumerable<BufferCell>
 
         for (int i = 0; i < _length; i++)
         {
-            _cells[i] = line._cells[i].Clone();
+            _cells[i] = line._cells[i];
         }
         _isWrapped = line._isWrapped;
         _lineAttribute = line._lineAttribute;

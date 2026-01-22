@@ -303,7 +303,7 @@ public class AttributeDataTests
         attr.SetItalic(true);
 
         // Act
-        var clone = attr.Clone();
+        var clone = attr;
 
         // Assert
         Assert.Equal(attr.Fg, clone.Fg);
