@@ -22,8 +22,8 @@ public class TerminalBuffer
     /// The absolute line index of the top of the viewport in the buffer.
     /// In XTerm.js this is 'ydisp'. This represents the current scroll position.
     /// </summary>
-    public int ViewportY 
-    { 
+    public int ViewportY
+    {
         get => _yDisp;
         set => _yDisp = Math.Clamp(value, 0, _yBase);
     }
@@ -144,20 +144,20 @@ public class TerminalBuffer
                 // When scrollTop is 0, the top line goes into scrollback.
                 // In xterm.js: push new line first, then increment yBase and yDisp.
                 // This causes the circular list to potentially recycle the oldest line.
-                
+
                 // Check if we're at max capacity - if so, yBase stays the same but 
                 // the buffer rotates. If not, yBase increments.
                 var willBeRecycled = _lines.Length >= _lines.MaxLength;
-                
+
                 // Push the new line at the end (bottom of screen in buffer terms)
                 _lines.Push(newLine);
-                
+
                 // Only increment yBase if the buffer didn't recycle
                 if (!willBeRecycled)
                 {
                     _yBase++;
                 }
-                
+
                 // If yDisp was at the bottom, keep it there
                 if (_yDisp + 1 < _yBase)
                 {
@@ -348,9 +348,12 @@ public class TerminalBuffer
         for (int i = 0; i < _rows; i++)
         {
             var line = GetLine(_yDisp + i);
-            foreach(var cell in line)
+            if (line != null)
             {
-                sb.Append(cell.Content);
+                foreach (var cell in line)
+                {
+                    sb.Append(cell.Content);
+                }
             }
             sb.AppendLine();
         }

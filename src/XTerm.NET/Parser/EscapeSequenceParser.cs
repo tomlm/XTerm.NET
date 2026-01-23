@@ -13,7 +13,6 @@ public class EscapeSequenceParser
 {
     private ParserState _state;
     private readonly Params _params;
-    private int _currentParam;
     private readonly StringBuilder _collect;
     private readonly StringBuilder _osc;
     private readonly StringBuilder _dcs;
@@ -53,7 +52,6 @@ public class EscapeSequenceParser
     {
         _state = ParserState.Ground;
         _params = new Params();
-        _currentParam = 0;
         _collect = new StringBuilder();
         _osc = new StringBuilder();
         _dcs = new StringBuilder();
@@ -255,7 +253,6 @@ public class EscapeSequenceParser
                 {
                     _params.Reset();
                     _collect.Clear();
-                    _currentParam = 0;
                 }
                 break;
         }
@@ -269,7 +266,6 @@ public class EscapeSequenceParser
             case ParserState.DcsEntry:
                 _params.Reset();
                 _collect.Clear();
-                _currentParam = 0;
                 _params.AddParam(0);
                 break;
 
@@ -305,7 +301,6 @@ public class EscapeSequenceParser
         if (code == 0x3B) // ;
         {
             _params.AddParam(0);
-            _currentParam = 0;
         }
         else if (code >= 0x30 && code <= 0x39) // 0-9
         {
@@ -375,7 +370,6 @@ public class EscapeSequenceParser
     {
         _state = ParserState.Ground;
         _params.Reset();
-        _currentParam = 0;
         _collect.Clear();
         _osc.Clear();
         _dcs.Clear();

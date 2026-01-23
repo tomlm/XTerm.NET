@@ -632,7 +632,7 @@ public class BufferTests
         // Mark each initial line with a unique identifier
         for (int i = 0; i < 5; i++)
         {
-            var line = buffer.Lines[i];
+            var line = buffer.Lines[i]!;
             var cell = new BufferCell(((char)('A' + i)).ToString(), 1, AttributeData.Default);
             line.SetCell(0, ref cell);
         }
