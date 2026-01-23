@@ -114,6 +114,8 @@ public class InputHandler
             }
         }
 
+        var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
+
         // Handle autowrap
         if (_buffer.X >= _terminal.Cols)
         {
@@ -128,6 +130,8 @@ public class InputHandler
                 {
                     _buffer.SetCursor(0, _buffer.Y + 1);
                 }
+                if (line != null)
+                    line.IsWrapped = true;
             }
             else
             {
@@ -135,15 +139,8 @@ public class InputHandler
             }
         }
 
-        var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
         if (line == null)
             return;
-
-        // Mark line as wrapped if we just wrapped
-        if (_buffer.X == 0 && line != null)
-        {
-            line.IsWrapped = true;
-        }
 
         // Translate character through active charset
         var translatedData = data;

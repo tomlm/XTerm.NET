@@ -5,6 +5,7 @@ using XTerm.Options;
 using XTerm.Input;
 using XTerm.Events.Parser;
 using XTerm.Events;
+using XTerm.Selection;
 
 namespace XTerm;
 
@@ -18,6 +19,7 @@ public class Terminal
     private readonly InputHandler _inputHandler;
     private readonly KeyboardInputGenerator _keyboardInput;
     private readonly MouseTracker _mouseTracker;
+    private readonly SelectionManager _selectionManager;
     private Buffer.TerminalBuffer _buffer;
     private Buffer.TerminalBuffer? _normalBuffer;
     private Buffer.TerminalBuffer? _altBuffer;
@@ -184,7 +186,8 @@ public class Terminal
         _parser = new EscapeSequenceParser();
         _inputHandler = new InputHandler(this);
         _keyboardInput = new KeyboardInputGenerator(this);
-        _mouseTracker = new MouseTracker(this); // Initialize mouse tracker
+        _mouseTracker = new MouseTracker(this);
+        _selectionManager = new SelectionManager(this);
 
         // Subscribe to parser events using C# event pattern
         _parser.Print += OnParserPrint;
@@ -446,6 +449,11 @@ public class Terminal
     /// Gets the current mouse encoding format.
     /// </summary>
     public MouseEncoding MouseEncoding => _mouseTracker.Encoding;
+
+    /// <summary>
+    /// Gets the selection manager for text selection.
+    /// </summary>
+    public SelectionManager Selection => _selectionManager;
 
     /// <summary>
     /// Gets the mouse tracker (internal use for mode setting).
