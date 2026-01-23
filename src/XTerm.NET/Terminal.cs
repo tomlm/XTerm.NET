@@ -296,6 +296,7 @@ public class Terminal
         {
             _buffer = _normalBuffer!;
             _usingAltBuffer = false;
+            _inputHandler.SetBuffer(_buffer);
         }
 
         // Reset parser
@@ -334,10 +335,16 @@ public class Terminal
 
     private void ClearBuffer()
     {
-        for (int i = 0; i < Rows; i++)
+        // Clear all lines in the buffer (including scrollback)
+        // and reset line attributes (double-width/double-height) to normal
+        for (int i = 0; i < _buffer.Lines.Length; i++)
         {
             var line = _buffer.Lines[i];
-            line?.Fill(BufferCell.Space);
+            if (line != null)
+            {
+                line.Fill(BufferCell.Space);
+                line.LineAttribute = LineAttribute.Normal;
+            }
         }
         _buffer.SetCursor(0, 0);
     }

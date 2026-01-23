@@ -1,4 +1,5 @@
 using XTerm;
+using XTerm.Buffer;
 using XTerm.Options;
 
 namespace XTerm.Tests;
@@ -891,4 +892,89 @@ public class TerminalTests
     }
 
     #endregion
+
+    [Fact]
+    public void Reset_ClearsLineAttributes()
+    {
+        // Arrange
+        var terminal = new Terminal();
+        
+        // Set some lines to double-height mode using ESC # 3 (top) and ESC # 4 (bottom)
+        terminal.Write("Line 0\n");
+        terminal.Write("\x1B#3"); // ESC # 3 - Double-height top
+        terminal.Write("Line 1 Top\n");
+        terminal.Write("\x1B#4"); // ESC # 4 - Double-height bottom
+        terminal.Write("Line 2 Bottom\n");
+        terminal.Write("\x1B#6"); // ESC # 6 - Double-width
+        terminal.Write("Line 3 Wide\n");
+
+        // Verify line attributes are set
+        Assert.Equal(LineAttribute.DoubleHeightTop, terminal.Buffer.Lines[1]?.LineAttribute);
+        Assert.Equal(LineAttribute.DoubleHeightBottom, terminal.Buffer.Lines[2]?.LineAttribute);
+        Assert.Equal(LineAttribute.DoubleWidth, terminal.Buffer.Lines[3]?.LineAttribute);
+
+        // Act - Reset the terminal (simulates 'reset' command which sends ESC c / RIS)
+        terminal.Reset();
+
+        // Assert - All line attributes should be reset to Normal
+        for (int i = 0; i < terminal.Rows; i++)
+        {
+            var line = terminal.Buffer.Lines[i];
+            if (line != null)
+            {
+                Assert.Equal(LineAttribute.Normal, line.LineAttribute);
+            }
+        }
+    }
+
+    [Fact]
+    public void Reset_ClearsLineAttributesInScrollback()
+    {
+        // Arrange
+        var terminal = new Terminal(new TerminalOptions { Rows = 5, Cols = 80, Scrollback = 100 });
+        
+        // Write lines with double-height attributes
+        for (int i = 0; i < 10; i++)
+        {
+            if (i % 2 == 0)
+            {
+                terminal.Write("\x1B#3"); // ESC # 3 - Double-height top
+            }
+            else
+            {
+                terminal.Write("\x1B#6"); // ESC # 6 - Double-width
+            }
+            terminal.Write($"Line {i}\n");
+        }
+
+        // Verify some line attributes are set (check a few lines in scrollback)
+        bool foundDoubleHeight = false;
+        bool foundDoubleWidth = false;
+        for (int i = 0; i < terminal.Buffer.Lines.Length; i++)
+        {
+            var line = terminal.Buffer.Lines[i];
+            if (line != null)
+            {
+                if (line.LineAttribute == LineAttribute.DoubleHeightTop)
+                    foundDoubleHeight = true;
+                if (line.LineAttribute == LineAttribute.DoubleWidth)
+                    foundDoubleWidth = true;
+            }
+        }
+        Assert.True(foundDoubleHeight || foundDoubleWidth, "Expected to find at least one line with non-normal attribute");
+
+        // Act - Reset the terminal (simulates 'reset' command which sends ESC c / RIS)
+        terminal.Reset();
+
+        // Assert - All lines in the buffer (including scrollback) should have Normal line attributes
+        for (int i = 0; i < terminal.Buffer.Lines.Length; i++)
+        {
+            var line = terminal.Buffer.Lines[i];
+            if (line != null)
+            {
+                Assert.Equal(LineAttribute.Normal, line.LineAttribute);
+            }
+        }
+    }
 }
+
