@@ -114,7 +114,6 @@ public class InputHandler
             }
         }
 
-        var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
 
         // Handle autowrap
         if (_buffer.X >= _terminal.Cols)
@@ -130,8 +129,7 @@ public class InputHandler
                 {
                     _buffer.SetCursor(0, _buffer.Y + 1);
                 }
-                if (line != null)
-                    line.IsWrapped = true;
+                _buffer.Lines[_buffer.Y + _buffer.YBase]!.IsWrapped = true;
             }
             else
             {
@@ -139,6 +137,7 @@ public class InputHandler
             }
         }
 
+        var line = _buffer.Lines[_buffer.Y + _buffer.YBase]; 
         if (line == null)
             return;
 
