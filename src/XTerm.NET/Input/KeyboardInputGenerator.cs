@@ -34,7 +34,7 @@ public class KeyboardInputGenerator
             Key.Enter => "\r",
             Key.Tab => (modifiers & KeyModifiers.Shift) != 0 ? "\u001b[Z" : "\t",
             Key.Backspace => "\u007f", // DEL (127)
-            Key.Escape => "\u001b",
+            Key.Escape => modifiers != KeyModifiers.None ? GetModifiedSequence("27~", modifiers) : "\u001b",
             Key.Space => " ",
 
             // Arrow keys
