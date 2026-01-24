@@ -7,8 +7,8 @@
     <RootNamespace>XTerm</RootNamespace>
   </PropertyGroup>
 <PropertyGroup>
-    <Version>1.0.12</Version>
-    <AssemblyVersion>1.0.12.0</AssemblyVersion>
+    <Version>1.0.13</Version>
+    <AssemblyVersion>1.0.13.0</AssemblyVersion>
     <Description>Dotnet port of xterm.js, giving you ability to host console application.</Description>
     <Company>Iciclecreek</Company>
     <Authors>Tom Laird-McConnell</Authors>
