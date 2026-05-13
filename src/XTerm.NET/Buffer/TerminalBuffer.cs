@@ -66,6 +66,11 @@ public class TerminalBuffer
     public CircularList<BufferLine> Lines => _lines;
 
     /// <summary>
+    /// Fired when lines are trimmed from the start of the buffer.
+    /// </summary>
+    public event Action<int>? Trimmed;
+
+    /// <summary>
     /// Saved cursor state for DECSC/DECRC.
     /// </summary>
     public class SavedCursor
@@ -151,6 +156,11 @@ public class TerminalBuffer
 
                 // Push the new line at the end (bottom of screen in buffer terms)
                 _lines.Push(newLine);
+
+                if (willBeRecycled)
+                {
+                    Trimmed?.Invoke(1);
+                }
 
                 // Only increment yBase if the buffer didn't recycle
                 if (!willBeRecycled)

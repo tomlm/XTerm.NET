@@ -36,6 +36,7 @@ public class SelectionManager
         _terminal = terminal;
         _isSelecting = false;
         _selectionMode = SelectionMode.Normal;
+        _terminal.Buffer.Trimmed += HandleTrim;
     }
 
     /// <summary>
@@ -45,8 +46,9 @@ public class SelectionManager
     {
         _isSelecting = true;
         _selectionMode = mode;
-        _selectionStart = (x, y);
-        _selectionEnd = (x, y);
+        var absoluteY = ToAbsoluteY(y);
+        _selectionStart = (x, absoluteY);
+        _selectionEnd = (x, absoluteY);
 
         // Adjust for word or line mode
         if (mode == SelectionMode.Word)
@@ -69,7 +71,7 @@ public class SelectionManager
         if (!_isSelecting || !_selectionStart.HasValue)
             return;
 
-        _selectionEnd = (x, y);
+        _selectionEnd = (x, ToAbsoluteY(y));
 
         // Adjust for selection mode
         if (_selectionMode == SelectionMode.Word)
@@ -109,7 +111,7 @@ public class SelectionManager
     public void SelectAll()
     {
         _selectionStart = (0, 0);
-        _selectionEnd = (_terminal.Cols - 1, _terminal.Rows - 1);
+        _selectionEnd = (_terminal.Cols - 1, Math.Max(_terminal.Buffer.Lines.Length - 1, 0));
         _isSelecting = false;
         SelectionChanged?.Invoke();
     }
@@ -136,7 +138,10 @@ public class SelectionManager
 
         for (int y = start.y; y <= end.y; y++)
         {
-            var line = buffer.Lines[buffer.YDisp + y];
+            if (y < 0 || y >= buffer.Lines.Length)
+                continue;
+
+            var line = buffer.Lines[y];
             if (line == null)
                 continue;
 
@@ -164,6 +169,7 @@ public class SelectionManager
         if (!HasSelection)
             return false;
 
+        var absoluteY = ToAbsoluteY(y);
         var start = _selectionStart!.Value;
         var end = _selectionEnd!.Value;
 
@@ -174,16 +180,16 @@ public class SelectionManager
         }
 
         // Check if cell is in selection
-        if (y < start.y || y > end.y)
+        if (absoluteY < start.y || absoluteY > end.y)
             return false;
 
-        if (y == start.y && y == end.y)
+        if (absoluteY == start.y && absoluteY == end.y)
             return x >= start.x && x <= end.x;
 
-        if (y == start.y)
+        if (absoluteY == start.y)
             return x >= start.x;
 
-        if (y == end.y)
+        if (absoluteY == end.y)
             return x <= end.x;
 
         return true;
@@ -202,7 +208,7 @@ public class SelectionManager
         var end = _selectionEnd.Value;
 
         // Expand start to word boundary
-        var startLine = buffer.Lines[buffer.YDisp + start.y];
+        var startLine = start.y >= 0 && start.y < buffer.Lines.Length ? buffer.Lines[start.y] : null;
         if (startLine != null)
         {
             while (start.x > 0 && IsWordChar(startLine[start.x - 1].Content))
@@ -212,7 +218,7 @@ public class SelectionManager
         }
 
         // Expand end to word boundary
-        var endLine = buffer.Lines[buffer.YDisp + end.y];
+        var endLine = end.y >= 0 && end.y < buffer.Lines.Length ? buffer.Lines[end.y] : null;
         if (endLine != null)
         {
             while (end.x < _terminal.Cols - 1 && IsWordChar(endLine[end.x + 1].Content))
@@ -260,6 +266,46 @@ public class SelectionManager
 
         var c = ch[0];
         return char.IsLetterOrDigit(c) || c == '_';
+    }
+
+    private int ToAbsoluteY(int viewportY)
+    {
+        return _terminal.Buffer.YDisp + viewportY;
+    }
+
+    private void HandleTrim(int amount)
+    {
+        if (amount <= 0)
+            return;
+
+        if (_selectionStart.HasValue)
+        {
+            _selectionStart = (_selectionStart.Value.x, _selectionStart.Value.y - amount);
+        }
+
+        if (_selectionEnd.HasValue)
+        {
+            _selectionEnd = (_selectionEnd.Value.x, _selectionEnd.Value.y - amount);
+        }
+
+        if (_selectionEnd.HasValue && _selectionEnd.Value.y < 0)
+        {
+            ClearSelection();
+            return;
+        }
+
+        if (_selectionStart.HasValue && _selectionStart.Value.y < 0)
+        {
+            _selectionStart = (0, 0);
+        }
+
+        if (_selectionEnd.HasValue)
+        {
+            var maxY = Math.Max(_terminal.Buffer.Lines.Length - 1, 0);
+            _selectionEnd = (_selectionEnd.Value.x, Math.Min(_selectionEnd.Value.y, maxY));
+        }
+
+        SelectionChanged?.Invoke();
     }
 }
 
