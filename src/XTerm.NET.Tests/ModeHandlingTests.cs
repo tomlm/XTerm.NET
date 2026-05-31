@@ -171,6 +171,24 @@ public class ModeHandlingTests
     }
 
     [Fact]
+    public void SetMode_OriginMode_MovesCursorToTopMargin()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        terminal.Buffer.SetScrollRegion(4, 19);
+        terminal.Buffer.SetCursor(10, 10);
+        Assert.False(terminal.OriginMode);
+
+        // Act - DEC private mode
+        terminal.Write($"\x1B[?{(int)TerminalMode.Origin}h");
+
+        // Assert
+        Assert.True(terminal.OriginMode);
+        Assert.Equal(0, terminal.Buffer.X);
+        Assert.Equal(4, terminal.Buffer.Y);
+    }
+
+    [Fact]
     public void ResetMode_OriginMode_DisablesOriginMode()
     {
         // Arrange

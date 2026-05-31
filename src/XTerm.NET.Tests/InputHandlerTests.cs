@@ -151,6 +151,26 @@ public class InputHandlerTests
     }
 
     [Fact]
+    public void HandleCsi_CursorPosition_UsesScrollRegionOriginInOriginMode()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetScrollRegion(4, 19);
+        terminal.OriginMode = true;
+        var params_ = new Params();
+        params_.AddParam(3);
+        params_.AddParam(20);
+
+        // Act
+        handler.HandleCsi("H", params_);
+
+        // Assert
+        Assert.Equal(19, terminal.Buffer.X);
+        Assert.Equal(6, terminal.Buffer.Y);
+    }
+
+    [Fact]
     public void HandleCsi_EraseInDisplay_ClearBelow()
     {
         // Arrange
@@ -342,6 +362,45 @@ public class InputHandlerTests
         // Assert
         Assert.Equal(4, terminal.Buffer.ScrollTop);    // 5 - 1 (1-based to 0-based)
         Assert.Equal(19, terminal.Buffer.ScrollBottom); // 20 - 1 (1-based to 0-based)
+    }
+
+    [Fact]
+    public void HandleCsi_SetScrollRegion_MovesCursorHome()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetCursor(10, 10);
+        var params_ = new Params();
+        params_.AddParam(5);
+        params_.AddParam(20);
+
+        // Act
+        handler.HandleCsi("r", params_);
+
+        // Assert
+        Assert.Equal(0, terminal.Buffer.X);
+        Assert.Equal(0, terminal.Buffer.Y);
+    }
+
+    [Fact]
+    public void HandleCsi_SetScrollRegion_MovesCursorToTopMarginInOriginMode()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.OriginMode = true;
+        terminal.Buffer.SetCursor(10, 10);
+        var params_ = new Params();
+        params_.AddParam(5);
+        params_.AddParam(20);
+
+        // Act
+        handler.HandleCsi("r", params_);
+
+        // Assert
+        Assert.Equal(0, terminal.Buffer.X);
+        Assert.Equal(4, terminal.Buffer.Y);
     }
 
     [Fact]
@@ -1113,6 +1172,26 @@ public class InputHandlerTests
         // Assert
         Assert.Equal(15, terminal.Buffer.X); // Column should be unchanged
         Assert.Equal(11, terminal.Buffer.Y); // 12 - 1 = 11 (0-based)
+    }
+
+    [Fact]
+    public void HandleCsi_LinePositionAbsolute_UsesScrollRegionOriginInOriginMode()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        terminal.Buffer.SetScrollRegion(4, 19);
+        terminal.OriginMode = true;
+        terminal.Buffer.SetCursor(15, 5);
+        var params_ = new Params();
+        params_.AddParam(3);
+
+        // Act
+        handler.HandleCsi("d", params_);
+
+        // Assert
+        Assert.Equal(15, terminal.Buffer.X);
+        Assert.Equal(6, terminal.Buffer.Y);
     }
 
     [Fact]
