@@ -154,7 +154,7 @@ public class SelectionManager
             // Add line break if not last line and line doesn't wrap
             if (y < end.y && !line.IsWrapped)
             {
-                text.AppendLine();
+                text.Append('\n');
             }
         }
 
