@@ -140,11 +140,10 @@ public class TerminalBuffer
             // Create a new blank line that will be inserted at the bottom of the scroll region
             var newLine = GetBlankLine(AttributeData.Default, isWrapped);
 
-            // Only use the scrollback path if:
-            // 1. Scroll region starts at top (_scrollTop == 0)
-            // 2. We actually have scrollback capacity (MaxLength > _rows)
-            // For alternate buffer (no scrollback), always use the in-place scroll logic.
-            if (_scrollTop == 0 && _lines.MaxLength > _rows)
+            // Only the full-screen scroll region contributes to scrollback.
+            // Top-anchored partial regions reserve rows below the margin and
+            // must scroll in place so prompts/status rows are not promoted.
+            if (_scrollTop == 0 && _scrollBottom == _rows - 1 && _lines.MaxLength > _rows)
             {
                 // When scrollTop is 0, the top line goes into scrollback.
                 // In xterm.js: push new line first, then increment yBase and yDisp.

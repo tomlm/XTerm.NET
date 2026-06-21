@@ -918,7 +918,7 @@ public class InputHandler
 
         for (int i = 0; i < count; i++)
         {
-            _buffer.Lines.Splice(_buffer.ScrollBottom, 1);
+            _buffer.Lines.Splice(_buffer.YBase + _buffer.ScrollBottom, 1);
             _buffer.Lines.Splice(_buffer.Y + _buffer.YBase, 0,
                 _buffer.GetBlankLine(_curAttr));
         }
@@ -927,11 +927,14 @@ public class InputHandler
     private void DeleteLines(Params parameters)
     {
         var count = Math.Max(parameters.GetParam(0, 1), 1);
+        // Only works in scroll region
+        if (_buffer.Y < _buffer.ScrollTop || _buffer.Y > _buffer.ScrollBottom)
+            return;
 
         for (int i = 0; i < count; i++)
         {
             _buffer.Lines.Splice(_buffer.Y + _buffer.YBase, 1);
-            _buffer.Lines.Splice(_buffer.ScrollBottom, 0,
+            _buffer.Lines.Splice(_buffer.YBase + _buffer.ScrollBottom, 0,
                 _buffer.GetBlankLine(_curAttr));
         }
     }

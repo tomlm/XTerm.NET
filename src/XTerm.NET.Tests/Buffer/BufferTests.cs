@@ -1,5 +1,6 @@
 using XTerm.Buffer;
 using XTerm.Common;
+using XTerm.Options;
 
 namespace XTerm.Tests.Buffer;
 
@@ -990,6 +991,100 @@ public class BufferTests
     }
 
     [Fact]
+    public void ScrollUp_TopAnchoredPartialRegion_PreservesRowsBelowRegion()
+    {
+        var buffer = new TerminalBuffer(10, 5, 100);
+
+        SetCell(buffer, 0, "A");
+        SetCell(buffer, 1, "B");
+        SetCell(buffer, 2, "C");
+        SetCell(buffer, 3, "D");
+        SetCell(buffer, 4, ">");
+
+        buffer.SetScrollRegion(0, 3);
+        buffer.ScrollUp(1);
+
+        Assert.Equal(0, buffer.YBase);
+        Assert.Equal("B", buffer.GetLine(0)?[0].Content);
+        Assert.Equal("C", buffer.GetLine(1)?[0].Content);
+        Assert.Equal("D", buffer.GetLine(2)?[0].Content);
+        Assert.True(buffer.GetLine(3)?[0].IsSpace() ?? false);
+        Assert.Equal(">", buffer.GetLine(4)?[0].Content);
+    }
+
+    [Fact]
+    public void InsertLines_WithScrollback_UsesActiveBufferCoordinates()
+    {
+        var terminal = new Terminal(new TerminalOptions { Cols = 10, Rows = 5, Scrollback = 100 });
+
+        terminal.Write("s1\r\ns2\r\ns3\r\ns4\r\ns5\r\n");
+        var yBase = terminal.Buffer.YBase;
+
+        SetCell(terminal.Buffer, yBase + 0, "A");
+        SetCell(terminal.Buffer, yBase + 1, "B");
+        SetCell(terminal.Buffer, yBase + 2, "C");
+        SetCell(terminal.Buffer, yBase + 3, "D");
+        SetCell(terminal.Buffer, yBase + 4, ">");
+
+        terminal.Write("\x1b[1;4r\x1b[1;1H\x1b[1L");
+
+        Assert.Equal(yBase, terminal.Buffer.YBase);
+        Assert.True(terminal.Buffer.GetLine(yBase + 0)?[0].IsSpace() ?? false);
+        Assert.Equal("A", terminal.Buffer.GetLine(yBase + 1)?[0].Content);
+        Assert.Equal("B", terminal.Buffer.GetLine(yBase + 2)?[0].Content);
+        Assert.Equal("C", terminal.Buffer.GetLine(yBase + 3)?[0].Content);
+        Assert.Equal(">", terminal.Buffer.GetLine(yBase + 4)?[0].Content);
+    }
+
+    [Fact]
+    public void DeleteLines_WithScrollback_UsesActiveBufferCoordinates()
+    {
+        var terminal = new Terminal(new TerminalOptions { Cols = 10, Rows = 5, Scrollback = 100 });
+
+        terminal.Write("s1\r\ns2\r\ns3\r\ns4\r\ns5\r\n");
+        var yBase = terminal.Buffer.YBase;
+
+        SetCell(terminal.Buffer, yBase + 0, "A");
+        SetCell(terminal.Buffer, yBase + 1, "B");
+        SetCell(terminal.Buffer, yBase + 2, "C");
+        SetCell(terminal.Buffer, yBase + 3, "D");
+        SetCell(terminal.Buffer, yBase + 4, ">");
+
+        terminal.Write("\x1b[1;4r\x1b[1;1H\x1b[1M");
+
+        Assert.Equal(yBase, terminal.Buffer.YBase);
+        Assert.Equal("B", terminal.Buffer.GetLine(yBase + 0)?[0].Content);
+        Assert.Equal("C", terminal.Buffer.GetLine(yBase + 1)?[0].Content);
+        Assert.Equal("D", terminal.Buffer.GetLine(yBase + 2)?[0].Content);
+        Assert.True(terminal.Buffer.GetLine(yBase + 3)?[0].IsSpace() ?? false);
+        Assert.Equal(">", terminal.Buffer.GetLine(yBase + 4)?[0].Content);
+    }
+
+    [Fact]
+    public void DeleteLines_OutsideScrollRegion_PreservesReservedPromptRow()
+    {
+        var terminal = new Terminal(new TerminalOptions { Cols = 10, Rows = 5, Scrollback = 100 });
+
+        terminal.Write("s1\r\ns2\r\ns3\r\ns4\r\ns5\r\n");
+        var yBase = terminal.Buffer.YBase;
+
+        SetCell(terminal.Buffer, yBase + 0, "A");
+        SetCell(terminal.Buffer, yBase + 1, "B");
+        SetCell(terminal.Buffer, yBase + 2, "C");
+        SetCell(terminal.Buffer, yBase + 3, "D");
+        SetCell(terminal.Buffer, yBase + 4, ">");
+
+        terminal.Write("\x1b[1;4r\x1b[5;1H\x1b[1M");
+
+        Assert.Equal(yBase, terminal.Buffer.YBase);
+        Assert.Equal("A", terminal.Buffer.GetLine(yBase + 0)?[0].Content);
+        Assert.Equal("B", terminal.Buffer.GetLine(yBase + 1)?[0].Content);
+        Assert.Equal("C", terminal.Buffer.GetLine(yBase + 2)?[0].Content);
+        Assert.Equal("D", terminal.Buffer.GetLine(yBase + 3)?[0].Content);
+        Assert.Equal(">", terminal.Buffer.GetLine(yBase + 4)?[0].Content);
+    }
+
+    [Fact]
     public void AlternateBuffer_NoScrollback_MultipleScrollOperations_YBaseRemainsZero()
     {
         // Arrange
@@ -1090,6 +1185,13 @@ public class BufferTests
         // Assert - YBase SHOULD increment because we have scrollback
         Assert.Equal(5, buffer.YBase);
         Assert.Equal(5, buffer.YDisp);
+    }
+
+    private static void SetCell(TerminalBuffer buffer, int row, string content)
+    {
+        var line = buffer.GetLine(row);
+        var cell = new BufferCell { Content = content, Width = 1 };
+        line?.SetCell(0, ref cell);
     }
 
     #endregion
