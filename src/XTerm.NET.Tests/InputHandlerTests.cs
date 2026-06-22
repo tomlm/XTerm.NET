@@ -65,6 +65,21 @@ public class InputHandlerTests
     }
 
     [Fact]
+    public void Write_DecSpecialGraphics_MapsCornersCorrectly()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+
+        // Act
+        terminal.Write("\x1B(0jklmqx\x1B(Bj");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.Equal("\u2518\u2510\u250c\u2514\u2500\u2502j", line.TranslateToString(true));
+    }
+
+    [Fact]
     public void HandleCsi_CursorUp_MovesCursor()
     {
         // Arrange

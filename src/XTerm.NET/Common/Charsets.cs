@@ -14,7 +14,7 @@ public static class Charsets
     public static readonly Dictionary<char, string> VT100LineDrawing = new()
     {
         // Box Drawing Characters
-        { 'j', "\u250c" }, // ? Bottom right corner
+        { 'j', "\u2518" }, // ? Bottom right corner
         { 'k', "\u2510" }, // ? Top right corner
         { 'l', "\u250c" }, // ? Top left corner
         { 'm', "\u2514" }, // ? Bottom left corner
