@@ -1229,6 +1229,12 @@ public class InputHandler
                 case 49: // Default background
                     _curAttr.SetBgColor(257);
                     break;
+                case 53: // Overline
+                    _curAttr.SetOverline(true);
+                    break;
+                case 55: // Not overline
+                    _curAttr.SetOverline(false);
+                    break;
                 case >= 90 and <= 97: // Bright foreground color
                     _curAttr.SetFgColor(param - 90 + 8);
                     break;

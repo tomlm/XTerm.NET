@@ -1590,6 +1590,57 @@ public class InputHandlerTests
     }
 
     [Fact]
+    public void HandleCsi_SgrOverline_SetsAndClearsOverlineAttribute()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var enable = new Params();
+        enable.AddParam(53); // Overline
+        var disable = new Params();
+        disable.AddParam(55); // Not overline
+
+        // Act
+        handler.HandleCsi("m", enable);
+        handler.Print("A");
+        handler.HandleCsi("m", disable);
+        handler.Print("B");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.True(line[0].Attributes.IsOverline());
+        Assert.False(line[1].Attributes.IsOverline());
+    }
+
+    [Fact]
+    public void HandleCsi_SgrReset_ClearsOverlineAndOtherAttributes()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+        var handler = new InputHandler(terminal);
+        var decorated = new Params();
+        decorated.AddParam(1); // Bold
+        decorated.AddParam(53); // Overline
+        var reset = new Params();
+        reset.AddParam(0);
+
+        // Act
+        handler.HandleCsi("m", decorated);
+        handler.Print("A");
+        handler.HandleCsi("m", reset);
+        handler.Print("B");
+
+        // Assert
+        var line = terminal.Buffer.Lines[0];
+        Assert.NotNull(line);
+        Assert.True(line[0].Attributes.IsBold());
+        Assert.True(line[0].Attributes.IsOverline());
+        Assert.False(line[1].Attributes.IsBold());
+        Assert.False(line[1].Attributes.IsOverline());
+    }
+
+    [Fact]
     public void HandleCsi_Sgr256ColorForeground_SetsForegroundColor()
     {
         // Arrange
