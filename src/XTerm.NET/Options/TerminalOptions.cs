@@ -155,10 +155,14 @@ public class TerminalOptions : ICloneable
     /// Whether Kitty desktop notification requests (OSC 99) are honoured.
     /// </summary>
     /// <remarks>
-    /// Notifications may originate from an untrusted program or remote host. Disable this to
-    /// prevent notification requests from reaching the host.
+    /// Off by default, unlike the other Kitty gates: those draw inside the terminal surface,
+    /// whereas a notification hands pty-controlled text to an OS-level API on behalf of any
+    /// program that can write to the pty, including a remote host over ssh. A host that is
+    /// prepared to show notifications opts in. While off the terminal also refuses the p=?
+    /// capability query, so a well-behaved application stays quiet rather than notifying
+    /// into the void.
     /// </remarks>
-    public bool KittyNotificationsEnabled { get; set; } = true;
+    public bool KittyNotificationsEnabled { get; set; }
 
     /// <summary>
     /// Budget for images held by client id but not currently on screen, in bytes.
