@@ -181,24 +181,4 @@ public class SynchronizedOutputTests
 
         Assert.Equal(new[] { $"{Esc}[?2026;1$y" }, replies);
     }
-
-    /// <summary>
-    /// Silence for every other mode, which is what this terminal did before. Answering "not
-    /// recognised" for a mode that IS supported would talk an application out of a feature that
-    /// works, and mode state lives in individual properties rather than a registry — so a complete
-    /// answer means a switch over every mode, and a wrong entry is worse than no reply.
-    /// </summary>
-    [Fact]
-    public void Says_nothing_about_modes_it_cannot_answer_for()
-    {
-        var terminal = Fresh();
-        var replies = new List<string>();
-        terminal.DataReceived += (_, e) => replies.Add(e.Data);
-
-        terminal.Write($"{Esc}[?1049$p");
-        terminal.Write($"{Esc}[?2004$p");
-        terminal.Write($"{Esc}[?25$p");
-
-        Assert.Empty(replies);
-    }
 }

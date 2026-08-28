@@ -505,6 +505,12 @@ public class Terminal
         // an application that set them and died.
         KittyKeyboardState.Reset();
 
+        // The tracker holds the flags that actually gate mouse and focus reports -- tracking mode,
+        // encoding, and its own copy of 1004. SendFocusEvents above is the terminal's copy of that
+        // last one and clearing it alone left the tracker still emitting ESC[I after RIS, while
+        // DECRQM read the cleared copy and answered "reset". Reset both from one place.
+        _mouseTracker.Reset();
+
         // Through the raiser rather than assigned, so a renderer holding a frame is told it can
         // stop -- and so the flag cannot be left set. It is also the dedupe key for the event, so a
         // stale true would swallow the NEXT application's begin and leave its end raising a lone
