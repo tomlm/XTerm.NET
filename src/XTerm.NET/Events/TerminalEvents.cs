@@ -294,6 +294,32 @@ public static class TerminalEvents
     }
 
     /// <summary>
+    /// Pointer shape event - fired when the mouse pointer shape requested with OSC 22 changes.
+    /// </summary>
+    /// <remarks>
+    /// The emulator owns the shape stack; turning a name into a real pointer is the host's job,
+    /// since only the host knows what its toolkit calls the same shape.
+    /// </remarks>
+    public class PointerShapeEventArgs : EventArgs
+    {
+        /// <summary>
+        /// The requested shape, one of <see cref="PointerShapes.All"/>, or null when nothing is
+        /// requested any more and the host should go back to its own pointer.
+        /// </summary>
+        public string? Shape { get; }
+
+        /// <summary>
+        /// True when no shape is requested any more.
+        /// </summary>
+        public bool IsCleared => Shape is null;
+
+        public PointerShapeEventArgs(string? shape)
+        {
+            Shape = shape;
+        }
+    }
+
+    /// <summary>
     /// Window moved event - fired when a window move command is received.
     /// </summary>
     public class WindowMovedEventArgs : EventArgs

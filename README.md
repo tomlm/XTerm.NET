@@ -221,6 +221,14 @@ terminal.BufferChanged += (sender, e) =>
 {
     Console.WriteLine($"Switched to {e.BufferType} buffer");
 };
+
+// Mouse pointer shape requested (OSC 22, Kitty pointer shapes).
+// e.Shape is a CSS cursor name such as "pointer", "text" or "wait";
+// null means no shape is requested and the host should use its own pointer.
+terminal.PointerShapeChanged += (sender, e) =>
+{
+    Console.WriteLine($"Pointer shape: {e.Shape ?? "(default)"}");
+};
 ```
 
 **Window manipulation events** (used by some terminal applications):

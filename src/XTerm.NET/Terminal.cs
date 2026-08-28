@@ -137,6 +137,28 @@ public class Terminal
     public string? HyperlinkId { get; set; }
 
     /// <summary>
+    /// The mouse pointer shape an application has asked for with OSC 22, or null when none is set.
+    /// </summary>
+    /// <remarks>
+    /// A name from <see cref="PointerShapes.All"/>. Null means the host should use its own pointer:
+    /// it is the state after a reset, and the state an application returns the terminal to by
+    /// popping everything it pushed.
+    /// </remarks>
+    public string? PointerShape => ActivePointerShapes.Current;
+
+    private readonly PointerShapeStack _normalPointerShapes = new();
+    private readonly PointerShapeStack _altPointerShapes = new();
+
+    /// <summary>
+    /// The shape stack of the screen currently displayed.
+    /// </summary>
+    /// <remarks>
+    /// One stack per screen, as the protocol requires: a full-screen program leaves its shape behind
+    /// on the alternate screen when it is suspended, and the shell it drops back to gets its own.
+    /// </remarks>
+    private PointerShapeStack ActivePointerShapes => _usingAltBuffer ? _altPointerShapes : _normalPointerShapes;
+
+    /// <summary>
     /// Fired when the cursor style or blink setting changes.
     /// </summary>
     public event EventHandler<TerminalEvents.CursorStyleChangedEventArgs>? CursorStyleChanged;
@@ -199,6 +221,68 @@ public class Terminal
 
         SynchronizedOutput = active;
         SynchronizedOutputChanged?.Invoke(this, new TerminalEvents.SynchronizedOutputEventArgs(active));
+    }
+
+    /// <summary>
+    /// Raised when the pointer shape requested via OSC 22 changes, including when it is cleared.
+    /// </summary>
+    public event EventHandler<TerminalEvents.PointerShapeEventArgs>? PointerShapeChanged;
+
+    /// <summary>
+    /// Replaces the current pointer shape on the active screen (OSC 22 ; shape).
+    /// </summary>
+    internal void SetPointerShape(string shape)
+    {
+        var before = PointerShape;
+        ActivePointerShapes.Set(shape);
+        RaisePointerShapeChanged(before);
+    }
+
+    /// <summary>
+    /// Pushes a pointer shape onto the active screen's stack (OSC 22 ; &gt; shape).
+    /// </summary>
+    internal void PushPointerShape(string shape)
+    {
+        var before = PointerShape;
+        ActivePointerShapes.Push(shape);
+        RaisePointerShapeChanged(before);
+    }
+
+    /// <summary>
+    /// Pops the current pointer shape off the active screen's stack (OSC 22 ; &lt;).
+    /// </summary>
+    internal void PopPointerShape()
+    {
+        var before = PointerShape;
+        ActivePointerShapes.Pop();
+        RaisePointerShapeChanged(before);
+    }
+
+    /// <summary>
+    /// Empties the active screen's shape stack, so the host uses its own pointer again.
+    /// </summary>
+    internal void ClearPointerShapes()
+    {
+        var before = PointerShape;
+        ActivePointerShapes.Clear();
+        RaisePointerShapeChanged(before);
+    }
+
+    /// <summary>
+    /// Raises <see cref="PointerShapeChanged"/> if the current shape differs from
+    /// <paramref name="before"/>.
+    /// </summary>
+    /// <remarks>
+    /// Only transitions, so a host is not asked to swap the pointer for every frame of a program
+    /// that re-sends the same shape as the mouse moves.
+    /// </remarks>
+    private void RaisePointerShapeChanged(string? before)
+    {
+        var now = PointerShape;
+        if (before == now)
+            return;
+
+        PointerShapeChanged?.Invoke(this, new TerminalEvents.PointerShapeEventArgs(now));
     }
 
     /// <summary>
@@ -452,6 +536,8 @@ public class Terminal
     /// </summary>
     public void Reset()
     {
+        var shapeBefore = PointerShape;
+
         // Reset to normal buffer
         if (_usingAltBuffer)
         {
@@ -484,6 +570,13 @@ public class Terminal
         // false: the transitions-only contract inverted and staying inverted. RIS is exactly how
         // someone recovers from an application that set the mode and died.
         RaiseSynchronizedOutputChanged(false);
+
+        // Both shape stacks, not just the active screen's, as the protocol requires. RIS is how
+        // someone gets out of a `wait` pointer left behind by a program that died holding one, and
+        // it would still be waiting on the other screen otherwise.
+        _normalPointerShapes.Clear();
+        _altPointerShapes.Clear();
+        RaisePointerShapeChanged(shapeBefore);
 
         // Reset cursor
         _buffer.SetCursor(0, 0);
@@ -1056,9 +1149,14 @@ public class Terminal
         if (_usingAltBuffer)
             return;
 
+        var shapeBefore = PointerShape;
         _buffer = _altBuffer!;
         _usingAltBuffer = true;
         _inputHandler.SetBuffer(_buffer);
+
+        // The screens keep separate shape stacks, so switching can change the current shape without
+        // any application asking for it -- the host has to hear about that like any other change.
+        RaisePointerShapeChanged(shapeBefore);
         BufferChanged?.Invoke(this, new TerminalEvents.BufferChangedEventArgs(BufferType.Alternate));
     }
 
@@ -1070,9 +1168,12 @@ public class Terminal
         if (!_usingAltBuffer)
             return;
 
+        var shapeBefore = PointerShape;
         _buffer = _normalBuffer!;
         _usingAltBuffer = false;
         _inputHandler.SetBuffer(_buffer);
+
+        RaisePointerShapeChanged(shapeBefore);
         BufferChanged?.Invoke(this, new TerminalEvents.BufferChangedEventArgs(BufferType.Normal));
     }
 
@@ -1185,6 +1286,7 @@ public class Terminal
         DirectoryChanged = null;
         HyperlinkChanged = null;
         ShellIntegrationMarkReceived = null;
+        PointerShapeChanged = null;
         ProgressChanged = null;
         NotificationReceived = null;
         OscReceived = null;
