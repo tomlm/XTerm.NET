@@ -123,8 +123,8 @@ public class ITerm2OscTests
 
         terminal.Options.WindowOptions.RaiseWin = true;
         terminal.Options.WindowOptions.RequestAttention = true;
-        terminal.Write(Osc("StealFocus="));
-        terminal.Write(Osc("RequestAttention="));
+        terminal.Write(Osc("StealFocus"));
+        terminal.Write(Osc("RequestAttention=no"));
 
         Assert.True(raised);
         Assert.True(attention);
@@ -138,9 +138,33 @@ public class ITerm2OscTests
         string? response = null;
         terminal.DataReceived += (_, e) => response = e.Data;
 
-        terminal.Write(Osc("ReportCellSize="));
+        terminal.Write(Osc("ReportCellSize"));
 
         Assert.Equal("\u001b]1337;ReportCellSize=3;2\u001b\\", response);
+    }
+
+    [Fact]
+    public void RequestAttention_PreservesItsAction()
+    {
+        var terminal = CreateTerminal();
+        terminal.Options.WindowOptions.RequestAttention = true;
+        string? action = null;
+        terminal.AttentionRequested += (_, e) => action = e.Action;
+
+        terminal.Write(Osc("RequestAttention=no"));
+
+        Assert.Equal("no", action);
+    }
+
+    [Fact]
+    public void File_ImageIsErasedByText()
+    {
+        var terminal = CreateTerminal();
+        terminal.Write(Osc($"File=inline=1:{Png}"));
+
+        terminal.Write("\u001b[1;1HX");
+
+        Assert.Null(ImageAssertions.ImageAt(terminal, 0, 0));
     }
 
     [Fact]

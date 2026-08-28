@@ -232,7 +232,7 @@ public class Terminal
     public event EventHandler<TerminalEvents.NotificationEventArgs>? NotificationReceived;
 
     /// <summary>Fired when iTerm2 requests the user's attention.</summary>
-    public event EventHandler? AttentionRequested;
+    public event EventHandler<TerminalEvents.AttentionRequestedEventArgs>? AttentionRequested;
 
     /// <summary>
     /// Fired for every OSC sequence, including ones this terminal does not implement.
@@ -1017,7 +1017,8 @@ public class Terminal
 
     internal void RaiseNotificationReceived(string text) =>
         NotificationReceived?.Invoke(this, new TerminalEvents.NotificationEventArgs(text));
-    internal void RaiseAttentionRequested() => AttentionRequested?.Invoke(this, EventArgs.Empty);
+    internal void RaiseAttentionRequested(string action) =>
+        AttentionRequested?.Invoke(this, new TerminalEvents.AttentionRequestedEventArgs(action));
     internal void RaiseOscReceived(string identifier, int code, string data, string raw, bool recognized) =>
         OscReceived?.Invoke(this, new TerminalEvents.OscReceivedEventArgs(identifier, code, data, raw, recognized));
     

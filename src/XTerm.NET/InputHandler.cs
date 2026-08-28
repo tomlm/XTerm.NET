@@ -2289,11 +2289,11 @@ public class InputHandler
     private bool HandleITerm2(string data)
     {
         var separator = data.IndexOf('=');
-        if (separator < 1)
+        if (separator == 0)
             return false;
 
-        var key = data[..separator];
-        var value = data[(separator + 1)..];
+        var key = separator < 0 ? data : data[..separator];
+        var value = separator < 0 ? string.Empty : data[(separator + 1)..];
         switch (key)
         {
             case "File":
@@ -2321,7 +2321,7 @@ public class InputHandler
 
             case "RequestAttention":
                 if (_terminal.Options.WindowOptions.RequestAttention)
-                    _terminal.RaiseAttentionRequested();
+                    _terminal.RaiseAttentionRequested(value);
                 return _terminal.Options.WindowOptions.RequestAttention;
 
             case "ReportCellSize":
@@ -2373,7 +2373,7 @@ public class InputHandler
             pixels, width, height,
             Math.Max(1, _terminal.Options.CellWidthPixels),
             Math.Max(1, _terminal.Options.CellHeightPixels));
-        PlaceImage(Graphics.ImagePlacement.Natural(image), Graphics.PlacementKind.Kitty);
+        PlaceImage(Graphics.ImagePlacement.Natural(image), Graphics.PlacementKind.Sixel);
         return true;
     }
 

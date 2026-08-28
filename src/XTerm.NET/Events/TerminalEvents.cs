@@ -215,6 +215,18 @@ public static class TerminalEvents
         public string Text { get; }
     }
 
+    /// <summary>iTerm2's requested attention action.</summary>
+    public class AttentionRequestedEventArgs : EventArgs
+    {
+        public AttentionRequestedEventArgs(string action)
+        {
+            Action = action;
+        }
+
+        /// <summary>The requested action, such as yes, once, no, or fireworks.</summary>
+        public string Action { get; }
+    }
+
     /// <summary>
     /// Raw OSC event - fired for EVERY OSC sequence the parser completes, including ones this
     /// library does not implement.
