@@ -152,6 +152,15 @@ public class TerminalOptions : ICloneable
     public bool KittyGraphicsEnabled { get; set; } = true;
 
     /// <summary>
+    /// Whether Kitty desktop notification requests (OSC 99) are honoured.
+    /// </summary>
+    /// <remarks>
+    /// Notifications may originate from an untrusted program or remote host. Disable this to
+    /// prevent notification requests from reaching the host.
+    /// </remarks>
+    public bool KittyNotificationsEnabled { get; set; } = true;
+
+    /// <summary>
     /// Budget for images held by client id but not currently on screen, in bytes.
     /// </summary>
     /// <remarks>
@@ -264,6 +273,7 @@ public class TerminalOptions : ICloneable
         RendererType = other.RendererType;
         SixelEnabled = other.SixelEnabled;
         KittyGraphicsEnabled = other.KittyGraphicsEnabled;
+        KittyNotificationsEnabled = other.KittyNotificationsEnabled;
         MaxImageRegistryBytes = other.MaxImageRegistryBytes;
         CellWidthPixels = other.CellWidthPixels;
         CellHeightPixels = other.CellHeightPixels;

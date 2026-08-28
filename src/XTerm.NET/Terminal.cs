@@ -994,6 +994,9 @@ public class Terminal
 
     internal void RaiseNotificationReceived(string text) =>
         NotificationReceived?.Invoke(this, new TerminalEvents.NotificationEventArgs(text));
+
+    internal void RaiseKittyNotificationReceived(string? identifier, string? title, string? body, int? urgency, string? icon) =>
+        NotificationReceived?.Invoke(this, new TerminalEvents.NotificationEventArgs(identifier, title, body, urgency, icon));
     internal void RaiseOscReceived(string identifier, int code, string data, string raw, bool recognized) =>
         OscReceived?.Invoke(this, new TerminalEvents.OscReceivedEventArgs(identifier, code, data, raw, recognized));
     

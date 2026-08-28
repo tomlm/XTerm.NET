@@ -18,6 +18,7 @@ public class InputHandler
     private Buffer.TerminalBuffer _buffer;
     private AttributeData _curAttr;
     private readonly Dictionary<CharsetMode, Dictionary<char, string>?> _charsets;
+    private readonly Dictionary<string, KittyNotification> _kittyNotifications = new();
 
     /// <summary>
     /// The table _currentCharset resolves to, cached.
@@ -2199,6 +2200,10 @@ public class InputHandler
                     HandleClipboard(arg);
                     break;
 
+                case OscCommand.KittyNotification:
+                    HandleKittyNotification(arg);
+                    break;
+
                 case OscCommand.ResetColor:
                 case OscCommand.ResetForeground:
                 case OscCommand.ResetBackground:
@@ -2325,6 +2330,111 @@ public class InputHandler
         if (!string.IsNullOrEmpty(data))
         {
             _terminal.RaiseNotificationReceived(data);
+        }
+    }
+
+    /// <summary>
+    /// Handles Kitty desktop notifications (OSC 99).
+    /// </summary>
+    private void HandleKittyNotification(string data)
+    {
+        if (!_terminal.Options.KittyNotificationsEnabled)
+            return;
+
+        var parts = data.Split(new[] { ';' }, 2);
+        if (parts.Length != 2)
+            return;
+
+        string? identifier = null;
+        string? payloadType = null;
+        string? icon = null;
+        int? urgency = null;
+        var done = true;
+
+        foreach (var parameter in parts[0].Split(':'))
+        {
+            var keyValue = parameter.Split(new[] { '=' }, 2);
+            if (keyValue.Length != 2)
+                continue;
+
+            switch (keyValue[0])
+            {
+                case "i":
+                    identifier = keyValue[1];
+                    break;
+                case "p":
+                    payloadType = keyValue[1];
+                    break;
+                case "d":
+                    done = keyValue[1] != "0";
+                    break;
+                case "u":
+                    if (int.TryParse(keyValue[1], out var parsedUrgency))
+                        urgency = parsedUrgency;
+                    break;
+                case "g":
+                    icon = keyValue[1];
+                    break;
+            }
+        }
+
+        if (payloadType is not ("title" or "body"))
+            return;
+
+        var key = identifier ?? string.Empty;
+        if (!_kittyNotifications.TryGetValue(key, out var notification))
+        {
+            notification = new KittyNotification(identifier);
+            _kittyNotifications[key] = notification;
+        }
+
+        notification.Append(payloadType, parts[1], urgency, icon);
+        if (!done)
+            return;
+
+        _kittyNotifications.Remove(key);
+        if (notification.TryBuild(out var title, out var body))
+            _terminal.RaiseKittyNotificationReceived(notification.Identifier, title, body, notification.Urgency, notification.Icon);
+    }
+
+    private sealed class KittyNotification
+    {
+        private readonly StringBuilder _title = new();
+        private readonly StringBuilder _body = new();
+
+        public KittyNotification(string? identifier) => Identifier = identifier;
+
+        public string? Identifier { get; }
+        public int? Urgency { get; private set; }
+        public string? Icon { get; private set; }
+
+        public void Append(string payloadType, string payload, int? urgency, string? icon)
+        {
+            (payloadType == "title" ? _title : _body).Append(payload);
+            Urgency ??= urgency;
+            Icon ??= icon;
+        }
+
+        public bool TryBuild(out string? title, out string? body)
+        {
+            title = Decode(_title);
+            body = Decode(_body);
+            return title is not null || body is not null;
+        }
+
+        private static string? Decode(StringBuilder payload)
+        {
+            if (payload.Length == 0)
+                return null;
+
+            try
+            {
+                return Encoding.UTF8.GetString(Convert.FromBase64String(payload.ToString()));
+            }
+            catch (FormatException)
+            {
+                return null;
+            }
         }
     }
 

@@ -200,19 +200,39 @@ public static class TerminalEvents
     }
 
     /// <summary>
-    /// Notification event - fired for OSC 9 desktop notifications.
+    /// Notification event - fired for OSC 9 and Kitty OSC 99 desktop notifications.
     /// </summary>
     public class NotificationEventArgs : EventArgs
     {
         public NotificationEventArgs(string text)
+            : this(null, null, text, null, null)
         {
-            Text = text;
         }
 
         /// <summary>
-        /// The notification body as sent by the application.
+        /// The notification body as sent by the application. Retained for OSC 9 compatibility.
         /// </summary>
         public string Text { get; }
+
+        public NotificationEventArgs(string? identifier, string? title, string? body, int? urgency, string? icon)
+        {
+            Identifier = identifier;
+            Title = title;
+            Body = body;
+            Urgency = urgency;
+            Icon = icon;
+            Text = body ?? string.Empty;
+        }
+
+        public string? Identifier { get; }
+
+        public string? Title { get; }
+
+        public string? Body { get; }
+
+        public int? Urgency { get; }
+
+        public string? Icon { get; }
     }
 
     /// <summary>

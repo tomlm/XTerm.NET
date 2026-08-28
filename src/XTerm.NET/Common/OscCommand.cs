@@ -74,6 +74,12 @@ public enum OscCommand
     /// Format: OSC 52 ; c ; data ST
     /// </summary>
     Clipboard = 52,
+
+    /// <summary>
+    /// Kitty desktop notifications.
+    /// Format: OSC 99 ; metadata ; base64-payload ST
+    /// </summary>
+    KittyNotification = 99,
     
     /// <summary>
     /// Shell integration marks, FinalTerm/FTCS (OSC 133).
