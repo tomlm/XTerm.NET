@@ -37,6 +37,13 @@ public class Terminal
     public bool ApplicationCursorKeys { get; set; }
     public bool ApplicationKeypad { get; set; }
     public bool BracketedPasteMode { get; set; }
+
+    /// <summary>
+    /// Bracketed paste MIME (private mode 5522). When set, <see cref="Paste(TerminalPaste)"/>
+    /// announces a paste as a Kitty clipboard read response instead of bracketing text — and
+    /// never both, per the spec's precedence rule.
+    /// </summary>
+    public bool PasteNotificationMode { get; set; }
     public bool OriginMode { get; set; }
 
     /// <summary>
@@ -354,6 +361,8 @@ public class Terminal
         ApplicationCursorKeys = false;
         ApplicationKeypad = false;
         BracketedPasteMode = false;
+        PasteNotificationMode = false;
+        InvalidatePendingPaste();
         OriginMode = false;
         LeftRightMarginMode = false;
         CursorVisible = true;
@@ -500,6 +509,8 @@ public class Terminal
         ApplicationCursorKeys = false;
         ApplicationKeypad = false;
         BracketedPasteMode = false;
+        PasteNotificationMode = false;
+        InvalidatePendingPaste();
         OriginMode = false;
         LeftRightMarginMode = false;
         CursorVisible = true;
@@ -1270,4 +1281,127 @@ public class Terminal
         WindowFullscreened = null;
         WindowInfoRequested = null;
     }
+
+    // ---- Bracketed paste MIME (private mode 5522) -------------------------------------------
+
+    private PendingPaste? _pendingPaste;
+
+    private sealed record PendingPaste(
+        string Token, string Target, TerminalPaste Paste, DateTime IssuedAtUtc);
+
+    /// <summary>How long a paste token stays redeemable. Checked at redemption; single-use.</summary>
+    private static readonly TimeSpan PasteTokenLifetime = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// Pastes plain text. The convenience overload of <see cref="Paste(TerminalPaste)"/> for
+    /// hosts that only ever paste text.
+    /// </summary>
+    public void Paste(string text) =>
+        Paste(new TerminalPaste(
+            new[] { "text/plain" },
+            _ => System.Text.Encoding.UTF8.GetBytes(text)));
+
+    /// <summary>
+    /// The paste entry point — and the only place the spec's precedence rule can live, which is
+    /// why the library owns it. With mode 5522 set, the paste is ANNOUNCED: an unsolicited Kitty
+    /// clipboard read response listing the available MIME types with a single-use token, and no
+    /// bracketing — the terminal must never send both for one paste. With only mode 2004 set,
+    /// the text/plain content is bracketed the classic way. With neither, the raw text is sent.
+    /// </summary>
+    /// <remarks>
+    /// Additive by design: <see cref="BracketedPasteMode"/> stays public and an embedder that
+    /// wraps its own pastes keeps working — but such an embedder never gets 5522 behaviour,
+    /// because only this method knows how to announce one.
+    /// </remarks>
+    public void Paste(TerminalPaste paste)
+    {
+        if (paste.MimeTypes.Count == 0)
+            return;
+
+        if (PasteNotificationMode)
+        {
+            AnnouncePaste(paste);
+            return;
+        }
+
+        // 2004 and the raw path flatten to text, as terminals always have.
+        var text = paste.GetData("text/plain") is { } bytes
+            ? System.Text.Encoding.UTF8.GetString(bytes)
+            : null;
+        if (text is null)
+            return;
+
+        RaiseDataReceived(BracketedPasteMode
+            ? $"\u001b[200~{text}\u001b[201~"
+            : text);
+    }
+
+    private void AnnouncePaste(TerminalPaste paste)
+    {
+        // A new paste supersedes the old token outright: at most one is ever redeemable.
+        var tokenBytes = new byte[16];
+        System.Security.Cryptography.RandomNumberGenerator.Fill(tokenBytes);
+        var token = Convert.ToBase64String(tokenBytes);
+        var target = paste.FromPrimary ? "p" : "c";
+        _pendingPaste = new PendingPaste(token, target, paste, DateTime.UtcNow);
+
+        var loc = paste.FromPrimary ? ":loc=primary" : string.Empty;
+        var mimeList = Convert.ToBase64String(
+            System.Text.Encoding.UTF8.GetBytes(string.Join(' ', paste.MimeTypes)));
+
+        RaiseDataReceived($"\u001b]5522;type=read:status=OK{loc}:pw={token}\u001b\\");
+        RaiseDataReceived($"\u001b]5522;type=read:status=DATA:mime=Lg==:pw={token};{mimeList}\u001b\\");
+        RaiseDataReceived($"\u001b]5522;type=read:status=DONE:pw={token}\u001b\\");
+    }
+
+    /// <summary>
+    /// Redeems a paste token carried on an OSC 5522 read. Single use — a hit consumes the token
+    /// whatever happens next — and worthless outside its scope: the spec has the token bound to
+    /// the clipboard location that produced the paste, accompanied by a name, and short-lived.
+    /// A miss is NOT an error; the caller falls back to its standard security path, exactly as
+    /// the spec directs for an absent or invalid password.
+    /// </summary>
+    internal TerminalPaste? TryRedeemPaste(string token, string name, string target)
+    {
+        var pending = _pendingPaste;
+        if (pending is null || pending.Token != token)
+            return null;
+
+        // The token was presented: consume it now, valid or not — replaying a rejected
+        // redemption must not get a second try.
+        _pendingPaste = null;
+
+        if (name.Length == 0
+            || pending.Target != target
+            || DateTime.UtcNow - pending.IssuedAtUtc > PasteTokenLifetime)
+            return null;
+
+        return pending.Paste;
+    }
+
+    internal void InvalidatePendingPaste() => _pendingPaste = null;
+}
+
+/// <summary>
+/// One paste, as the host hands it to <see cref="Terminal.Paste(TerminalPaste)"/>: the MIME
+/// types on offer, where it came from, and an accessor the terminal calls for the types the
+/// application actually asks for — so nothing is encoded or copied for formats nobody wants.
+/// </summary>
+public sealed class TerminalPaste
+{
+    public TerminalPaste(IReadOnlyList<string> mimeTypes, Func<string, byte[]?> getData, bool fromPrimary = false)
+    {
+        MimeTypes = mimeTypes;
+        GetData = getData;
+        FromPrimary = fromPrimary;
+    }
+
+    /// <summary>The MIME types this paste can supply, most specific first.</summary>
+    public IReadOnlyList<string> MimeTypes { get; }
+
+    /// <summary>Returns the content for one MIME type, or null when it cannot after all.</summary>
+    public Func<string, byte[]?> GetData { get; }
+
+    /// <summary>True when the paste came from the primary selection rather than the clipboard.</summary>
+    public bool FromPrimary { get; }
 }

@@ -2880,7 +2880,7 @@ public class InputHandler
     private void HandleKittyClipboard(string data)
     {
         var parts = data.Split(new[] { ';' }, 2);
-        if (!TryParseKittyClipboardMetadata(parts[0], out var type, out var target, out var id))
+        if (!TryParseKittyClipboardMetadata(parts[0], out var type, out var target, out var id, out var pw, out var name))
             return;
 
         switch (type)
@@ -2892,7 +2892,7 @@ public class InputHandler
                 HandleKittyClipboardWriteData(parts[0], parts.Length == 2 ? parts[1] : null);
                 break;
             case "read":
-                HandleKittyClipboardRead(target, id, parts.Length == 2 ? parts[1] : null);
+                HandleKittyClipboardRead(target, id, parts.Length == 2 ? parts[1] : null, pw, name);
                 break;
             case "walias":
                 HandleKittyClipboardAlias(parts[0], parts.Length == 2 ? parts[1] : null);
@@ -3027,8 +3027,21 @@ public class InputHandler
         + _kittyClipboardData.Keys.Sum(mimeType => (long)mimeType.Length + ClipboardEntryOverhead)
         + _kittyClipboardAliases!.Sum(alias => (long)alias.Alias.Length + alias.Target.Length + ClipboardEntryOverhead);
 
-    private void HandleKittyClipboardRead(string target, string id, string? payload)
+    private void HandleKittyClipboardRead(string target, string id, string? payload, string pw, string name)
     {
+        // A paste token outranks the gate: the paste NOTIFICATION was the authorization, so a
+        // valid single-use pw serves the announced content whether or not general clipboard
+        // reads are enabled. An absent or invalid token is not an error — per the spec the
+        // terminal falls back to its standard security behaviour, which here is the gated host
+        // seam below.
+        if (pw.Length > 0 && target.Length > 0 && payload is not null
+            && TryDecodeBase64(payload, out var pasteRequestBytes)
+            && _terminal.TryRedeemPaste(pw, name, target) is { } paste)
+        {
+            ServePaste(paste, Encoding.UTF8.GetString(pasteRequestBytes), id);
+            return;
+        }
+
         if (!_terminal.Options.ClipboardReadEnabled)
         {
             RaiseKittyClipboardResponse("read", "EPERM", id);
@@ -3110,6 +3123,37 @@ public class InputHandler
             Deliver();
     }
 
+    /// <summary>
+    /// Answers a redeemed paste read from the paste's own accessor — never from the host
+    /// clipboard seam. Requested types the paste cannot supply are skipped, as the spec directs;
+    /// "." answers with the list of available types, mirroring the notification.
+    /// </summary>
+    private void ServePaste(TerminalPaste paste, string requested, string id)
+    {
+        RaiseKittyClipboardResponse("read", "OK", id);
+
+        if (requested == ".")
+        {
+            var list = Convert.ToBase64String(
+                Encoding.UTF8.GetBytes(string.Join(' ', paste.MimeTypes)));
+            _terminal.RaiseDataReceived($"\u001b]5522;type=read:status=DATA:mime=Lg=={FormatKittyId(id)};{list}\u001b\\");
+        }
+        else
+        {
+            foreach (var mimeType in requested.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (!paste.MimeTypes.Contains(mimeType) || paste.GetData(mimeType) is not { } bytes)
+                    continue;
+
+                var encodedMime = Convert.ToBase64String(Encoding.UTF8.GetBytes(mimeType));
+                foreach (var chunk in bytes.Chunk(4096))
+                    _terminal.RaiseDataReceived($"\u001b]5522;type=read:status=DATA:mime={encodedMime}{FormatKittyId(id)};{Convert.ToBase64String(chunk)}\u001b\\");
+            }
+        }
+
+        RaiseKittyClipboardResponse("read", "DONE", id);
+    }
+
     private void HandleKittyClipboardAlias(string metadata, string? payload)
     {
         if (_kittyClipboardData is null || payload is null
@@ -3145,11 +3189,15 @@ public class InputHandler
         _kittyClipboardAliases!.AddRange(aliases.Select(alias => (alias, target)));
     }
 
-    private static bool TryParseKittyClipboardMetadata(string metadata, out string type, out string target, out string id)
+    private static bool TryParseKittyClipboardMetadata(
+        string metadata, out string type, out string target, out string id,
+        out string pw, out string name)
     {
         type = string.Empty;
         target = "c";
         id = string.Empty;
+        pw = string.Empty;
+        name = string.Empty;
         foreach (var item in metadata.Split(':', StringSplitOptions.RemoveEmptyEntries))
         {
             var separator = item.IndexOf('=');
@@ -3172,6 +3220,17 @@ public class InputHandler
             else if (key == "id")
             {
                 id = new string(value.Where(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '+' or '.').ToArray());
+            }
+            else if (key == "pw")
+            {
+                pw = value;
+            }
+            else if (key == "name")
+            {
+                // The spec sends the name base64-encoded; what matters here is only that one was
+                // given, so a payload that does not decode counts as absent.
+                if (TryDecodeBase64(value, out var nameBytes))
+                    name = Encoding.UTF8.GetString(nameBytes);
             }
         }
 
@@ -4478,6 +4537,12 @@ public class InputHandler
                 state = _terminal.SynchronizedOutput ? 1 : 2;
                 break;
 
+            // Bracketed paste MIME leans on this answer by design: its spec's detection IS
+            // DECRQM, and an application that gets silence times out and falls back to 2004.
+            case TerminalMode.PasteNotification:
+                state = _terminal.PasteNotificationMode ? 1 : 2;
+                break;
+
             // Worth answering, because an application that cannot ask will not use the feature: the
             // whole point of DECSLRM is a layout that behaves differently when margins are available,
             // and a well-behaved one checks before relying on them.
@@ -4635,6 +4700,10 @@ public class InputHandler
 
                 case TerminalMode.BracketedPasteMode:
                     _terminal.BracketedPasteMode = true;
+                    break;
+
+                case TerminalMode.PasteNotification:
+                    _terminal.PasteNotificationMode = true;
                     break;
 
                 case TerminalMode.AltBuffer:
@@ -4847,6 +4916,13 @@ public class InputHandler
 
                 case TerminalMode.BracketedPasteMode:
                     _terminal.BracketedPasteMode = false;
+                    break;
+
+                case TerminalMode.PasteNotification:
+                    // Resetting the mode also forgets any token still outstanding: a paste
+                    // notified under the mode must not be redeemable after it is turned off.
+                    _terminal.PasteNotificationMode = false;
+                    _terminal.InvalidatePendingPaste();
                     break;
 
                 case TerminalMode.AltBuffer:
