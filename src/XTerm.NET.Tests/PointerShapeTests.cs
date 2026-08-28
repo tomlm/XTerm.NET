@@ -100,6 +100,37 @@ public class PointerShapeTests
     }
 
     /// <summary>
+    /// Only the last name of a push is ever meant to be seen, so a host is told once and swaps the
+    /// real pointer once, rather than flickering through the names on the way there.
+    /// </summary>
+    [Fact]
+    public void Pushing_a_list_raises_once()
+    {
+        var terminal = Fresh();
+        var shapes = new List<string?>();
+        terminal.PointerShapeChanged += (_, e) => shapes.Add(e.Shape);
+
+        terminal.Write($"{Esc}]22;>pointer,text,wait{St}");
+
+        Assert.Equal(new[] { "wait" }, shapes);
+    }
+
+    /// <summary>
+    /// The comma-separated list is a push-only form; a set takes one name, so a list is simply not a
+    /// shape this terminal knows.
+    /// </summary>
+    [Fact]
+    public void Setting_takes_a_single_name_not_a_list()
+    {
+        var terminal = Fresh();
+        terminal.Write($"{Esc}]22;pointer{St}");
+
+        terminal.Write($"{Esc}]22;text,wait{St}");
+
+        Assert.Equal("pointer", terminal.PointerShape);
+    }
+
+    /// <summary>
     /// The list after a pop is defined to be ignored, and unwinding past the bottom is a no-op — an
     /// application walking back out does not have to have counted its pushes.
     /// </summary>
@@ -327,5 +358,40 @@ public class PointerShapeTests
             terminal.Write($"{Esc}]22;{name}{St}");
             Assert.Equal(name, terminal.PointerShape);
         }
+    }
+
+    /// <summary>
+    /// A host that cannot change the pointer turns the feature off, and the terminal then keeps no
+    /// state and tells nobody anything.
+    /// </summary>
+    [Fact]
+    public void Disabled_ignores_the_sequence()
+    {
+        var terminal = new Terminal(new TerminalOptions { Cols = 20, Rows = 5, PointerShapesEnabled = false });
+        var changes = 0;
+        terminal.PointerShapeChanged += (_, _) => changes++;
+
+        terminal.Write($"{Esc}]22;pointer{St}");
+        terminal.Write($"{Esc}]22;>wait{St}");
+
+        Assert.Null(terminal.PointerShape);
+        Assert.Equal(0, changes);
+    }
+
+    /// <summary>
+    /// The query has to go silent too. Answering "supported" while the pointer never changes is
+    /// worse than not answering: the application cannot tell those apart from its end.
+    /// </summary>
+    [Fact]
+    public void Disabled_answers_no_query()
+    {
+        var terminal = new Terminal(new TerminalOptions { Cols = 20, Rows = 5, PointerShapesEnabled = false });
+        var replies = new List<string>();
+        terminal.DataReceived += (_, e) => replies.Add(e.Data);
+
+        terminal.Write($"{Esc}]22;?pointer,wait{St}");
+        terminal.Write($"{Esc}]22;?__current__{St}");
+
+        Assert.Empty(replies);
     }
 }

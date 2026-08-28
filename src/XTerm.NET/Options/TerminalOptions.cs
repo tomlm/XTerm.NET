@@ -152,6 +152,18 @@ public class TerminalOptions : ICloneable
     public bool KittyGraphicsEnabled { get; set; } = true;
 
     /// <summary>
+    /// Whether mouse pointer shape requests (OSC 22) are honoured.
+    /// </summary>
+    /// <remarks>
+    /// Only the host can actually change the pointer, so a host that does not subscribe to
+    /// <see cref="Terminal.PointerShapeChanged"/> -- or cannot change a pointer at all -- should
+    /// turn this off. Doing so silences the support query too, so an application asking whether the
+    /// shapes work is told no rather than being told yes and left wondering why the pointer never
+    /// changes.
+    /// </remarks>
+    public bool PointerShapesEnabled { get; set; } = true;
+
+    /// <summary>
     /// Budget for images held by client id but not currently on screen, in bytes.
     /// </summary>
     /// <remarks>
@@ -264,6 +276,7 @@ public class TerminalOptions : ICloneable
         RendererType = other.RendererType;
         SixelEnabled = other.SixelEnabled;
         KittyGraphicsEnabled = other.KittyGraphicsEnabled;
+        PointerShapesEnabled = other.PointerShapesEnabled;
         MaxImageRegistryBytes = other.MaxImageRegistryBytes;
         CellWidthPixels = other.CellWidthPixels;
         CellHeightPixels = other.CellHeightPixels;

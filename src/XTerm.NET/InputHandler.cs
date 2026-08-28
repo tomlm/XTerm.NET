@@ -2529,6 +2529,14 @@ public class InputHandler
         // The operation is the first character: '>' pushes, '<' pops, '?' queries, and '=' or no
         // character at all sets. A bare OSC 22 clears, which is how an application says "I am done,
         // use your own pointer" without knowing what that pointer is.
+
+        // Only the host can change a real pointer, so a host that will not is entitled to say so.
+        // Silently, including the query: telling an application the shapes work and then not
+        // changing the pointer is worse than telling it they do not, since it cannot tell the two
+        // apart from the other end.
+        if (!_terminal.Options.PointerShapesEnabled)
+            return;
+
         if (data.Length == 0)
         {
             _terminal.ClearPointerShapes();
@@ -2547,14 +2555,12 @@ public class InputHandler
                 break;
 
             case '>':
-                // Pushed in order, so the last name is the one that ends up current. Unknown names
+                // Pushed in order, so the last name is the one that ends up current -- and pushed
+                // as one operation, since only that last name is ever meant to be seen: a host told
+                // about each name in turn would swap the real pointer once per name. Unknown names
                 // are skipped rather than pushed, so a later pop does not restore a shape no host
                 // can draw.
-                foreach (var name in rest.Split(','))
-                {
-                    if (PointerShapes.IsKnown(name))
-                        _terminal.PushPointerShape(name);
-                }
+                _terminal.PushPointerShapes(rest.Split(',').Where(PointerShapes.IsKnown));
                 break;
 
             case '?':
@@ -2569,14 +2575,10 @@ public class InputHandler
                     break;
                 }
 
-                foreach (var name in rest.Split(','))
-                {
-                    if (PointerShapes.IsKnown(name))
-                    {
-                        _terminal.SetPointerShape(name);
-                        break;
-                    }
-                }
+                // One name, not a list: the protocol defines a comma-separated list for push only,
+                // so the whole payload is the name here and a list is simply not a known shape.
+                if (PointerShapes.IsKnown(rest))
+                    _terminal.SetPointerShape(rest);
                 break;
         }
     }

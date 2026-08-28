@@ -239,12 +239,17 @@ public class Terminal
     }
 
     /// <summary>
-    /// Pushes a pointer shape onto the active screen's stack (OSC 22 ; &gt; shape).
+    /// Pushes pointer shapes onto the active screen's stack (OSC 22 ; &gt; shape,...).
     /// </summary>
-    internal void PushPointerShape(string shape)
+    /// <remarks>
+    /// All of them as one operation, so a listener hears about the shape the sequence ends on and
+    /// not about each one on the way there.
+    /// </remarks>
+    internal void PushPointerShapes(IEnumerable<string> shapes)
     {
         var before = PointerShape;
-        ActivePointerShapes.Push(shape);
+        foreach (var shape in shapes)
+            ActivePointerShapes.Push(shape);
         RaisePointerShapeChanged(before);
     }
 
