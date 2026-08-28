@@ -32,6 +32,11 @@ public class BufferLine : IEnumerable<BufferCell>
     private List<LineHyperlink>? _links;
 
     /// <summary>
+    /// OSC 66 sized runs on this line, or null — which is nearly every line.
+    /// </summary>
+    private List<LineSizedRun>? _sizedRuns;
+
+    /// <summary>
     /// The images those runs refer to, held strongly so they stay alive exactly as long as this line
     /// does — so a picture scrolled off the end of the scrollback dies with the last line showing it,
     /// with no eviction pass and nothing to keep in step with a buffer that scrolls.
@@ -503,6 +508,116 @@ public class BufferLine : IEnumerable<BufferCell>
             _links = null;
     }
 
+    /// <summary>Whether this line carries any OSC 66 sized run.</summary>
+    public bool HasSizedRuns => _sizedRuns is { Count: > 0 };
+
+    /// <summary>The sized runs on this line, left to right.</summary>
+    public IReadOnlyList<LineSizedRun> SizedRuns
+        => (IReadOnlyList<LineSizedRun>?)_sizedRuns ?? Array.Empty<LineSizedRun>();
+
+    /// <summary>
+    /// The sized run covering <paramref name="column"/>, if any. What a renderer asks per cell.
+    /// </summary>
+    public bool TryGetSizedRunAt(int column, out LineSizedRun run)
+    {
+        if (_sizedRuns is not null)
+        {
+            for (int i = 0; i < _sizedRuns.Count; i++)
+            {
+                if (_sizedRuns[i].Covers(column))
+                {
+                    run = _sizedRuns[i];
+                    return true;
+                }
+            }
+        }
+
+        run = default;
+        return false;
+    }
+
+    /// <summary>Drops every sized run. Only line reuse does this.</summary>
+    internal void ClearSizedRuns() => _sizedRuns = null;
+
+    /// <summary>
+    /// Records what a write of <paramref name="count"/> columns at <paramref name="column"/> did to
+    /// this line's sized runs, and records the run itself when <paramref name="sizing"/> asks for one.
+    /// </summary>
+    /// <remarks>
+    /// <para>Called from the print paths, as <see cref="NoteLinkRun"/> is, and for the same reason:
+    /// only the printer knows what sizing was in force for the text it just wrote.</para>
+    /// <para>Adjacent columns with identical sizing are joined into one span. Where one scaled block
+    /// ends and the next begins is recoverable from the cells — the first cell of a block carries its
+    /// full width and the rest are zero-width — so the span does not have to say it twice.</para>
+    /// </remarks>
+    internal void NoteSizedRun(int column, int count, Common.TextSizing sizing)
+    {
+        if (count <= 0)
+            return;
+
+        // Anything already claiming these columns is destroyed, not trimmed: overwriting any part of
+        // a multicell character erases the whole of it, which is what the protocol requires and what
+        // keeps the cells consistent -- a partly overwritten block would leave a first cell still
+        // claiming columns that now hold something else.
+        EraseSizedRunsOver(column, count);
+
+        if (sizing.IsDefault)
+            return;
+
+        // Join a span that continues the one before it. Only the last is worth testing: printing
+        // moves left to right.
+        if (_sizedRuns is { Count: > 0 })
+        {
+            var last = _sizedRuns[^1];
+            if (last.EndColumn == column && last.Sizing == sizing)
+            {
+                _sizedRuns[^1] = new LineSizedRun(last.Column, last.Cols + count, sizing);
+                return;
+            }
+        }
+
+        _sizedRuns ??= new List<LineSizedRun>(1);
+        _sizedRuns.Add(new LineSizedRun(column, count, sizing));
+    }
+
+    /// <summary>
+    /// Erases every sized run touching the given columns, blanking the cells of theirs that the
+    /// caller is not about to write itself.
+    /// </summary>
+    private void EraseSizedRunsOver(int column, int count)
+    {
+        if (_sizedRuns is null)
+            return;
+
+        var end = column + count;
+
+        for (int i = _sizedRuns.Count - 1; i >= 0; i--)
+        {
+            var run = _sizedRuns[i];
+            if (run.Column >= end || run.EndColumn <= column)
+                continue;
+
+            _sizedRuns.RemoveAt(i);
+
+            // What is left of the block becomes spaces. Its own attributes are kept, so a run erased
+            // out of a coloured background does not punch a hole in it.
+            for (int c = Math.Max(0, run.Column); c < run.EndColumn && c < _length; c++)
+            {
+                if (c >= column && c < end)
+                    continue;
+
+                var blank = BufferCell.Space;
+                blank.Attributes = _cells[c].Attributes;
+                _cells[c] = blank;
+            }
+
+            Cache = null;
+        }
+
+        if (_sizedRuns.Count == 0)
+            _sizedRuns = null;
+    }
+
     /// <summary>
     /// The distinct images this line shows.
     /// </summary>
@@ -788,6 +903,8 @@ public class BufferLine : IEnumerable<BufferCell>
         ClearImages();
 
         ClearLinks();
+
+        ClearSizedRuns();
 
         // And the marks. A recycled line is a NEW line -- the ring hands back the object it is about
         // to drop, so anything left on it would reappear as history that never happened, a prompt

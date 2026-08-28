@@ -319,6 +319,12 @@ public class InputHandler
         if (line is not null && (_linkUrl is not null || line.HasLinks))
             line.NoteLinkRun(_buffer.X, width, _linkUrl, _linkId);
 
+        // Ordinary text written over a scaled run destroys it, which the protocol requires: a
+        // multicell block cannot survive having part of itself overwritten. Guarded at the call for
+        // the same reason as the link bookkeeping above -- a line with no sized run pays one read.
+        if (line is not null && line.HasSizedRuns)
+            line.NoteSizedRun(_buffer.X, width, TextSizing.Default);
+
         // Use MoveCursor to allow X to be one past the last column (pending wrap)
         _buffer.SetCursorRaw(_buffer.X + width, _buffer.Y);
 
@@ -460,6 +466,10 @@ public class InputHandler
             if (_linkUrl is not null || line.HasLinks)
                 line.NoteLinkRun(_buffer.X, take, _linkUrl, _linkId);
 
+            // As above: a run of plain text erases any scaled run it lands on.
+            if (line.HasSizedRuns)
+                line.NoteSizedRun(_buffer.X, take, TextSizing.Default);
+
             _buffer.SetCursorRaw(_buffer.X + take, _buffer.Y);
 
             // This path bypasses Print, so it has to keep REP's record itself -- otherwise the same
@@ -527,6 +537,10 @@ public class InputHandler
             // As above: bypassing Print means keeping the link bookkeeping here as well.
             if (_linkUrl is not null || line.HasLinks)
                 line.NoteLinkRun(_buffer.X, take, _linkUrl, _linkId);
+
+            // As above: a run of plain text erases any scaled run it lands on.
+            if (line.HasSizedRuns)
+                line.NoteSizedRun(_buffer.X, take, TextSizing.Default);
 
             // SetCursorRaw, as Print uses, so X may land one past the last column pending a wrap.
             _buffer.SetCursorRaw(_buffer.X + take, _buffer.Y);
@@ -2199,6 +2213,10 @@ public class InputHandler
                     HandleClipboard(arg);
                     break;
 
+                case OscCommand.TextSizing:
+                    recognized = HandleTextSizing(arg);
+                    break;
+
                 case OscCommand.ResetColor:
                 case OscCommand.ResetForeground:
                 case OscCommand.ResetBackground:
@@ -2468,6 +2486,172 @@ public class InputHandler
                 _terminal.RaiseHyperlinkChanged(uri);
             }
         }
+    }
+
+    /// <summary>
+    /// The most text one sized run keeps. Longer payloads are truncated at a grapheme boundary.
+    /// </summary>
+    /// <remarks>
+    /// The protocol lets a run carry up to 4096 bytes, but all of it renders inside <c>s * w</c>
+    /// cells, so a payload of that size is already asking the terminal to do something arbitrary --
+    /// the spec explicitly allows truncating. Bounding it here also bounds what the cluster table is
+    /// asked to intern, which is process-wide and never released.
+    /// </remarks>
+    private const int MaxSizedRunText = 64;
+
+    /// <summary>
+    /// Handles the Kitty text sizing protocol: <c>OSC 66 ; key=value : ... ; text ST</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>The text is written at the cursor as one or more multicell blocks. With <c>w=0</c> --
+    /// the default -- each grapheme is its own block, <c>s</c> times as wide as it would otherwise
+    /// be; with a non-zero <c>w</c> the whole payload is a single block of <c>s * w</c> columns,
+    /// which is how a client states a string's width rather than leaving the terminal to guess.</para>
+    /// <para>Returns whether the sequence was acted on, so a listener watching
+    /// <see cref="Terminal.OscReceived"/> can tell a malformed one from a handled one.</para>
+    /// </remarks>
+    private bool HandleTextSizing(string data)
+    {
+        var parts = data.Split(new[] { ';' }, 2);
+
+        // The text may itself contain semicolons, so only the FIRST separator divides metadata from
+        // payload -- which is why the split is limited to two.
+        if (!TextSizing.TryParse(parts[0], out var sizing))
+            return false;
+
+        var text = parts.Length > 1 ? parts[1] : string.Empty;
+        if (text.Length == 0)
+            return true;   // well formed, and drawing nothing is what it asked for
+
+        PrintSized(text, sizing);
+        return true;
+    }
+
+    /// <summary>
+    /// Writes the payload of an OSC 66 sequence at the cursor.
+    /// </summary>
+    private void PrintSized(string text, TextSizing sizing)
+    {
+        if (sizing.Width > 0)
+        {
+            PrintSizedBlock(Truncate(text), sizing.Scale * sizing.Width, sizing);
+            return;
+        }
+
+        // w=0: the terminal splits the text up as it normally would, except that each piece now
+        // occupies its own s-by-s block. Grapheme clusters, so a base character keeps its combining
+        // marks inside one block instead of scattering them across several.
+        var enumerator = System.Globalization.StringInfo.GetTextElementEnumerator(text);
+        while (enumerator.MoveNext())
+        {
+            var element = (string)enumerator.Current;
+            var width = GetStringCellWidth(element);
+            if (width <= 0)
+                continue;   // a cluster with no width of its own has nowhere to go
+
+            PrintSizedBlock(element, width * sizing.Scale, sizing);
+        }
+    }
+
+    /// <summary>
+    /// Writes one multicell block of <paramref name="cols"/> columns holding
+    /// <paramref name="content"/>.
+    /// </summary>
+    private void PrintSizedBlock(string content, int cols, TextSizing sizing)
+    {
+        if (cols <= 0)
+            return;
+
+        // A block wider than the screen can never be drawn, and the protocol says to discard it
+        // rather than to clip it into something the client did not ask for.
+        if (cols > _terminal.Cols)
+            return;
+
+        if (_buffer.X + cols > _terminal.Cols)
+        {
+            if (_terminal.Options.Wraparound)
+            {
+                if (_buffer.Y == _buffer.ScrollBottom)
+                {
+                    _buffer.SetCursor(0, _buffer.Y);
+                    _buffer.ScrollUp(1, true);
+                }
+                else
+                {
+                    _buffer.SetCursor(0, _buffer.Y + 1);
+                }
+
+                _buffer.Lines[_buffer.Y + _buffer.YBase]!.IsWrapped = true;
+            }
+            else
+            {
+                // With wrapping off the block is drawn where it fits, which the protocol states
+                // explicitly: the cursor moves back far enough for the whole block, then it is
+                // written over whatever was there.
+                _buffer.SetCursorRaw(_terminal.Cols - cols, _buffer.Y);
+            }
+        }
+
+        var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
+        if (line == null)
+            return;
+
+        var column = _buffer.X;
+
+        if (_terminal.InsertMode)
+        {
+            line.CopyCellsFrom(line, column, column + cols, _terminal.Cols - column - cols, false);
+        }
+
+        var cell = new BufferCell
+        {
+            Content = content,
+            Width = cols,
+            Attributes = _curAttr,
+        };
+
+        line.SetCell(column, ref cell);
+
+        // The remaining columns are zero-width continuations, exactly as the second half of a
+        // double-width character is -- so everything that already understands a wide cell (search,
+        // selection, reflow) understands a scaled one without being told about this protocol.
+        for (var i = 1; i < cols; i++)
+        {
+            var spacer = BufferCell.Empty;
+            spacer.Attributes = _curAttr;
+            line.SetCell(column + i, ref spacer);
+        }
+
+        if (_linkUrl is not null || line.HasLinks)
+            line.NoteLinkRun(column, cols, _linkUrl, _linkId);
+
+        line.NoteSizedRun(column, cols, sizing);
+
+        _buffer.SetCursorRaw(column + cols, _buffer.Y);
+
+        RememberForRepeat(cell.CodePoint, cell.ClusterId);
+    }
+
+    /// <summary>
+    /// Cuts a sized run's text down to <see cref="MaxSizedRunText"/>, at a grapheme boundary.
+    /// </summary>
+    private static string Truncate(string text)
+    {
+        if (text.Length <= MaxSizedRunText)
+            return text;
+
+        var kept = 0;
+        var enumerator = System.Globalization.StringInfo.GetTextElementEnumerator(text);
+        while (enumerator.MoveNext())
+        {
+            var next = kept + ((string)enumerator.Current).Length;
+            if (next > MaxSizedRunText)
+                break;
+
+            kept = next;
+        }
+
+        return text.Substring(0, kept);
     }
 
     private void HandleColorQuery(string colorType, string data)
