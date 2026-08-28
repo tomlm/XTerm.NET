@@ -2972,6 +2972,11 @@ public class InputHandler
         if (line == null)
             return;
 
+        // A scaled block from the cursor rightwards cannot survive the shift: the cells that make it
+        // up move, and the run describing them does not. The protocol says to erase them.
+        if (line.HasSizedRuns)
+            line.EraseSizedRunsFrom(_buffer.X);
+
         // Shift cells right from cursor position
         line.CopyCellsFrom(line, _buffer.X, _buffer.X + count,
             _terminal.Cols - _buffer.X - count, false);
@@ -2992,6 +2997,10 @@ public class InputHandler
         // Limit count to remaining characters on line
         var remaining = _terminal.Cols - _buffer.X;
         count = Math.Min(count, remaining);
+
+        // As for insertion: shifting cells destroys any block from the cursor rightwards.
+        if (line.HasSizedRuns)
+            line.EraseSizedRunsFrom(_buffer.X);
 
         line.CopyCellsFrom(line, _buffer.X + count, _buffer.X,
             _terminal.Cols - _buffer.X - count, false);

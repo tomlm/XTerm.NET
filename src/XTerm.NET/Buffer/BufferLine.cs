@@ -258,6 +258,11 @@ public class BufferLine : IEnumerable<BufferCell>
         if (_links is not null)
             SplitLinksOver(startCol, Math.Max(0, Math.Min(endCol, _length) - startCol));
 
+        // And a sized run, for the same reason and then some: the cells it described are now blank,
+        // so a run left behind would have a renderer drawing scaled text over an erased span.
+        if (_sizedRuns is not null)
+            EraseSizedRunsOver(startCol, Math.Max(0, Math.Min(endCol, _length) - startCol));
+
         Cache = null;
     }
 
@@ -266,6 +271,11 @@ public class BufferLine : IEnumerable<BufferCell>
     /// </summary>
     public void CopyCellsFrom(BufferLine src, int srcCol, int destCol, int length, bool applyInReverse)
     {
+        // Cells arriving over a scaled block destroy it. The run says which columns hold which part
+        // of a block, and copying cells into the middle of one makes that a lie.
+        if (_sizedRuns is not null)
+            EraseSizedRunsOver(destCol, length, blankAll: true);
+
         if (applyInReverse)
         {
             for (int i = length - 1; i >= 0; i--)
@@ -581,10 +591,23 @@ public class BufferLine : IEnumerable<BufferCell>
     }
 
     /// <summary>
+    /// Erases every sized run from <paramref name="column"/> to the end of the line, blanking all of
+    /// their cells. What the controls that SHIFT cells owe a multicell: a block cannot survive being
+    /// moved out from under the run that describes where it is.
+    /// </summary>
+    internal void EraseSizedRunsFrom(int column)
+        => EraseSizedRunsOver(column, Math.Max(0, _length - column), blankAll: true);
+
+    /// <summary>
     /// Erases every sized run touching the given columns, blanking the cells of theirs that the
     /// caller is not about to write itself.
     /// </summary>
-    private void EraseSizedRunsOver(int column, int count)
+    /// <param name="blankAll">
+    /// Whether to blank the whole of each erased run, rather than leaving the columns the caller is
+    /// about to write itself. Callers that only overwrite part of the range -- a shift, a delete --
+    /// pass true, so no orphaned continuation cell is left behind.
+    /// </param>
+    private void EraseSizedRunsOver(int column, int count, bool blankAll = false)
     {
         if (_sizedRuns is null)
             return;
@@ -603,7 +626,7 @@ public class BufferLine : IEnumerable<BufferCell>
             // out of a coloured background does not punch a hole in it.
             for (int c = Math.Max(0, run.Column); c < run.EndColumn && c < _length; c++)
             {
-                if (c >= column && c < end)
+                if (!blankAll && c >= column && c < end)
                     continue;
 
                 var blank = BufferCell.Space;
