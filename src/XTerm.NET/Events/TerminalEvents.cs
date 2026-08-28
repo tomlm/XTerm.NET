@@ -221,7 +221,7 @@ public static class TerminalEvents
             Body = body;
             Urgency = urgency;
             Icon = icon;
-            Text = body ?? string.Empty;
+            Text = body ?? title ?? string.Empty;
         }
 
         public string? Identifier { get; }

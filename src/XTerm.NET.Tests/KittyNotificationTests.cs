@@ -50,6 +50,23 @@ public class KittyNotificationTests
         Assert.NotNull(notification);
         Assert.Equal("Hello world", notification!.Title);
         Assert.Null(notification.Body);
+        Assert.Equal("Hello world", notification.Text);
+    }
+
+    [Fact]
+    public void Osc99_CompleteNotificationBypassesPendingIdentifierLimit()
+    {
+        var terminal = new Terminal(new TerminalOptions());
+        TerminalEvents.NotificationEventArgs? notification = null;
+        terminal.NotificationReceived += (_, e) => notification = e;
+
+        for (var i = 0; i < 16; i++)
+            terminal.Write($"\u001b]99;i=pending-{i}:d=0;partial\u001b\\");
+
+        terminal.Write("\u001b]99;;Hello world\u001b\\");
+
+        Assert.NotNull(notification);
+        Assert.Equal("Hello world", notification!.Title);
     }
 
     [Fact]

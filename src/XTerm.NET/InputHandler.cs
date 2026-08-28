@@ -2398,11 +2398,12 @@ public class InputHandler
         var key = identifier ?? string.Empty;
         if (!_kittyNotifications.TryGetValue(key, out var notification))
         {
-            if (_kittyNotifications.Count >= MaxPendingKittyNotifications)
+            if (!done && _kittyNotifications.Count >= MaxPendingKittyNotifications)
                 return;
 
             notification = new KittyNotification(identifier);
-            _kittyNotifications[key] = notification;
+            if (!done)
+                _kittyNotifications[key] = notification;
         }
 
         var payload = encoded ? DecodeBase64(parts[1]) : SanitizeText(parts[1]);
