@@ -39,7 +39,7 @@ public class ITerm2OscTests
         var terminal = CreateTerminal();
 
         terminal.Write(Osc("SetUserVar=prompt=dmFsdWU="));
-        terminal.Write(Osc("CurrentDir=file://localhost/home/me"));
+        terminal.Write(Osc("CurrentDir=/home/me"));
         terminal.Write(Osc("ShellIntegrationVersion=12"));
         terminal.Write(Osc("RemoteHost=me@example.test"));
 

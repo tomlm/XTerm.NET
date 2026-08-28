@@ -2305,7 +2305,7 @@ public class InputHandler
                 return true;
 
             case "CurrentDir":
-                HandleCurrentDirectory(value);
+                HandleITerm2CurrentDirectory(value);
                 return true;
 
             case "ShellIntegrationVersion":
@@ -2374,6 +2374,21 @@ public class InputHandler
         catch (ArgumentException)
         {
             // Invalid base64 or UTF-8 is untrusted terminal output, so ignore it.
+        }
+    }
+
+    private void HandleITerm2CurrentDirectory(string data)
+    {
+        if (data.StartsWith("file://"))
+        {
+            HandleCurrentDirectory(data);
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(data))
+        {
+            _terminal.CurrentDirectory = Uri.UnescapeDataString(data);
+            _terminal.RaiseDirectoryChanged(_terminal.CurrentDirectory);
         }
     }
 
