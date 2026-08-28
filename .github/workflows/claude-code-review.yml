@@ -2,7 +2,7 @@ name: Claude Code Review
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
+    types: [opened, ready_for_review, reopened]
     # Optional: Only run on specific file changes
     # paths:
     #   - "src/**/*.ts"
@@ -18,12 +18,18 @@ jobs:
     #   github.event.pull_request.user.login == 'new-developer' ||
     #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
 
-    # Humans only. Two different bot cases, both worth refusing:
-    #   pull_request.user.type -- the PR was OPENED by a bot (Copilot and friends).
-    #   github.actor           -- a human's PR that Claude then PUSHED to. The push fires
-    #                             `synchronize`, and Claude would review its own commit.
-    # Ask for a review on a bot's PR by commenting @claude on it.
-    if: github.event.pull_request.user.type != 'Bot' && github.actor != 'claude[bot]'
+    # Reviewable pull requests only. Three cases this cannot or should not review:
+    #   head.repo.fork -- a FORK pull request. GitHub gives these a read-only token, no
+    #                     id-token: write and NO SECRETS, so ANTHROPIC_API_KEY arrives
+    #                     empty and the action dies on OIDC. Not fixable by permissions;
+    #                     pull_request_target would fix it by running fork code WITH the
+    #                     secrets, which is worse than no review.
+    #   user.type      -- the PR was OPENED by a bot (Copilot and friends).
+    #   github.actor   -- a human's PR that Claude then PUSHED to. The push fires
+    #                     `synchronize`, and Claude would review its own commit.
+    # All three are still reviewable on demand: comment @claude on the PR. That runs on
+    # issue_comment, which is a base-repo event and does get the secrets.
+    if: github.event.pull_request.head.repo.fork == false && github.event.pull_request.user.type != 'Bot' && github.actor != 'claude[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read

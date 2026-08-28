@@ -38,11 +38,32 @@ public class Terminal
     public bool ApplicationKeypad { get; set; }
     public bool BracketedPasteMode { get; set; }
     public bool OriginMode { get; set; }
+
+    /// <summary>
+    /// DECLRMM (mode 69). While set, <c>CSI Pl ; Pr s</c> sets the left and right margins rather
+    /// than saving the cursor, and the scrolling region is a box instead of a band of rows.
+    /// </summary>
+    public bool LeftRightMarginMode { get; set; }
     public bool CursorVisible { get; set; }
     public bool ReverseWraparound { get; set; }
     public bool ReverseVideo { get; set; }
     public bool SendFocusEvents { get; set; }
     public bool Win32InputMode { get; set; }
+
+    /// <summary>
+    /// The Kitty keyboard protocol state: the active enhancement flags and their per-screen
+    /// stacks. The host reads <see cref="KittyKeyboardState.Flags"/> (via
+    /// <see cref="KittyKeyboardActive"/>) to decide whether keys go through
+    /// <see cref="GenerateKittyKeyInput"/> instead of the legacy generators.
+    /// </summary>
+    public KittyKeyboardState KittyKeyboardState { get; } = new();
+
+    /// <summary>
+    /// Whether keyboard input should be encoded under the Kitty keyboard protocol right now:
+    /// the option allows it and the running application has asked for it.
+    /// </summary>
+    public bool KittyKeyboardActive =>
+        Options.KittyKeyboardEnabled && KittyKeyboardState.Flags != KittyKeyboardFlags.None;
 
     /// <summary>
     /// Sixel Display Mode (DECSDM, mode 80). See <see cref="TerminalMode.SixelDisplayMode"/> --
@@ -324,6 +345,7 @@ public class Terminal
         ApplicationKeypad = false;
         BracketedPasteMode = false;
         OriginMode = false;
+        LeftRightMarginMode = false;
         CursorVisible = true;
         ReverseWraparound = false;
         SendFocusEvents = false;
@@ -469,6 +491,7 @@ public class Terminal
         ApplicationKeypad = false;
         BracketedPasteMode = false;
         OriginMode = false;
+        LeftRightMarginMode = false;
         CursorVisible = true;
         ReverseWraparound = false;
         ReverseVideo = false;
@@ -477,6 +500,10 @@ public class Terminal
         MetaSendsEscape = false;  // Default is disabled
         AltSendsEscape = false;
         Win32InputMode = false;
+
+        // Kitty keyboard flags do not survive a reset: RIS is exactly how someone recovers from
+        // an application that set them and died.
+        KittyKeyboardState.Reset();
 
         // Through the raiser rather than assigned, so a renderer holding a frame is told it can
         // stop -- and so the flag cannot be left set. It is also the dedupe key for the event, so a
@@ -874,6 +901,24 @@ public class Terminal
     }
 
     /// <summary>
+    /// Encodes a keyboard event under the Kitty keyboard protocol, honouring the flags the
+    /// running application has set.
+    /// </summary>
+    /// <remarks>
+    /// Only meaningful while <see cref="KittyKeyboardActive"/> is true; the host checks that and
+    /// falls back to <see cref="GenerateKeyInput"/> / <see cref="GenerateCharInput"/> otherwise.
+    /// A null return means this event sends NOTHING — a bare modifier press, or a release the
+    /// flags say not to report — not that the host should try the legacy path instead.
+    /// </remarks>
+    /// <param name="ev">The keyboard event, with <see cref="KeyEvent.Code"/> filled in when known.</param>
+    /// <param name="eventType">Press, repeat or release.</param>
+    /// <returns>The bytes to send to the application, or null to send nothing.</returns>
+    public string? GenerateKittyKeyInput(KeyEvent ev, KittyKeyboardEventType eventType = KittyKeyboardEventType.Press)
+    {
+        return KittyKeyboard.Evaluate(ev, KittyKeyboardState.Flags, eventType, Options.MacOptionIsMeta);
+    }
+
+    /// <summary>
     /// Generates an escape sequence for a mouse event.
     /// </summary>
     /// <param name="button">The mouse button</param>
@@ -1063,6 +1108,9 @@ public class Terminal
 
         _buffer = _altBuffer!;
         _usingAltBuffer = true;
+        // The protocol's flags are per screen; the switch itself carries them so every path in
+        // (1049, 1047, 47) behaves the same.
+        KittyKeyboardState.SwitchScreen(toAltScreen: true);
         _inputHandler.SetBuffer(_buffer);
         BufferChanged?.Invoke(this, new TerminalEvents.BufferChangedEventArgs(BufferType.Alternate));
     }
@@ -1077,6 +1125,7 @@ public class Terminal
 
         _buffer = _normalBuffer!;
         _usingAltBuffer = false;
+        KittyKeyboardState.SwitchScreen(toAltScreen: false);
         _inputHandler.SetBuffer(_buffer);
         BufferChanged?.Invoke(this, new TerminalEvents.BufferChangedEventArgs(BufferType.Normal));
     }
@@ -1121,7 +1170,7 @@ public class Terminal
                 break;
 
             case 0x0D: // CR - Carriage Return
-                _buffer.SetCursor(0, _buffer.Y);
+                _buffer.CarriageReturn();
                 break;
 
             case 0x0E: // SO - Shift Out (select G1 charset)
@@ -1150,10 +1199,11 @@ public class Terminal
             _buffer.SetCursor(_buffer.X, _buffer.Y + 1);
         }
 
-        // If ConvertEol is enabled, also do a carriage return (move to column 0)
+        // If ConvertEol is enabled, also do a carriage return — to the line’s start as CR
+        // defines it, which with margins is the left margin, not column 0
         if (Options.ConvertEol)
         {
-            _buffer.SetCursor(0, _buffer.Y);
+            _buffer.CarriageReturn();
         }
 
         LineFed?.Invoke(this, new TerminalEvents.LineFeedEventArgs("\n"));
