@@ -26,6 +26,9 @@ that part of the picture; Kitty is an *overlay* ordered against the text by its 
 - **Kitty Graphics** — Decodes the Kitty protocol (`ESC _ G …`), including chunked transmission, PNG,
   transmit-once/place-many by image id, animation, and U+10EEEE Unicode placeholders, so `icat`,
   `chafa -f kitty`, `timg -pk`, `yazi` and `image.nvim` work the same way
+- **Capability Queries** — Answers XTGETTCAP (`ESC P + q …`), so a program can ask the terminal what
+  it can do instead of trusting whatever terminfo entry happens to be installed. See
+  [Capability queries](#capability-queries)
 
 ## Upgrading to 2.0
 
@@ -491,6 +494,50 @@ replace-on-write. Erasing (`ED`/`EL`) clears both, because a picture showing thr
 would be a leak rather than a feature. A host renders these by drawing the tile first
 and the glyph over it; text with no background colour of its own paints no fill, which is what lets
 the picture show through.
+
+### Capability queries
+
+A program's idea of the terminal comes from `TERM` and whichever terminfo database is installed on
+the machine it is running on — which, over ssh or inside a container, describes some other terminal
+entirely. **XTGETTCAP** is how it asks this one directly:
+
+```
+ESC P + q <name> ; <name> … ESC \
+```
+
+Each name is hex-encoded, two digits per character. Every name gets its own reply, so a client can
+pair each answer with the question it asked:
+
+| Reply | Meaning |
+| --- | --- |
+| `ESC P 1 + r <name>=<value> ESC \` | The terminal has this capability; `value` is hex-encoded |
+| `ESC P 0 + r <name> ESC \` | It does not, or the name was not readable hex |
+
+The name comes back exactly as it was sent rather than re-encoded, so a client can match a reply
+against its own bytes. A boolean capability — `Tc`, `Su` — succeeds with an empty value; that empty
+value *is* the answer, which is why it is not a failure reply.
+
+Both spellings are answered, because a caller uses whichever its own database uses: the two-letter
+termcap name (`Co`, `ku`) and the terminfo one (`colors`, `kcuu1`). Names are case-sensitive, since
+`Co` is the number of colours and `co` is the number of columns.
+
+What comes back describes **this emulator**, not the entry named by `TermName` — that is the entire
+point of asking. So `RGB`, `Tc`, `setrgbf`/`setrgbb` (direct colour), `Smulx` and `Setulc` (styled
+and coloured underlines), `rep` (`REP`) and `Ms` (OSC 52) are all reported, `Su` is reported only
+while `SixelEnabled` is on, and `cols`/`lines` report the size the terminal is *now* rather than the
+one it started at. `TN` reports `TermName`, which is what the host tells programs to call it.
+
+```csharp
+terminal.DataReceived += (_, e) => Console.WriteLine(Escape(e.Data));
+
+// "TN" hex-encoded: ask the terminal what it calls itself.
+const char Esc = (char)0x1B;
+terminal.Write($"{Esc}P+q544e{Esc}\\");
+// → ESC P 1 + r 544E=787465726D ESC \    ("TN=xterm")
+```
+
+Note that `ESC P q` — with no `+` — is DECSIXEL, an image. The two differ by that one intermediate
+character and are dispatched apart on it.
 
 ## License
 
