@@ -19,6 +19,9 @@ public class InputHandler
     private AttributeData _curAttr;
     private readonly Dictionary<CharsetMode, Dictionary<char, string>?> _charsets;
     private readonly Dictionary<string, KittyNotification> _kittyNotifications = new();
+    private const int MaxPendingKittyNotifications = 16;
+    private const int MaxKittyNotificationBytes = 64 * 1024;
+    private static readonly TimeSpan KittyNotificationTimeout = TimeSpan.FromMinutes(1);
 
     /// <summary>
     /// The table _currentCharset resolves to, cached.
@@ -2341,14 +2344,16 @@ public class InputHandler
         if (!_terminal.Options.KittyNotificationsEnabled)
             return;
 
+        RemoveExpiredKittyNotifications();
         var parts = data.Split(new[] { ';' }, 2);
         if (parts.Length != 2)
             return;
 
         string? identifier = null;
-        string? payloadType = null;
+        var payloadType = "title";
         string? icon = null;
         int? urgency = null;
+        var encoded = false;
         var done = true;
 
         foreach (var parameter in parts[0].Split(':'))
@@ -2360,7 +2365,7 @@ public class InputHandler
             switch (keyValue[0])
             {
                 case "i":
-                    identifier = keyValue[1];
+                    identifier = SanitizeIdentifier(keyValue[1]);
                     break;
                 case "p":
                     payloadType = keyValue[1];
@@ -2368,14 +2373,23 @@ public class InputHandler
                 case "d":
                     done = keyValue[1] != "0";
                     break;
+                case "e":
+                    encoded = keyValue[1] == "1";
+                    break;
                 case "u":
                     if (int.TryParse(keyValue[1], out var parsedUrgency))
                         urgency = parsedUrgency;
                     break;
-                case "g":
-                    icon = keyValue[1];
+                case "n":
+                    icon = DecodeBase64(keyValue[1]);
                     break;
             }
+        }
+
+        if (payloadType == "?")
+        {
+            _terminal.RaiseDataReceived($"\u001b]99;i={identifier ?? "0"}:p=?;p=title,body\u001b\\");
+            return;
         }
 
         if (payloadType is not ("title" or "body"))
@@ -2384,11 +2398,20 @@ public class InputHandler
         var key = identifier ?? string.Empty;
         if (!_kittyNotifications.TryGetValue(key, out var notification))
         {
+            if (_kittyNotifications.Count >= MaxPendingKittyNotifications)
+                return;
+
             notification = new KittyNotification(identifier);
             _kittyNotifications[key] = notification;
         }
 
-        notification.Append(payloadType, parts[1], urgency, icon);
+        var payload = encoded ? DecodeBase64(parts[1]) : SanitizeText(parts[1]);
+        if (payload is null || !notification.Append(payloadType, payload, urgency, icon))
+        {
+            _kittyNotifications.Remove(key);
+            return;
+        }
+
         if (!done)
             return;
 
@@ -2396,6 +2419,31 @@ public class InputHandler
         if (notification.TryBuild(out var title, out var body))
             _terminal.RaiseKittyNotificationReceived(notification.Identifier, title, body, notification.Urgency, notification.Icon);
     }
+
+    private void RemoveExpiredKittyNotifications()
+    {
+        var cutoff = DateTime.UtcNow - KittyNotificationTimeout;
+        foreach (var key in _kittyNotifications.Where(entry => entry.Value.LastUpdated < cutoff).Select(entry => entry.Key).ToArray())
+            _kittyNotifications.Remove(key);
+    }
+
+    private static string? DecodeBase64(string value)
+    {
+        try
+        {
+            return SanitizeText(Encoding.UTF8.GetString(Convert.FromBase64String(value)));
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+    }
+
+    private static string SanitizeIdentifier(string value) =>
+        new(value.Where(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '+' or '.' or '-').Take(1024).ToArray());
+
+    private static string SanitizeText(string value) =>
+        new(value.Where(character => character is not (>= '\0' and <= '\x1f') and not (>= '\x7f' and <= '\x9f')).ToArray());
 
     private sealed class KittyNotification
     {
@@ -2407,34 +2455,25 @@ public class InputHandler
         public string? Identifier { get; }
         public int? Urgency { get; private set; }
         public string? Icon { get; private set; }
+        public DateTime LastUpdated { get; private set; } = DateTime.UtcNow;
 
-        public void Append(string payloadType, string payload, int? urgency, string? icon)
+        public bool Append(string payloadType, string payload, int? urgency, string? icon)
         {
+            if (_title.Length + _body.Length + payload.Length > MaxKittyNotificationBytes)
+                return false;
+
             (payloadType == "title" ? _title : _body).Append(payload);
             Urgency ??= urgency;
             Icon ??= icon;
+            LastUpdated = DateTime.UtcNow;
+            return true;
         }
 
         public bool TryBuild(out string? title, out string? body)
         {
-            title = Decode(_title);
-            body = Decode(_body);
+            title = _title.Length == 0 ? null : _title.ToString();
+            body = _body.Length == 0 ? null : _body.ToString();
             return title is not null || body is not null;
-        }
-
-        private static string? Decode(StringBuilder payload)
-        {
-            if (payload.Length == 0)
-                return null;
-
-            try
-            {
-                return Encoding.UTF8.GetString(Convert.FromBase64String(payload.ToString()));
-            }
-            catch (FormatException)
-            {
-                return null;
-            }
         }
     }
 
