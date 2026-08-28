@@ -231,8 +231,10 @@ public class InputHandler
         }
 
 
-        // Handle autowrap
-        if (!ResolveAutowrap())
+        // Handle autowrap. The wrap TEST stays inline: it runs once per printed character, and
+        // hiding it inside ResolveAutowrap cost alt-redraw 9% in method-call overhead -- the same
+        // lesson NoteLinkRun's guard learned. The method only runs when a wrap is actually due.
+        if (_buffer.X > WrapLimit() && !ResolveAutowrap())
             return; // Don't print beyond line edge
 
         // Translate character through active charset
