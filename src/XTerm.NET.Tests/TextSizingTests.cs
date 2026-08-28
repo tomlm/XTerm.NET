@@ -673,4 +673,51 @@ public class TextSizingTests
         Assert.Equal("Z", Row(t, 2)[0].Content);
         Assert.Equal(" ", Row(t, 1)[0].Content);
     }
+    /// <summary>
+    /// A scroll of a PARTIAL region splices a line out of the middle of the buffer exactly as
+    /// <c>DL</c> does, so a block straddling the region's top boundary dies the same way.
+    /// </summary>
+    [Theory]
+    [InlineData("[S")]      // scroll the region up
+    [InlineData("[T")]      // and down
+    public void A_region_scroll_erases_a_block_it_would_tear(string scroll)
+    {
+        var t = Fresh(rows: 6);
+        t.Write($"{Esc}[1;1H" + Sized("s=2", "H"));   // anchored on row 0, reaching row 1
+        t.Write($"{Esc}[2;5r");                        // region rows 2..5, so the block straddles its top
+        t.Write($"{Esc}{scroll}");
+
+        Assert.False(Row(t).HasSizedRuns);
+        Assert.Equal(" ", Row(t)[0].Content);
+    }
+
+    /// <summary>
+    /// And one that reaches out of the region's BOTTOM: its lower rows stay where they are while
+    /// the row describing them moves.
+    /// </summary>
+    [Fact]
+    public void A_region_scroll_erases_a_block_reaching_below_it()
+    {
+        var t = Fresh(rows: 6);
+        t.Write($"{Esc}[2;5r{Esc}[5;1H" + Sized("s=2", "H"));   // anchored on the region's last row
+        t.Write($"{Esc}[S");
+
+        Assert.False(t.Buffer.HasMultiRowSizedRuns);
+    }
+
+    /// <summary>
+    /// A block wholly inside the region travels with its rows, which move together -- a scroll is
+    /// not an erase.
+    /// </summary>
+    [Fact]
+    public void A_region_scroll_carries_a_block_that_fits_inside_it()
+    {
+        var t = Fresh(rows: 6);
+        t.Write($"{Esc}[2;5r{Esc}[3;1H" + Sized("s=2", "H"));   // rows 2..3, inside the region
+        t.Write($"{Esc}[S");
+
+        Assert.True(Row(t, 1).TryGetSizedRunAt(0, out var run));
+        Assert.Equal(2, run.Rows);
+        Assert.Equal("H", Row(t, 1)[0].Content);
+    }
 }

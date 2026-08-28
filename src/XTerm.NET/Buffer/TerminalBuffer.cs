@@ -226,6 +226,9 @@ public class TerminalBuffer
                 var scrollRegionStart = _yBase + _scrollTop;
                 var scrollRegionEnd = _yBase + _scrollBottom;
 
+                // The splice below is what IL and DL do, so it owes any block it tears the same.
+                EraseSizedRunsSplitBy(scrollRegionStart, scrollRegionEnd);
+
                 // Delete the line at the top of scroll region
                 _lines.Splice(scrollRegionStart, 1);
 
@@ -246,6 +249,8 @@ public class TerminalBuffer
             // Calculate absolute positions in the buffer
             var scrollRegionStart = _yBase + _scrollTop;
             var scrollRegionEnd = _yBase + _scrollBottom;
+
+            EraseSizedRunsSplitBy(scrollRegionStart, scrollRegionEnd);
 
             // Remove line from scroll region bottom
             _lines.Splice(scrollRegionEnd, 1);
@@ -447,6 +452,42 @@ public class TerminalBuffer
 
             line.EraseSizedRunsReaching(column, count, above);
         }
+    }
+
+    /// <summary>
+    /// Erases every OSC 66 block that a splice of the rows <paramref name="regionStart"/> to
+    /// <paramref name="regionEnd"/> would tear in half, and re-derives the search flag.
+    /// </summary>
+    /// <remarks>
+    /// <para>A scroll of a PARTIAL region is the same buffer transformation <c>IL</c> and <c>DL</c>
+    /// perform: a line is spliced out of the middle of the ring and a blank spliced in. Rows inside
+    /// the region move together, so a block wholly inside one keeps its shape; the two blocks that
+    /// do not survive are the one hanging INTO the region from above, whose lower rows are about to
+    /// move away from it, and the one anchored inside the region that reaches OUT below it, whose
+    /// lower rows are about to stay behind. Both are split, and the protocol has a split block
+    /// erased.</para>
+    /// <para>A full-screen scroll moves every row together and needs none of this, which is why the
+    /// call sites ask only for the region they splice.</para>
+    /// </remarks>
+    internal void EraseSizedRunsSplitBy(int regionStart, int regionEnd)
+    {
+        if (!HasMultiRowSizedRuns)
+            return;
+
+        EraseSizedRunsCovering(regionStart, 0, _cols);
+
+        for (var row = regionStart; row <= regionEnd; row++)
+        {
+            var line = row >= 0 && row < _lines.Length ? _lines[row] : null;
+            if (line is null || !line.HasSizedRuns)
+                continue;
+
+            // A block on this row reaches past the region when it is taller than the rows left
+            // below it, the last of which is the region's own bottom.
+            line.EraseSizedRunsReaching(0, _cols, regionEnd - row + 1);
+        }
+
+        RefreshMultiRowSizedRuns();
     }
 
     /// <summary>
