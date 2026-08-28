@@ -804,13 +804,11 @@ public class InputHandler
                 break;
 
             case CsiCommand.ScrollUp:
-                // "CSI ? ... S" is XTSMGRAPHICS, not SCROLL UP. They share a final character, and
-                // the identifier has its private marker stripped before the lookup, so without
-                // this guard a Sixel program's opening capability query scrolled the screen.
-                if (isPrivate)
-                    GraphicsAttributes(parameters);
-                else
-                    ScrollUp(parameters);
+                ScrollUp(parameters);
+                break;
+
+            case CsiCommand.GraphicsAttributes:
+                GraphicsAttributes(parameters);
                 break;
 
             case CsiCommand.ScrollDown:
@@ -871,14 +869,18 @@ public class InputHandler
                 break;
 
             case CsiCommand.SelectCursorStyle:
-                // "CSI > Ps q" is XTVERSION, not DECSCUSR. They share a final character, and the
-                // identifier has its private marker stripped before the lookup, so without this
-                // guard a terminal version query reshaped the cursor instead of being answered --
-                // a program that asks on startup left the user in a cursor they never chose.
+                // "CSI > Ps q" is XTVERSION, not DECSCUSR. They share a final character, so ">q"
+                // is listed alongside " q" in the command map and the two are told apart here --
+                // without that a terminal version query reshaped the cursor instead of being
+                // answered, and a program that asks on startup left the user in a cursor they
+                // never chose. It is the one place a CsiCommand is deliberately shared by two
+                // sequences: the map decides everything else on the exact identifier.
                 //
-                // The marker itself is read rather than isPrivate, which is also true for '?': a
-                // "CSI ? Ps q" is neither of these sequences, and answering it as XTVERSION would
-                // be a second wrong reading of the same character.
+                // The marker is read rather than isPrivate because isPrivate is true for '?' as
+                // well as '>', and "CSI ? Ps q" is neither of these sequences. The map is what
+                // keeps it out -- "?q" is not a key, so it resolves to Unknown and never reaches
+                // this case. The switch below is defence in depth, not a live guard: the only
+                // identifiers that arrive are " q" and ">q".
                 switch (identifier.PrivateMarker())
                 {
                     case '>':
@@ -887,8 +889,9 @@ public class InputHandler
                     case '\0':
                         SelectCursorStyle(parameters);
                         break;
-                    // Any other marker is a sequence we do not implement. Ignored, since the
-                    // alternative is reshaping the cursor on some unrelated query's behalf.
+                    // Unreachable while the map lists only those two. Falling through rather than
+                    // defaulting to SelectCursorStyle means a marked form added to the map later
+                    // is ignored instead of reshaping the cursor on some unrelated query's behalf.
                 }
                 break;
 
@@ -3495,11 +3498,11 @@ public class InputHandler
 
         // Any other prefix is left unanswered. "?c" is the one that used to go wrong: it is not the
         // secondary DA, but it sets isPrivate, so it was handed the secondary reply -- the answer to
-        // a question the program had not asked, while it was still waiting for the one it had. The
-        // tertiary DA, "=c", never reaches this method at all, because ToCsiCommand strips only "?"
-        // and ">" before the lookup and so resolves it to Unknown. Silence is the right outcome for
-        // it regardless: it asks for a unit ID this terminal does not have, and terminals without
-        // DECRPTUI say nothing.
+        // a question the program had not asked, while it was still waiting for the one it had.
+        // Neither it nor the tertiary DA, "=c", reaches this method any more: the lookup matches the
+        // whole identifier and only "c" and ">c" are listed, so both resolve to Unknown. Silence is
+        // the right outcome for the tertiary regardless: it asks for a unit ID this terminal does
+        // not have, and terminals without DECRPTUI say nothing.
     }
 
     /// <summary>
@@ -3520,10 +3523,10 @@ public class InputHandler
     /// XTSMGRAPHICS -- CSI ? Pi ; Pa ; Pv S. Reports the terminal's graphics limits.
     /// </summary>
     /// <remarks>
-    /// <para>This shares its final character with SCROLL UP, and <c>ToCsiCommand</c> strips the
-    /// private marker before looking the command up, so until this existed a graphics query
-    /// scrolled the screen instead of being answered. Every Sixel-capable program sends one during
-    /// startup, which made the damage routine rather than obscure.</para>
+    /// <para>This shares its final character with SCROLL UP, and <c>ToCsiCommand</c> used to strip
+    /// the private marker before looking the command up, so a graphics query scrolled the screen
+    /// instead of being answered. Every Sixel-capable program sends one during startup, which made
+    /// the damage routine rather than obscure. The lookup now matches "?S" on its own.</para>
     /// <para>Only the read operations are answered. The limits are fixed, so accepting a request
     /// to change them and quietly not doing it would be worse than refusing outright.</para>
     /// </remarks>
@@ -4206,47 +4209,171 @@ public class InputHandler
     }
 
     /// <summary>
-    /// DECRQM — reports whether a mode is recognised and what it is set to.
+    /// DECRQM — reports the current state of a mode this terminal tracks, and answers nothing for
+    /// the rest.
     /// </summary>
     /// <remarks>
-    /// <para>This is how an application finds out whether synchronized output is worth using: it
-    /// asks, and a terminal that says nothing is one that does not support the query. Emitting the
-    /// mode without answering for it would leave well-behaved applications never using it.</para>
-    /// <para>Deliberately answers only for the modes an application changes its behaviour on —
-    /// 2026 (synchronized output) and 69 (DECSLRM). The reply codes distinguish "set" and "reset"
-    /// from "not recognised", and this terminal keeps mode state as individual properties rather
-    /// than a registry — so answering for everything would mean a switch mapping every mode back to
-    /// its property, and getting one wrong tells an application a feature is missing when it is
-    /// not. Staying silent for the rest is exactly the behaviour before these modes were added, so
-    /// nothing regresses while the modes that need an answer get correct ones.</para>
+    /// <para>This is how an application finds out whether a feature is worth using: it asks, and a
+    /// terminal that says nothing is one that does not support the query. Emitting a mode without
+    /// answering for it would leave well-behaved applications never using it.</para>
+    /// <para>The reply only ever carries 1 (set) or 2 (reset). DEC's other two values — 0 for "not
+    /// recognised" and 4 for "permanently reset" — are never sent, so a mode this terminal keeps no
+    /// state for is answered by silence rather than by a report. That costs an application asking
+    /// about such a mode its read timeout, where xterm replies 0 straight away, and it is
+    /// deliberate: see issue #55. Reporting "reset" for a mode that was accepted and ignored would
+    /// be worse, because an application that had just set it would be told its request did not
+    /// take.</para>
+    /// <para>The private and ANSI forms are separate questions with separate answers — the private
+    /// report carries the '?' back, the ANSI one does not — so each has its own lookup.</para>
     /// </remarks>
     private void HandleRequestMode(Params parameters, bool isPrivate)
     {
-        if (!isPrivate)
-            return;
-
         var mode = parameters.GetParam(0, 0);
 
-        // DECRPM: 1 = set, 2 = reset.
-        int state;
-        switch ((TerminalMode)mode)
+        bool set;
+        if (isPrivate)
         {
-            case TerminalMode.SynchronizedOutput:
-                state = _terminal.SynchronizedOutput ? 1 : 2;
-                break;
-
-            // Worth answering, because an application that cannot ask will not use the feature: the
-            // whole point of DECSLRM is a layout that behaves differently when margins are available,
-            // and a well-behaved one checks before relying on them.
-            case TerminalMode.LeftRightMargin:
-                state = _terminal.LeftRightMarginMode ? 1 : 2;
-                break;
-
-            default:
+            if (!TryGetPrivateModeState(mode, out set))
                 return;
         }
+        else if (!TryGetAnsiModeState(mode, out set))
+        {
+            return;
+        }
 
-        _terminal.RaiseDataReceived($"\u001b[?{mode};{state}$y");
+        // DECRPM: 1 = set, 2 = reset. The marker is echoed back so the reply answers the question
+        // that was asked -- CSI ? 4 ; 1 $ y is DECSCLM, CSI 4 ; 1 $ y is IRM.
+        var state = set ? 1 : 2;
+        var marker = isPrivate ? "?" : string.Empty;
+        _terminal.RaiseDataReceived($"\u001b[{marker}{mode};{state}$y");
+    }
+
+    /// <summary>
+    /// Reads back the current state of a DEC private mode, or reports that this terminal keeps no
+    /// state for it.
+    /// </summary>
+    /// <remarks>
+    /// The mouse modes are the entries worth reading twice. Tracking level and encoding are each a
+    /// single selection rather than a set of independent flags — setting 1003 replaces 1002, and
+    /// resetting any of them returns the selection to none — so a mouse mode is "set" exactly when
+    /// it is the one currently selected. The three alternate-buffer modes all read the same flag,
+    /// because they differ only in the cursor and erase work they do on the way in and out.
+    /// </remarks>
+    private bool TryGetPrivateModeState(int mode, out bool set)
+    {
+        var mouseTracker = _terminal.GetMouseTracker();
+        switch (mode)
+        {
+            case (int)TerminalMode.AppCursorKeys:
+                set = _terminal.ApplicationCursorKeys;
+                return true;
+            case (int)TerminalMode.ReverseVideo:
+                set = _terminal.ReverseVideo;
+                return true;
+            case (int)TerminalMode.Origin:
+                set = _terminal.OriginMode;
+                return true;
+            case (int)TerminalMode.Wraparound:
+                set = _terminal.Options.Wraparound;
+                return true;
+            case (int)TerminalMode.ShowCursor:
+                set = _terminal.CursorVisible;
+                return true;
+            case (int)TerminalMode.ReverseWraparound:
+                set = _terminal.ReverseWraparound;
+                return true;
+            case (int)TerminalMode.AppKeypad:
+                set = _terminal.ApplicationKeypad;
+                return true;
+            // The whole point of DECSLRM is a layout that behaves differently when margins are
+            // available, and a well-behaved application checks before relying on them.
+            case (int)TerminalMode.LeftRightMargin:
+                set = _terminal.LeftRightMarginMode;
+                return true;
+            case (int)TerminalMode.SixelDisplayMode:
+                set = _terminal.SixelDisplayMode;
+                return true;
+            case (int)TerminalMode.SixelPrivateColorRegisters:
+                set = _terminal.SixelPrivateColorRegisters;
+                return true;
+            case (int)TerminalMode.SixelCursorRight:
+                set = _terminal.SixelCursorRight;
+                return true;
+            case (int)TerminalMode.MouseReportClick:
+                set = mouseTracker.TrackingMode == MouseTrackingMode.X10;
+                return true;
+            case (int)TerminalMode.MouseReportNormal:
+                set = mouseTracker.TrackingMode == MouseTrackingMode.VT200;
+                return true;
+            case (int)TerminalMode.MouseReportButtonEvent:
+                set = mouseTracker.TrackingMode == MouseTrackingMode.ButtonEvent;
+                return true;
+            case (int)TerminalMode.MouseReportAnyEvent:
+                set = mouseTracker.TrackingMode == MouseTrackingMode.AnyEvent;
+                return true;
+            case (int)TerminalMode.MouseReportUtf8:
+                set = mouseTracker.Encoding == MouseEncoding.Utf8;
+                return true;
+            case (int)TerminalMode.MouseReportSgr:
+                set = mouseTracker.Encoding == MouseEncoding.SGR;
+                return true;
+            case (int)TerminalMode.MouseReportUrxvt:
+                set = mouseTracker.Encoding == MouseEncoding.URXVT;
+                return true;
+            case (int)TerminalMode.SendFocusEvents:
+                set = _terminal.SendFocusEvents;
+                return true;
+            case (int)TerminalMode.AltBuffer:
+            case (int)TerminalMode.AltBufferCursor:
+            case (int)TerminalMode.AltBufferFull:
+                set = _terminal.IsAlternateBufferActive;
+                return true;
+            case (int)TerminalMode.EightBitInput:
+                set = _terminal.EightBitInput;
+                return true;
+            case (int)TerminalMode.MetaSendsEscape:
+                set = _terminal.MetaSendsEscape;
+                return true;
+            case (int)TerminalMode.AltSendsEscape:
+                set = _terminal.AltSendsEscape;
+                return true;
+            case (int)TerminalMode.BracketedPasteMode:
+                set = _terminal.BracketedPasteMode;
+                return true;
+            case (int)TerminalMode.SynchronizedOutput:
+                set = _terminal.SynchronizedOutput;
+                return true;
+            case (int)TerminalMode.Win32InputMode:
+                set = _terminal.Win32InputMode;
+                return true;
+            default:
+                set = false;
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Reads back the current state of an ANSI mode, or reports that this terminal keeps no state
+    /// for it.
+    /// </summary>
+    /// <remarks>
+    /// IRM is the one ANSI mode this terminal implements: SM 4 sets <see cref="Terminal.InsertMode"/>
+    /// and printing shifts the rest of the line right on the strength of it, so an application can
+    /// usefully ask about it. KAM, SRM and LNM are neither stored nor acted on and get the same
+    /// silence as an untracked private mode. Note the numbers overlap the private ones and mean
+    /// something else — 4 here is IRM, not DECSCLM — which is why this is a separate lookup.
+    /// </remarks>
+    private bool TryGetAnsiModeState(int mode, out bool set)
+    {
+        switch (mode)
+        {
+            case (int)TerminalMode.InsertMode:
+                set = _terminal.InsertMode;
+                return true;
+            default:
+                set = false;
+                return false;
+        }
     }
 
     /// <summary>
