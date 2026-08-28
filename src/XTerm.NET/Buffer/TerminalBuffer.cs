@@ -365,6 +365,60 @@ public class TerminalBuffer
     }
 
     /// <summary>
+    /// Whether a block taller than one row has ever been written to this buffer.
+    /// </summary>
+    /// <remarks>
+    /// The guard in front of <see cref="TryGetSizedRunCovering"/>, which the print path asks per
+    /// character. Almost no session ever sets it, and one that does pays a bounded walk of at most
+    /// <see cref="Common.TextSizing.MaxScale"/> minus one lines. Sticky rather than refcounted: it
+    /// answers "is this worth looking for", and a stale true costs a few field reads while a stale
+    /// false would lose the skipping behaviour entirely.
+    /// </remarks>
+    public bool HasMultiRowSizedRuns { get; internal set; }
+
+    /// <summary>
+    /// The OSC 66 block, anchored on an EARLIER row, whose cells cover
+    /// <paramref name="column"/> of <paramref name="absoluteRow"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>A block <c>s</c> cells tall occupies <c>s</c> rows growing downwards from the line that
+    /// describes it. Only the first of those rows holds the run; this is how the others are found,
+    /// and it is what both the print path and a renderer need — the former to skip over cells that
+    /// belong to a block, the latter to know not to draw its own text there.</para>
+    /// <para>Rows below the first are found by looking UP rather than by marking them, so nothing
+    /// has to be kept in step with a buffer that scrolls: scrolling moves a block and the rows it
+    /// covers together, and their adjacency is the whole of the relationship.</para>
+    /// </remarks>
+    /// <param name="absoluteRow">Row to test, as an index into <see cref="Lines"/>.</param>
+    /// <param name="column">Column to test.</param>
+    /// <param name="run">The covering block.</param>
+    /// <param name="anchorRow">The row the block is anchored on, which is always above.</param>
+    public bool TryGetSizedRunCovering(int absoluteRow, int column, out LineSizedRun run, out int anchorRow)
+    {
+        for (var above = 1; above < Common.TextSizing.MaxScale; above++)
+        {
+            var row = absoluteRow - above;
+            if (row < 0)
+                break;
+
+            var line = row < _lines.Length ? _lines[row] : null;
+            if (line is null || !line.HasSizedRuns)
+                continue;
+
+            if (line.TryGetSizedRunAt(column, out var candidate) && candidate.Rows > above)
+            {
+                run = candidate;
+                anchorRow = row;
+                return true;
+            }
+        }
+
+        run = default;
+        anchorRow = -1;
+        return false;
+    }
+
+    /// <summary>
     /// Resizes the buffer.
     /// </summary>
     public void Resize(int newCols, int newRows)
@@ -597,7 +651,7 @@ public class TerminalBuffer
                 wrappedLines.Insert(0, nextLine);
             }
 
-            if (BufferReflow.HasNonNormalLineAttribute(wrappedLines))
+            if (BufferReflow.IsUnreflowable(wrappedLines))
             {
                 continue;
             }

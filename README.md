@@ -311,9 +311,12 @@ the cell size. It has two halves, and a renderer can honour the first without th
 The *width* half is the emulator's own and needs nothing from you. A run claims `s * w` columns (or,
 with `w=0`, each of its characters claims `s` times its normal width), and it claims them the way a
 double-width character does: the first cell carries the text with `Width` set to the columns it took,
-and the rest are `Width = 0` continuations. So the cursor, selection, search and reflow already agree
-with the client about how much room the run occupies — which is the point of the `w` key, a client
-telling the terminal a string's width instead of both sides guessing at Unicode.
+and the rest are `Width = 0` continuations. So the cursor, selection and search already agree with
+the client about how much room the run occupies — which is the point of the `w` key, a client telling
+the terminal a string's width instead of both sides guessing at Unicode. A line holding a run is not
+re-wrapped by a resize, exactly as a double-width line is not: the block keeps its shape, and a
+narrowing that cuts it erases it and blanks what is left rather than leaving a cell claiming columns
+that are gone.
 
 The *scale* half is yours. Ask the line what it holds:
 
@@ -328,10 +331,19 @@ if (line.TryGetSizedRunAt(col, out LineSizedRun run))
 
 Draw the run's text scaled to `run.Cols` by `run.Rows` cells, applying the fraction inside that block
 when `run.Sizing.IsFractional` and placing the fractional area with `VerticalAlignment` and
-`HorizontalAlignment`. Nothing reserves the rows below the run — the same arrangement `DECDHL` has
-always had, where the client leaves the room — so clip to the block you draw. A renderer that cannot
-scale at all should draw the text at the base size in the first cell of the block; the columns are
-reported honestly either way.
+`HorizontalAlignment`. The rows a tall block covers are held for it: printing that would land in one
+of them steps past the block instead, so the text a client writes underneath a heading is placed
+after it rather than beneath it. Ask the buffer which block covers a cell:
+
+```csharp
+if (terminal.Buffer.TryGetSizedRunCovering(absoluteRow, col, out var run, out var anchorRow))
+{
+    // the block is drawn from anchorRow; this cell is one of the rows it occupies
+}
+```
+
+A renderer that cannot scale at all should draw the text at the base size in the first cell of the
+block; the columns are reported honestly either way.
 
 ### Images
 

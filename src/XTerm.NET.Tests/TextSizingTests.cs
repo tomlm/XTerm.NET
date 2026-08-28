@@ -260,6 +260,171 @@ public class TextSizingTests
             Assert.True(Row(t)[col].Width <= 1, $"column {col} still claims columns");
     }
 
+    /// <summary>
+    /// The protocol's rule for text aimed at a row a taller block already occupies: the cursor moves
+    /// past the block's cells and the text lands after them. Without it a client printing normally
+    /// under a heading has its output drawn over by the heading's lower half.
+    /// </summary>
+    [Fact]
+    public void Text_under_a_tall_block_is_pushed_past_it()
+    {
+        var t = Fresh();
+        t.Write(Sized("s=2", "Big"));    // three 2-column blocks, two rows tall, columns 0..5
+        t.Write("\r\nxyz");
+
+        Assert.Equal("x", Row(t, 1)[6].Content);
+        Assert.Equal("y", Row(t, 1)[7].Content);
+        Assert.Equal("z", Row(t, 1)[8].Content);
+        Assert.Equal(" ", Row(t, 1)[0].Content);
+        Assert.Equal(9, t.Buffer.X);
+    }
+
+    [Fact]
+    public void The_row_below_a_one_row_block_is_ordinary()
+    {
+        var t = Fresh();
+        t.Write(Sized("w=2", "X"));      // two columns, but only one row tall
+        t.Write("\r\nxyz");
+
+        Assert.Equal("x", Row(t, 1)[0].Content);
+    }
+
+    [Fact]
+    public void The_rows_a_block_occupies_are_answerable()
+    {
+        var t = Fresh();
+        t.Write(Sized("s=3:w=2", "X"));  // 6 columns, 3 rows
+
+        var top = t.Buffer.YBase;
+        Assert.True(t.Buffer.TryGetSizedRunCovering(top + 1, 5, out var run, out var anchor));
+        Assert.Equal(top, anchor);
+        Assert.Equal(3, run.Rows);
+        Assert.True(t.Buffer.TryGetSizedRunCovering(top + 2, 0, out _, out _));
+
+        // Its own row is not "covered from above", and the row past its height is not covered at all.
+        Assert.False(t.Buffer.TryGetSizedRunCovering(top, 0, out _, out _));
+        Assert.False(t.Buffer.TryGetSizedRunCovering(top + 3, 0, out _, out _));
+        Assert.False(t.Buffer.TryGetSizedRunCovering(top + 1, 6, out _, out _));
+    }
+
+    /// <summary>
+    /// The payload of an OSC is not a preceding graphic character, so <c>CSI b</c> has nothing to
+    /// repeat — replaying a scaled block as plain cells is neither what was printed nor what was
+    /// asked for.
+    /// </summary>
+    [Fact]
+    public void A_sized_block_is_not_repeated_by_rep()
+    {
+        var t = Fresh();
+        t.Write(Sized("s=2", "X"));
+        t.Write($"{Esc}[3b");
+
+        Assert.Equal(2, t.Buffer.X);
+        Assert.Equal(" ", Row(t)[2].Content);
+        Assert.Single(Row(t).SizedRuns);
+    }
+
+    [Fact]
+    public void Insert_mode_shifts_the_rest_of_the_line_intact()
+    {
+        var t = Fresh();
+        t.Write(Sized("s=2:w=2", "X"));   // columns 0..3
+        t.Write("tail");                  // columns 4..7
+
+        t.Write($"{Esc}[1;5H{Esc}[4h");   // cursor to column 5, IRM on
+        t.Write(Sized("w=2", "Z"));
+
+        Assert.Equal("XZtail", Row(t).TranslateToString(trimRight: true));
+        Assert.Equal(2, Row(t)[4].Width);
+        Assert.Equal("t", Row(t)[6].Content);
+
+        // The block that was not shifted is untouched.
+        Assert.True(Row(t).TryGetSizedRunAt(0, out var first));
+        Assert.Equal(4, first.Cols);
+    }
+
+    [Fact]
+    public void Insert_mode_over_a_block_erases_it()
+    {
+        var t = Fresh();
+        t.Write(Sized("s=2:w=2", "X"));
+        t.Write($"{Esc}[1;2H{Esc}[4h" + "a");
+
+        Assert.False(Row(t).HasSizedRuns);
+        for (var col = 0; col < 8; col++)
+            Assert.True(Row(t)[col].Width <= 1, $"column {col} still claims columns");
+    }
+
+    /// <summary>
+    /// Widening moves no cell of a group holding a block — reflow leaves such a group alone — so the
+    /// block is still where its run says it is, and the run is still worth keeping.
+    /// </summary>
+    [Fact]
+    public void A_block_survives_the_line_growing()
+    {
+        var t = Fresh(cols: 10, rows: 4);
+        t.Write(Sized("s=2:w=2", "Z"));
+
+        t.Resize(14, 4);
+
+        Assert.True(Row(t).TryGetSizedRunAt(0, out var run));
+        Assert.Equal(4, run.Cols);
+        Assert.Equal("Z", Row(t).TranslateToString(trimRight: true));
+    }
+
+    /// <summary>
+    /// A block cut in half by a narrowing does not survive it: the columns holding the rest of the
+    /// glyph are gone, so what is left becomes spaces rather than a cell claiming columns that no
+    /// longer exist.
+    /// </summary>
+    [Fact]
+    public void A_block_cut_by_a_narrowing_is_dropped()
+    {
+        var t = Fresh(cols: 10, rows: 4);
+        t.Write($"{Esc}[1;7H" + Sized("s=2:w=2", "Z"));   // columns 6..9
+
+        t.Resize(8, 4);
+
+        Assert.False(Row(t).HasSizedRuns);
+        Assert.Equal(" ", Row(t)[6].Content);
+        Assert.Equal(1, Row(t)[6].Width);
+    }
+
+    /// <summary>
+    /// Reflow redistributes cells between lines and run metadata cannot travel with them, so a
+    /// wrapped group holding a block is left alone — as a double-width line already is. Without
+    /// that, the compaction copies read cells the same pass had already blanked.
+    /// </summary>
+    [Fact]
+    public void Reflow_does_not_garble_a_wrapped_group_holding_a_block()
+    {
+        var t = Fresh(cols: 10, rows: 4);
+        t.Write("0123456789");            // fills the row, so the next write wraps
+        t.Write("ab" + Sized("s=2:w=2", "Z") + "cd");
+
+        t.Resize(14, 4);
+        Assert.Contains("Z", Row(t, 0).TranslateToString() + Row(t, 1).TranslateToString());
+        Assert.Contains("cd", Row(t, 0).TranslateToString() + Row(t, 1).TranslateToString());
+
+        // Narrowing does not re-wrap that group either, so it loses what no longer fits -- the same
+        // cost a double-width line already pays here. What it must not do is garble what remains.
+        t.Resize(6, 4);
+        var all = string.Concat(Enumerable.Range(0, t.Buffer.Lines.Length)
+            .Select(i => t.Buffer.Lines[i]?.TranslateToString() ?? string.Empty));
+        Assert.Contains("Z", all);
+        Assert.Contains("012345", all);
+
+        for (var i = 0; i < t.Buffer.Lines.Length; i++)
+        {
+            var line = t.Buffer.Lines[i];
+            if (line is null)
+                continue;
+
+            for (var col = 0; col < line.Length; col++)
+                Assert.True(col + line[col].Width <= line.Length, $"line {i} column {col} runs off the end");
+        }
+    }
+
     [Fact]
     public void A_recycled_line_keeps_no_runs()
     {
@@ -286,10 +451,11 @@ public class TextSizingTests
     [InlineData("n=3:d=2")]      // a denominator must exceed its numerator
     [InlineData("v=3")]
     [InlineData("h=3")]
-    [InlineData("q=1")]          // not a key of this protocol
     [InlineData("s")]            // not a pair
     [InlineData("s=x")]
     [InlineData("s=-1")]
+    [InlineData("s=+2")]         // the grammar is digits, not int.TryParse's idea of a number
+    [InlineData("s= 2")]
     public void Metadata_out_of_range_is_not_handled(string metadata)
     {
         Assert.False(TextSizing.TryParse(metadata, out _));
@@ -300,8 +466,49 @@ public class TextSizingTests
         t.Write(Sized(metadata, "X"));
 
         Assert.False(recognized);
-        Assert.Equal(0, t.Buffer.X);
         Assert.False(Row(t).HasSizedRuns);
+    }
+
+    /// <summary>
+    /// The text is what the user was meant to read, so a metadata the terminal cannot honour costs
+    /// the sizing rather than the heading.
+    /// </summary>
+    [Fact]
+    public void Text_of_an_unhandled_sequence_is_still_printed()
+    {
+        var t = Fresh();
+        t.Write(Sized("s=99", "Hi"));
+
+        Assert.Equal("Hi", Row(t).TranslateToString(trimRight: true));
+        Assert.Equal(2, t.Buffer.X);
+        Assert.False(Row(t).HasSizedRuns);
+    }
+
+    /// <summary>
+    /// This protocol has been extended before. A key from a later revision costs its own effect, not
+    /// the run of text it was attached to.
+    /// </summary>
+    [Fact]
+    public void An_unknown_key_is_ignored_and_the_rest_honoured()
+    {
+        Assert.True(TextSizing.TryParse("s=2:q=1", out var sizing));
+        Assert.Equal(2, sizing.Scale);
+
+        var t = Fresh();
+        var recognized = false;
+        t.OscReceived += (_, e) => recognized = e.Recognized;
+        t.Write(Sized("s=2:q=1", "X"));
+
+        Assert.True(recognized);
+        Assert.Equal("X", Row(t)[0].Content);
+        Assert.Equal(2, Row(t)[0].Width);
+    }
+
+    [Fact]
+    public void A_key_longer_than_one_letter_is_ignored_too()
+    {
+        Assert.True(TextSizing.TryParse("scale=2:s=3", out var sizing));
+        Assert.Equal(3, sizing.Scale);
     }
 
     [Fact]

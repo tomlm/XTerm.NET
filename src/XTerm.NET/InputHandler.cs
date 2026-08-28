@@ -232,26 +232,14 @@ public class InputHandler
 
 
         // Handle autowrap
-        if (_buffer.X >= _terminal.Cols)
-        {
-            if (_terminal.Options.Wraparound)
-            {
-                if (_buffer.Y == _buffer.ScrollBottom)
-                {
-                    _buffer.SetCursor(0, _buffer.Y);
-                    _buffer.ScrollUp(1, true);
-                }
-                else
-                {
-                    _buffer.SetCursor(0, _buffer.Y + 1);
-                }
-                _buffer.Lines[_buffer.Y + _buffer.YBase]!.IsWrapped = true;
-            }
-            else
-            {
-                return; // Don't print beyond line edge
-            }
-        }
+        if (_buffer.X >= _terminal.Cols && !ResolveAutowrap())
+            return; // Don't print beyond line edge
+
+        // A cell belonging to a scaled block anchored on an earlier row is not written into: the
+        // cursor moves past the block's cells on this row and the text lands after them. One field
+        // read for every session that has never seen an OSC 66 block, which is nearly all of them.
+        if (_buffer.HasMultiRowSizedRuns && !SkipCellsCoveredFromAbove())
+            return;
 
         var line = _buffer.Lines[_buffer.Y + _buffer.YBase]; 
         if (line == null)
@@ -284,6 +272,11 @@ public class InputHandler
         // Insert mode handling
         if (_terminal.InsertMode)
         {
+            // The cells of a scaled block from here rightwards are about to move, and the run saying
+            // which columns hold which part of it would not move with them.
+            if (line is not null && line.HasSizedRuns)
+                line.EraseSizedRunsFrom(_buffer.X);
+
             // Shift cells right
             line?.CopyCellsFrom(line, _buffer.X, _buffer.X + width, _terminal.Cols - _buffer.X - width, false);
         }
@@ -329,6 +322,68 @@ public class InputHandler
         _buffer.SetCursorRaw(_buffer.X + width, _buffer.Y);
 
         RememberForRepeat(cell.CodePoint, cell.ClusterId);
+    }
+
+    /// <summary>
+    /// Resolves a cursor resting one past the last column, which is where printing leaves it.
+    /// </summary>
+    /// <returns>
+    /// False when there is nowhere to print: the cursor is past the edge and DECAWM is off, so the
+    /// character is discarded.
+    /// </returns>
+    private bool ResolveAutowrap()
+    {
+        if (_buffer.X < _terminal.Cols)
+            return true;
+
+        if (!_terminal.Options.Wraparound)
+            return false;
+
+        if (_buffer.Y == _buffer.ScrollBottom)
+        {
+            _buffer.SetCursor(0, _buffer.Y);
+            _buffer.ScrollUp(1, true);
+        }
+        else
+        {
+            _buffer.SetCursor(0, _buffer.Y + 1);
+        }
+
+        _buffer.Lines[_buffer.Y + _buffer.YBase]!.IsWrapped = true;
+        return true;
+    }
+
+    /// <summary>
+    /// Moves the cursor past any OSC 66 block that covers it from an earlier row.
+    /// </summary>
+    /// <remarks>
+    /// <para>A block <c>s</c> cells tall occupies <c>s</c> rows. Its first row is ordinary content
+    /// and writing there destroys the block, but the rows BELOW belong to it while it lives, and the
+    /// protocol says what happens to text aimed at them: the cursor is moved past the block's cells
+    /// on that row and the text is written after them. That is the rule that lets a client keep
+    /// printing normally underneath a heading instead of having to count rows.</para>
+    /// <para>Skipping happens whatever DECAWM says, which the protocol states explicitly. Reaching
+    /// the end of the line while skipping is an ordinary end of line, so wrapping is resolved the
+    /// usual way and the search continues on the row it lands on -- a block on the next row down can
+    /// cover the column it wrapped to.</para>
+    /// </remarks>
+    /// <returns>False when the skip ran off the end of a line that cannot wrap.</returns>
+    private bool SkipCellsCoveredFromAbove()
+    {
+        // Bounded rather than "until clear": the loop advances every pass, but a bound costs nothing
+        // and cannot be the thing that hangs a terminal on hostile input.
+        for (var guard = 0; guard <= TextSizing.MaxScale * 2; guard++)
+        {
+            if (!ResolveAutowrap())
+                return false;
+
+            if (!_buffer.TryGetSizedRunCovering(_buffer.Y + _buffer.YBase, _buffer.X, out var run, out _))
+                return true;
+
+            _buffer.SetCursorRaw(Math.Min(run.EndColumn, _terminal.Cols), _buffer.Y);
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -426,7 +481,10 @@ public class InputHandler
     /// </summary>
     internal void PrintAsciiRun(ReadOnlySpan<byte> data)
     {
-        if (!UseRunPrinting || _terminal.InsertMode || _activeCharset is not null)
+        // A multi-row block means cells that must be skipped rather than written, which a span write
+        // cannot express -- so the run goes character by character, as it already does for insert
+        // mode and for a designated charset.
+        if (!UseRunPrinting || _terminal.InsertMode || _activeCharset is not null || _buffer.HasMultiRowSizedRuns)
         {
             foreach (var b in data)
                 Print(CodePointText.Get((char)b));
@@ -495,7 +553,8 @@ public class InputHandler
     /// </summary>
     internal void PrintAsciiRun(string data, int start, int count)
     {
-        if (!UseRunPrinting || _terminal.InsertMode || _activeCharset is not null)
+        // As above: a buffer holding a multi-row block takes the per-character path.
+        if (!UseRunPrinting || _terminal.InsertMode || _activeCharset is not null || _buffer.HasMultiRowSizedRuns)
         {
             for (var k = 0; k < count; k++)
                 Print(CodePointText.Get(data[start + k]));
@@ -2489,15 +2548,17 @@ public class InputHandler
     }
 
     /// <summary>
-    /// The most text one sized run keeps. Longer payloads are truncated at a grapheme boundary.
+    /// The most text one sized run keeps, in UTF-8 bytes — the protocol's own limit.
     /// </summary>
     /// <remarks>
-    /// The protocol lets a run carry up to 4096 bytes, but all of it renders inside <c>s * w</c>
-    /// cells, so a payload of that size is already asking the terminal to do something arbitrary --
-    /// the spec explicitly allows truncating. Bounding it here also bounds what the cluster table is
-    /// asked to intern, which is process-wide and never released.
+    /// Measured in bytes rather than UTF-16 units on purpose: a cap counted in units cuts text a
+    /// client legitimately sized its block for, since a heading in mathematical alphanumerics is two
+    /// units per character and none of that is visible from the column count. The bound exists at
+    /// all because the text is interned in the cluster table, which is process-wide and never
+    /// released, so what a client can put there has to have a limit; the protocol's own is the one
+    /// that cannot bite content that fits.
     /// </remarks>
-    private const int MaxSizedRunText = 64;
+    private const int MaxSizedRunBytes = 4096;
 
     /// <summary>
     /// Handles the Kitty text sizing protocol: <c>OSC 66 ; key=value : ... ; text ST</c>.
@@ -2517,7 +2578,12 @@ public class InputHandler
         // The text may itself contain semicolons, so only the FIRST separator divides metadata from
         // payload -- which is why the split is limited to two.
         if (!TextSizing.TryParse(parts[0], out var sizing))
+        {
+            if (parts.Length > 1 && parts[1].Length > 0)
+                PrintUnsized(parts[1]);
+
             return false;
+        }
 
         var text = parts.Length > 1 ? parts[1] : string.Empty;
         if (text.Length == 0)
@@ -2525,6 +2591,21 @@ public class InputHandler
 
         PrintSized(text, sizing);
         return true;
+    }
+
+    /// <summary>
+    /// Prints the payload of an OSC 66 whose metadata could not be parsed, as ordinary text.
+    /// </summary>
+    /// <remarks>
+    /// The text is what the user was meant to read. Dropping it because a value was out of range
+    /// makes a client's bug into a blank space on the screen, where printing it unscaled leaves a
+    /// heading that is the wrong size but still there -- and still says something is wrong.
+    /// </remarks>
+    private void PrintUnsized(string text)
+    {
+        var enumerator = System.Globalization.StringInfo.GetTextElementEnumerator(text);
+        while (enumerator.MoveNext())
+            Print((string)enumerator.Current);
     }
 
     /// <summary>
@@ -2567,6 +2648,11 @@ public class InputHandler
         if (cols > _terminal.Cols)
             return;
 
+        // A block is text like any other, so it is placed after any block already covering the
+        // cursor from an earlier row rather than into the middle of one.
+        if (_buffer.HasMultiRowSizedRuns && !SkipCellsCoveredFromAbove())
+            return;
+
         if (_buffer.X + cols > _terminal.Cols)
         {
             if (_terminal.Options.Wraparound)
@@ -2600,7 +2686,12 @@ public class InputHandler
 
         if (_terminal.InsertMode)
         {
-            line.CopyCellsFrom(line, column, column + cols, _terminal.Cols - column - cols, false);
+            if (line.HasSizedRuns)
+                line.EraseSizedRunsFrom(column);
+
+            // In reverse, which is the correct direction for a right shift on one array: copying
+            // forwards re-reads cells the same copy has already overwritten.
+            line.CopyCellsFrom(line, column, column + cols, _terminal.Cols - column - cols, true);
         }
 
         var cell = new BufferCell
@@ -2627,28 +2718,46 @@ public class InputHandler
 
         line.NoteSizedRun(column, cols, sizing);
 
+        // A block taller than one row occupies the rows beneath it, which the print path has to know
+        // to look for. Set on the buffer rather than counted, since it only answers "is this worth
+        // looking for"; see TerminalBuffer.HasMultiRowSizedRuns.
+        if (sizing.Scale > 1)
+            _buffer.HasMultiRowSizedRuns = true;
+
         _buffer.SetCursorRaw(column + cols, _buffer.Y);
 
-        RememberForRepeat(cell.CodePoint, cell.ClusterId);
+        // Deliberately NOT remembered for REP. The payload of an OSC is not a preceding graphic
+        // character in the data stream, and HandleOsc has already cancelled the record for exactly
+        // that reason -- restoring it here would let CSI b replay a scaled block as plain unscaled
+        // cells, which is neither what was printed nor what was asked for.
     }
 
     /// <summary>
-    /// Cuts a sized run's text down to <see cref="MaxSizedRunText"/>, at a grapheme boundary.
+    /// Cuts a sized run's text down to <see cref="MaxSizedRunBytes"/>, at a grapheme boundary.
     /// </summary>
     private static string Truncate(string text)
     {
-        if (text.Length <= MaxSizedRunText)
+        // Cheapest sufficient test first: UTF-8 never uses more than three bytes per UTF-16 unit, so
+        // a string this short cannot exceed the cap and no encoding pass is needed. That is every
+        // real payload -- a block is at most 49 columns wide.
+        if (text.Length <= MaxSizedRunBytes / 3
+            || Encoding.UTF8.GetByteCount(text) <= MaxSizedRunBytes)
+        {
             return text;
+        }
 
         var kept = 0;
+        var bytes = 0;
         var enumerator = System.Globalization.StringInfo.GetTextElementEnumerator(text);
         while (enumerator.MoveNext())
         {
-            var next = kept + ((string)enumerator.Current).Length;
-            if (next > MaxSizedRunText)
+            var element = (string)enumerator.Current;
+            var next = bytes + Encoding.UTF8.GetByteCount(element);
+            if (next > MaxSizedRunBytes)
                 break;
 
-            kept = next;
+            bytes = next;
+            kept += element.Length;
         }
 
         return text.Substring(0, kept);

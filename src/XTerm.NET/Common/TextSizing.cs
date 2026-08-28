@@ -118,9 +118,16 @@ public readonly struct TextSizing : IEquatable<TextSizing>
     /// Parses the metadata part of an OSC 66 sequence — the colon separated <c>key=value</c> list.
     /// </summary>
     /// <remarks>
-    /// Returns false for anything out of range rather than clamping it. A client that asks for
+    /// <para>Returns false for a value out of range rather than clamping it. A client that asks for
     /// <c>s=99</c> has a bug, and drawing its heading at some other size hides that bug while still
-    /// producing the wrong output; leaving the whole sequence unhandled at least says so.
+    /// producing the wrong output. Note what the caller does with the failure though: it prints the
+    /// payload unscaled rather than dropping it, so the text is still on the screen.</para>
+    /// <para>An UNKNOWN key is ignored instead, and the rest of the metadata is honoured. This
+    /// protocol has been extended before and may be again; a key from a later revision should cost
+    /// the client the effect of that key, not the whole run of text.</para>
+    /// <para>Values are digits only. <c>int.TryParse</c> would take <c>s=+2</c> and <c>s= 2</c>,
+    /// which the protocol's grammar does not, and accepting them here would mean this terminal
+    /// rendering something that other terminals reject.</para>
     /// </remarks>
     public static bool TryParse(string? metadata, out TextSizing sizing)
     {
@@ -141,13 +148,13 @@ public readonly struct TextSizing : IEquatable<TextSizing>
                     continue;
 
                 var eq = pair.IndexOf('=');
-                if (eq <= 0 || !int.TryParse(pair.AsSpan(eq + 1), out var value) || value < 0)
+                if (eq <= 0 || !TryParseDigits(pair.AsSpan(eq + 1), out var value))
                     return false;
 
-                // Single-letter keys, all of them. Anything else is from a later revision of the
-                // protocol than this, and is not something to guess at.
+                // Single-letter keys, all of them. A longer one belongs to a later revision of the
+                // protocol than this, and is skipped rather than rejected.
                 if (eq != 1)
-                    return false;
+                    continue;
 
                 switch (pair[0])
                 {
@@ -188,7 +195,8 @@ public readonly struct TextSizing : IEquatable<TextSizing>
                         break;
 
                     default:
-                        return false;
+                        // A key this revision does not know. Ignored, for the reason above.
+                        continue;
                 }
             }
         }
@@ -199,6 +207,33 @@ public readonly struct TextSizing : IEquatable<TextSizing>
             return false;
 
         sizing = new TextSizing(scale, width, numerator, denominator, vertical, horizontal);
+        return true;
+    }
+
+    /// <summary>
+    /// Parses a run of ASCII digits, as the protocol's grammar defines a value.
+    /// </summary>
+    private static bool TryParseDigits(ReadOnlySpan<char> text, out int value)
+    {
+        value = 0;
+
+        if (text.Length == 0)
+            return false;
+
+        foreach (var c in text)
+        {
+            if (c < '0' || c > '9')
+                return false;
+
+            // The protocol's largest value is 15, so anything with more digits than the keys allow
+            // is out of range anyway -- and stopping here is what keeps a long run of digits from
+            // overflowing on its way to being rejected.
+            if (value > MaxFractionTerm)
+                return false;
+
+            value = (value * 10) + (c - '0');
+        }
+
         return true;
     }
 

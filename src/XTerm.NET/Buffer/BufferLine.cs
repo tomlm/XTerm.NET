@@ -213,6 +213,8 @@ public class BufferLine : IEnumerable<BufferCell>
         if (cols == _length)
             return;
 
+        var oldLength = _length;
+
         if (cols > _length)
         {
             var newCells = new BufferCell[cols];
@@ -231,6 +233,14 @@ public class BufferLine : IEnumerable<BufferCell>
         }
         Cache = null;
         _length = cols;
+
+        // A block cut in half by a narrowing does not survive it: the run says which columns hold
+        // which part of a scaled glyph, and the columns past the new width are gone. What is left of
+        // such a block becomes spaces rather than a first cell still claiming columns that no longer
+        // exist. A block that still fits is untouched -- widening moves no cell, and reflow leaves a
+        // group holding a run alone precisely so that stays true.
+        if (_sizedRuns is not null && cols < oldLength)
+            EraseSizedRunsOver(cols, oldLength - cols, blankAll: true);
     }
 
     /// <summary>
@@ -271,11 +281,6 @@ public class BufferLine : IEnumerable<BufferCell>
     /// </summary>
     public void CopyCellsFrom(BufferLine src, int srcCol, int destCol, int length, bool applyInReverse)
     {
-        // Cells arriving over a scaled block destroy it. The run says which columns hold which part
-        // of a block, and copying cells into the middle of one makes that a lie.
-        if (_sizedRuns is not null)
-            EraseSizedRunsOver(destCol, length, blankAll: true);
-
         if (applyInReverse)
         {
             for (int i = length - 1; i >= 0; i--)
