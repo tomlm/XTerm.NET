@@ -175,6 +175,26 @@ public enum CsiCommand
     RequestMode,
 
     /// <summary>
+    /// Set Kitty keyboard protocol flags (CSI = Ps ; Pm u).
+    /// </summary>
+    KittyKeyboardSet,
+
+    /// <summary>
+    /// Query Kitty keyboard protocol flags (CSI ? u) — the terminal answers CSI ? flags u.
+    /// </summary>
+    KittyKeyboardQuery,
+
+    /// <summary>
+    /// Push Kitty keyboard flags onto the stack and set new ones (CSI > Ps u).
+    /// </summary>
+    KittyKeyboardPush,
+
+    /// <summary>
+    /// Pop Kitty keyboard flags from the stack (CSI < Ps u).
+    /// </summary>
+    KittyKeyboardPop,
+
+    /// <summary>
     /// Unknown or unsupported command.
     /// </summary>
     Unknown

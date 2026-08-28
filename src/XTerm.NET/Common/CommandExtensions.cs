@@ -41,7 +41,11 @@ public static class CsiCommandExtensions
         { "u", CsiCommand.RestoreCursorAnsi },
         { " q", CsiCommand.SelectCursorStyle },
         { "$p", CsiCommand.RequestMode },
-        { "q", CsiCommand.SelectCursorStyle }
+        { "q", CsiCommand.SelectCursorStyle },
+        { "=u", CsiCommand.KittyKeyboardSet },
+        { "?u", CsiCommand.KittyKeyboardQuery },
+        { ">u", CsiCommand.KittyKeyboardPush },
+        { "<u", CsiCommand.KittyKeyboardPop }
     };
 
     /// <summary>
@@ -51,6 +55,13 @@ public static class CsiCommandExtensions
     /// <returns>The corresponding CsiCommand enum value, or Unknown if not recognized</returns>
     public static CsiCommand ToCsiCommand(this string identifier)
     {
+        // An exact match wins before any prefix is stripped. This is what routes "?u" to the
+        // Kitty keyboard query rather than to Restore Cursor — which is where the stripping used
+        // to send it, so an application probing for Kitty support MOVED THE CURSOR instead of
+        // being answered.
+        if (_commandMap.TryGetValue(identifier, out var command))
+            return command;
+
         // Handle DEC private mode sequences (e.g., "?h", "?l", ">c")
         var cleaned = identifier.TrimStart('?', '>');
         return _commandMap.GetValueOrDefault(cleaned, CsiCommand.Unknown);
@@ -64,6 +75,26 @@ public static class CsiCommandExtensions
     public static bool IsPrivateMode(this string identifier)
     {
         return identifier.StartsWith('?') || identifier.StartsWith('>');
+    }
+
+    /// <summary>
+    /// Returns the private marker a CSI identifier carries -- '&lt;', '=', '&gt;' or '?' -- or the
+    /// null character when it carries none.
+    /// </summary>
+    /// <remarks>
+    /// <c>IsPrivateMode</c> answers "is there a marker at all", which is enough wherever only one
+    /// marker is ever seen on a given final character. It is not enough where two different
+    /// sequences share a final character and are told apart by which marker they carry:
+    /// "CSI &gt; Ps q" is XTVERSION while "CSI Ps SP q" is DECSCUSR, so a handler that asks only
+    /// whether a marker is present answers one as the other.
+    /// </remarks>
+    /// <param name="identifier">The CSI identifier</param>
+    /// <returns>The leading private marker, or '\0' if the identifier has none</returns>
+    public static char PrivateMarker(this string identifier)
+    {
+        return identifier.Length > 0 && identifier[0] is '<' or '=' or '>' or '?'
+            ? identifier[0]
+            : '\0';
     }
 }
 
