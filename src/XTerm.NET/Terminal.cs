@@ -128,6 +128,17 @@ public class Terminal
     public bool SynchronizedOutput { get; internal set; }
 
     /// <summary>
+    /// Whether an application has asked to be told about resizes in band (DEC private mode 2048).
+    /// </summary>
+    /// <remarks>
+    /// Set by the application rather than the host, which is why there is no public setter: enabling
+    /// the mode obliges the terminal to send a report immediately, and an embedder assigning the
+    /// property would get the flag without the report. Hosts read this to know an application is
+    /// listening; <see cref="Resize"/> does the rest on its own.
+    /// </remarks>
+    public bool InBandResize { get; internal set; }
+
+    /// <summary>
     /// The exit code from the last OSC 133 ; D, or null if none has been reported.
     /// </summary>
     public int? LastCommandExitCode { get; internal set; }
@@ -349,6 +360,7 @@ public class Terminal
         CursorVisible = true;
         ReverseWraparound = false;
         SendFocusEvents = false;
+        InBandResize = false;
     }
 
 
@@ -467,6 +479,50 @@ public class Terminal
         _altBuffer?.Resize(cols, rows);
 
         Resized?.Invoke(this, new TerminalEvents.ResizeEventArgs(cols, rows));
+
+        // After the host has been told, not before. The spec requires the report to follow the
+        // resize rather than announce it, so the size an application reads is one the terminal has
+        // already applied -- and a host that keeps its pixel metrics up to date in Resized has
+        // updated them by the time the report asks for them.
+        SendInBandResizeReport();
+    }
+
+    /// <summary>
+    /// Sends the in-band resize report (DEC private mode 2048), if an application asked for one.
+    /// </summary>
+    /// <remarks>
+    /// <c>CSI 48 ; rows ; cols ; height_px ; width_px t</c> -- rows before columns, and the text
+    /// area alone, excluding any padding the host draws around it.
+    /// </remarks>
+    internal void SendInBandResizeReport()
+    {
+        if (!InBandResize)
+            return;
+
+        var (heightPixels, widthPixels) = RequestTextAreaPixels();
+        RaiseDataReceived($"\u001b[48;{Rows};{Cols};{heightPixels};{widthPixels}t");
+    }
+
+    /// <summary>
+    /// Asks the host how large the text area is in pixels, or (0, 0) if it cannot say.
+    /// </summary>
+    /// <remarks>
+    /// <para>Zero is the spec's answer for a terminal that does not know its pixel size, and it is
+    /// the honest one here. <see cref="TerminalOptions.CellWidthPixels"/> would multiply out to a
+    /// plausible-looking number whether or not the embedder ever set it from real font metrics --
+    /// its 10x20 default is a placeholder -- and an application sizing an image off that would be
+    /// wrong rather than uninformed. Applications already handle zero; they cannot detect a lie.</para>
+    /// <para>Deliberately not gated on <see cref="WindowOptions.GetWinSizePixels"/>. That option
+    /// governs whether unsolicited XTWINOPS queries are answered at all, and defaults to false;
+    /// mode 2048 is itself the application's request, and the terminal owes it a report.</para>
+    /// </remarks>
+    private (int Height, int Width) RequestTextAreaPixels()
+    {
+        var args = RaiseWindowInfoRequested(WindowInfoRequest.SizePixels);
+        if (!args.Handled)
+            return (0, 0);
+
+        return (Math.Max(0, args.HeightPixels), Math.Max(0, args.WidthPixels));
     }
 
     /// <summary>
@@ -500,6 +556,7 @@ public class Terminal
         MetaSendsEscape = false;  // Default is disabled
         AltSendsEscape = false;
         Win32InputMode = false;
+        InBandResize = false;
 
         // Kitty keyboard flags do not survive a reset: RIS is exactly how someone recovers from
         // an application that set them and died.
