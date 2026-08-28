@@ -164,6 +164,7 @@ public class TerminalOptions : ICloneable
     /// </remarks>
     public bool KittyNotificationsEnabled { get; set; }
 
+    /// <summary>
     /// Whether the Kitty keyboard protocol sequences (CSI u) are honoured.
     /// </summary>
     /// <remarks>
