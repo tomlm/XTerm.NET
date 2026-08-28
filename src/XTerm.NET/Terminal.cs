@@ -87,7 +87,15 @@ public class Terminal
     public IReadOnlyDictionary<string, string> UserVariables => _userVariables;
     private readonly Dictionary<string, string> _userVariables = new();
 
-    internal void SetUserVariable(string name, string value) => _userVariables[name] = value;
+    internal bool TrySetUserVariable(string name, string value)
+    {
+        if (value.Length > Options.MaxUserVariableBytes
+            || (!_userVariables.ContainsKey(name) && _userVariables.Count >= Options.MaxUserVariables))
+            return false;
+
+        _userVariables[name] = value;
+        return true;
+    }
 
     /// <summary>The shell integration version reported through iTerm2's OSC 1337 extension.</summary>
     public string? ShellIntegrationVersion { get; internal set; }
@@ -222,6 +230,9 @@ public class Terminal
     /// Fired when a desktop notification is requested via OSC 9.
     /// </summary>
     public event EventHandler<TerminalEvents.NotificationEventArgs>? NotificationReceived;
+
+    /// <summary>Fired when iTerm2 requests the user's attention.</summary>
+    public event EventHandler? AttentionRequested;
 
     /// <summary>
     /// Fired for every OSC sequence, including ones this terminal does not implement.
@@ -1006,6 +1017,7 @@ public class Terminal
 
     internal void RaiseNotificationReceived(string text) =>
         NotificationReceived?.Invoke(this, new TerminalEvents.NotificationEventArgs(text));
+    internal void RaiseAttentionRequested() => AttentionRequested?.Invoke(this, EventArgs.Empty);
     internal void RaiseOscReceived(string identifier, int code, string data, string raw, bool recognized) =>
         OscReceived?.Invoke(this, new TerminalEvents.OscReceivedEventArgs(identifier, code, data, raw, recognized));
     
@@ -1199,6 +1211,7 @@ public class Terminal
         ShellIntegrationMarkReceived = null;
         ProgressChanged = null;
         NotificationReceived = null;
+        AttentionRequested = null;
         OscReceived = null;
         
         // Clear window manipulation events

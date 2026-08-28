@@ -151,6 +151,9 @@ public class TerminalOptions : ICloneable
     /// </remarks>
     public bool KittyGraphicsEnabled { get; set; } = true;
 
+    /// <summary>Whether iTerm2 OSC 1337 inline images are honoured.</summary>
+    public bool ITerm2ImagesEnabled { get; set; } = true;
+
     /// <summary>
     /// Budget for images held by client id but not currently on screen, in bytes.
     /// </summary>
@@ -160,6 +163,12 @@ public class TerminalOptions : ICloneable
     /// could transmit without ever placing and never be collected. Oldest goes first.
     /// </remarks>
     public long MaxImageRegistryBytes { get; set; } = 32L * 1024 * 1024;
+
+    /// <summary>Maximum number of iTerm2 OSC 1337 user variables retained.</summary>
+    public int MaxUserVariables { get; set; } = 128;
+
+    /// <summary>Maximum decoded UTF-8 bytes retained for one iTerm2 user variable.</summary>
+    public int MaxUserVariableBytes { get; set; } = 4096;
 
     /// <summary>
     /// Width of a character cell in pixels.
@@ -264,7 +273,10 @@ public class TerminalOptions : ICloneable
         RendererType = other.RendererType;
         SixelEnabled = other.SixelEnabled;
         KittyGraphicsEnabled = other.KittyGraphicsEnabled;
+        ITerm2ImagesEnabled = other.ITerm2ImagesEnabled;
         MaxImageRegistryBytes = other.MaxImageRegistryBytes;
+        MaxUserVariables = other.MaxUserVariables;
+        MaxUserVariableBytes = other.MaxUserVariableBytes;
         CellWidthPixels = other.CellWidthPixels;
         CellHeightPixels = other.CellHeightPixels;
         MaxSixelPixels = other.MaxSixelPixels;
@@ -337,6 +349,7 @@ public class WindowOptions : ICloneable
     public bool MaximizeWin { get; set; } = false;
     public bool MinimizeWin { get; set; } = false;
     public bool FullscreenWin { get; set; } = false;
+    public bool RequestAttention { get; set; } = false;
 
     /// <summary>
     /// Default constructor.
@@ -368,6 +381,7 @@ public class WindowOptions : ICloneable
         MaximizeWin = other.MaximizeWin;
         MinimizeWin = other.MinimizeWin;
         FullscreenWin = other.FullscreenWin;
+        RequestAttention = other.RequestAttention;
     }
 
     /// <summary>

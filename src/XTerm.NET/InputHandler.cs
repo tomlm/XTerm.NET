@@ -2297,12 +2297,10 @@ public class InputHandler
         switch (key)
         {
             case "File":
-                HandleITerm2File(value);
-                return true;
+                return HandleITerm2File(value);
 
             case "SetUserVar":
-                HandleITerm2UserVariable(value);
-                return true;
+                return HandleITerm2UserVariable(value);
 
             case "CurrentDir":
                 HandleITerm2CurrentDirectory(value);
@@ -2316,26 +2314,44 @@ public class InputHandler
                 _terminal.RemoteHost = value;
                 return true;
 
+            case "StealFocus":
+                if (_terminal.Options.WindowOptions.RaiseWin)
+                    _terminal.RaiseWindowRaised();
+                return _terminal.Options.WindowOptions.RaiseWin;
+
+            case "RequestAttention":
+                if (_terminal.Options.WindowOptions.RequestAttention)
+                    _terminal.RaiseAttentionRequested();
+                return _terminal.Options.WindowOptions.RequestAttention;
+
+            case "ReportCellSize":
+                if (!_terminal.Options.WindowOptions.GetCellSizePixels)
+                    return false;
+                _terminal.RaiseDataReceived(
+                    $"\u001b]1337;ReportCellSize={_terminal.Options.CellHeightPixels};{_terminal.Options.CellWidthPixels}\u001b\\");
+                return true;
+
             default:
                 return false;
         }
     }
 
-    private void HandleITerm2File(string data)
+    private bool HandleITerm2File(string data)
     {
+        // Only PNG at its natural size is supported. Sized and non-PNG File payloads remain
+        // unrecognized so a host can implement iTerm2's wider image-format and sizing surface.
+        if (!_terminal.Options.ITerm2ImagesEnabled)
+            return false;
+
         var separator = data.IndexOf(':');
         if (separator < 0)
-            return;
+            return false;
 
         var parameters = data[..separator].Split(';');
-        if (!parameters.Contains("inline=1"))
-            return;
+        if (!parameters.Contains("inline=1") || parameters.Any(p => p.StartsWith("width=") || p.StartsWith("height=")))
+            return false;
 
         var payload = data[(separator + 1)..];
-        var budget = _terminal.Options.MaxImageRegistryBytes;
-        if (budget > 0 && (long)payload.Length * 3 / 4 > budget)
-            return;
-
         byte[] encoded;
         try
         {
@@ -2343,37 +2359,44 @@ public class InputHandler
         }
         catch (FormatException)
         {
-            return;
+            return false;
         }
 
         if (!Graphics.PngDecoder.TryDecode(encoded, _terminal.Options.MaxSixelPixels,
                                            out var pixels, out var width, out var height))
-            return;
+            return false;
+        if (_terminal.Options.MaxImageRegistryBytes > 0
+            && pixels.LongLength > _terminal.Options.MaxImageRegistryBytes)
+            return false;
 
         var image = new Graphics.TerminalImage(
             pixels, width, height,
             Math.Max(1, _terminal.Options.CellWidthPixels),
             Math.Max(1, _terminal.Options.CellHeightPixels));
-        _kittyImages.Store(_kittyImages.NextAssignedId(), image, budget);
         PlaceImage(Graphics.ImagePlacement.Natural(image), Graphics.PlacementKind.Kitty);
+        return true;
     }
 
-    private void HandleITerm2UserVariable(string data)
+    private bool HandleITerm2UserVariable(string data)
     {
         var separator = data.IndexOf('=');
         if (separator < 1)
-            return;
+            return false;
 
         try
         {
-            _terminal.SetUserVariable(
+            var encoded = Convert.FromBase64String(data[(separator + 1)..]);
+            if (encoded.Length > _terminal.Options.MaxUserVariableBytes)
+                return false;
+
+            return _terminal.TrySetUserVariable(
                 data[..separator],
-                new System.Text.UTF8Encoding(false, true).GetString(
-                    Convert.FromBase64String(data[(separator + 1)..])));
+                new System.Text.UTF8Encoding(false, true).GetString(encoded));
         }
         catch (ArgumentException)
         {
             // Invalid base64 or UTF-8 is untrusted terminal output, so ignore it.
+            return false;
         }
     }
 
@@ -2387,7 +2410,7 @@ public class InputHandler
 
         if (!string.IsNullOrEmpty(data))
         {
-            _terminal.CurrentDirectory = Uri.UnescapeDataString(data);
+            _terminal.CurrentDirectory = data;
             _terminal.RaiseDirectoryChanged(_terminal.CurrentDirectory);
         }
     }
