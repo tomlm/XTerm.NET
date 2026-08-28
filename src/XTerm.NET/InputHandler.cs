@@ -2183,6 +2183,10 @@ public class InputHandler
                     HandleShellIntegration(arg);
                     break;
 
+                case OscCommand.ITerm2:
+                    recognized = HandleITerm2(arg);
+                    break;
+
                 case OscCommand.ForegroundColor:
                     HandleColorQuery(((int)command).ToString(), arg);
                     break;
@@ -2275,6 +2279,101 @@ public class InputHandler
                 _terminal.CurrentDirectory = Uri.UnescapeDataString(path);
                 _terminal.RaiseDirectoryChanged(_terminal.CurrentDirectory);
             }
+        }
+    }
+
+    /// <summary>
+    /// Handles the useful iTerm2 OSC 1337 extensions. Unknown extension keys are intentionally
+    /// ignored, matching iTerm2's permissive extension namespace.
+    /// </summary>
+    private bool HandleITerm2(string data)
+    {
+        var separator = data.IndexOf('=');
+        if (separator < 1)
+            return false;
+
+        var key = data[..separator];
+        var value = data[(separator + 1)..];
+        switch (key)
+        {
+            case "File":
+                HandleITerm2File(value);
+                return true;
+
+            case "SetUserVar":
+                HandleITerm2UserVariable(value);
+                return true;
+
+            case "CurrentDir":
+                HandleCurrentDirectory(value);
+                return true;
+
+            case "ShellIntegrationVersion":
+                _terminal.ShellIntegrationVersion = value;
+                return true;
+
+            case "RemoteHost":
+                _terminal.RemoteHost = value;
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    private void HandleITerm2File(string data)
+    {
+        var separator = data.IndexOf(':');
+        if (separator < 0)
+            return;
+
+        var parameters = data[..separator].Split(';');
+        if (!parameters.Contains("inline=1"))
+            return;
+
+        var payload = data[(separator + 1)..];
+        var budget = _terminal.Options.MaxImageRegistryBytes;
+        if (budget > 0 && (long)payload.Length * 3 / 4 > budget)
+            return;
+
+        byte[] encoded;
+        try
+        {
+            encoded = Convert.FromBase64String(payload);
+        }
+        catch (FormatException)
+        {
+            return;
+        }
+
+        if (!Graphics.PngDecoder.TryDecode(encoded, _terminal.Options.MaxSixelPixels,
+                                           out var pixels, out var width, out var height))
+            return;
+
+        var image = new Graphics.TerminalImage(
+            pixels, width, height,
+            Math.Max(1, _terminal.Options.CellWidthPixels),
+            Math.Max(1, _terminal.Options.CellHeightPixels));
+        _kittyImages.Store(_kittyImages.NextAssignedId(), image, budget);
+        PlaceImage(Graphics.ImagePlacement.Natural(image), Graphics.PlacementKind.Kitty);
+    }
+
+    private void HandleITerm2UserVariable(string data)
+    {
+        var separator = data.IndexOf('=');
+        if (separator < 1)
+            return;
+
+        try
+        {
+            _terminal.SetUserVariable(
+                data[..separator],
+                new System.Text.UTF8Encoding(false, true).GetString(
+                    Convert.FromBase64String(data[(separator + 1)..])));
+        }
+        catch (ArgumentException)
+        {
+            // Invalid base64 or UTF-8 is untrusted terminal output, so ignore it.
         }
     }
 

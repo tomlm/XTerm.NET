@@ -83,6 +83,11 @@ public enum OscCommand
     ///         OSC 133 ; D [; exit] ST   - end of command, with optional exit code
     /// </summary>
     ShellIntegration = 133,
+
+    /// <summary>
+    /// iTerm2 proprietary extensions (OSC 1337).
+    /// </summary>
+    ITerm2 = 1337,
     
     /// <summary>
     /// Reset color palette (OSC 104).

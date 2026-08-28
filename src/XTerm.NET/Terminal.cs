@@ -83,6 +83,18 @@ public class Terminal
     public string? CurrentDirectory { get; set; }
     public string? CurrentHyperlink { get; set; }
 
+    /// <summary>The values exported through iTerm2's OSC 1337 SetUserVar extension.</summary>
+    public IReadOnlyDictionary<string, string> UserVariables => _userVariables;
+    private readonly Dictionary<string, string> _userVariables = new();
+
+    internal void SetUserVariable(string name, string value) => _userVariables[name] = value;
+
+    /// <summary>The shell integration version reported through iTerm2's OSC 1337 extension.</summary>
+    public string? ShellIntegrationVersion { get; internal set; }
+
+    /// <summary>The remote host reported through iTerm2's OSC 1337 extension.</summary>
+    public string? RemoteHost { get; internal set; }
+
     /// <summary>
     /// The most recent OSC 133 shell integration mark, or null if the shell has never sent one.
     /// </summary>
