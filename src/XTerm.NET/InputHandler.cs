@@ -232,20 +232,28 @@ public class InputHandler
 
 
         // Handle autowrap
-        if (_buffer.X >= _terminal.Cols)
+        if (_buffer.X > WrapLimit())
         {
             if (_terminal.Options.Wraparound)
             {
+                // Only a FULL-WIDTH wrap marks the next line as a continuation. IsWrapped is a
+                // per-line flag, and a wrap inside the margin box continues the box, not the line:
+                // content outside the margins on the next row was never part of this text, and a
+                // reflow that believed the flag would merge lines an application laid out
+                // separately. Decided before the cursor moves, because the answer depends on
+                // where the wrap happened.
+                var lineWrap = WrapLimit() == _terminal.Cols - 1 && WrapHome() == 0;
                 if (_buffer.Y == _buffer.ScrollBottom)
                 {
-                    _buffer.SetCursor(0, _buffer.Y);
+                    _buffer.SetCursor(WrapHome(), _buffer.Y);
                     _buffer.ScrollUp(1, true);
                 }
                 else
                 {
-                    _buffer.SetCursor(0, _buffer.Y + 1);
+                    _buffer.SetCursor(WrapHome(), _buffer.Y + 1);
                 }
-                _buffer.Lines[_buffer.Y + _buffer.YBase]!.IsWrapped = true;
+                if (lineWrap)
+                    _buffer.Lines[_buffer.Y + _buffer.YBase]!.IsWrapped = true;
             }
             else
             {
@@ -299,8 +307,11 @@ public class InputHandler
         // Handle wide characters
         if (width == 2)
         {
-            // Set following cell as a spacer
-            if (_buffer.X + 1 < _terminal.Cols)
+            // Set following cell as a spacer, bounded by the right MARGIN rather than the screen --
+            // otherwise a double-width character sitting on the last column of a region plants its
+            // spacer in the pane next door. Identical to the old test when no margins are set, since
+            // the limit is then the last column.
+            if (_buffer.X + 1 <= WrapLimit())
             {
                 var spacer = BufferCell.Empty;
                 spacer.Attributes = _curAttr;
@@ -429,29 +440,37 @@ public class InputHandler
 
         while (!data.IsEmpty)
         {
-            if (_buffer.X >= _terminal.Cols)
+            if (_buffer.X > WrapLimit())
             {
                 if (!_terminal.Options.Wraparound)
                     return;
 
+                // Full-width wraps only, as in Print: a wrap inside the margin box continues
+                // the box, not the line.
+                var lineWrap = WrapLimit() == _terminal.Cols - 1 && WrapHome() == 0;
                 if (_buffer.Y == _buffer.ScrollBottom)
                 {
-                    _buffer.SetCursor(0, _buffer.Y);
+                    _buffer.SetCursor(WrapHome(), _buffer.Y);
                     _buffer.ScrollUp(1, true);
                 }
                 else
                 {
-                    _buffer.SetCursor(0, _buffer.Y + 1);
+                    _buffer.SetCursor(WrapHome(), _buffer.Y + 1);
                 }
 
-                _buffer.Lines[_buffer.Y + _buffer.YBase]!.IsWrapped = true;
+                if (lineWrap)
+                    _buffer.Lines[_buffer.Y + _buffer.YBase]!.IsWrapped = true;
             }
 
             var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
             if (line == null)
                 return;
 
-            var take = Math.Min(_terminal.Cols - _buffer.X, data.Length);
+            // Bounded by the right MARGIN, not the screen. A batched run bypasses the per-character
+            // wrap check above, so without this it writes straight through the margin and out the
+            // other side -- and only when the fast path takes the write, which is the difference
+            // that reads as an intermittent fault rather than a missing case.
+            var take = Math.Min(WrapLimit() + 1 - _buffer.X, data.Length);
             line.SetSingleWidthRun(_buffer.X, data[..take], _curAttr);
 
             // This path bypasses Print, so it keeps the link bookkeeping itself -- otherwise a link
@@ -499,29 +518,34 @@ public class InputHandler
         {
             // Autowrap, matching Print. The cursor is allowed to rest one past the last column, so
             // the wrap is resolved here rather than when the previous character was written.
-            if (_buffer.X >= _terminal.Cols)
+            if (_buffer.X > WrapLimit())
             {
                 if (!_terminal.Options.Wraparound)
                     return;   // printing past the edge is discarded, as in Print
 
+                // Full-width wraps only, as in Print: a wrap inside the margin box continues
+                // the box, not the line.
+                var lineWrap = WrapLimit() == _terminal.Cols - 1 && WrapHome() == 0;
                 if (_buffer.Y == _buffer.ScrollBottom)
                 {
-                    _buffer.SetCursor(0, _buffer.Y);
+                    _buffer.SetCursor(WrapHome(), _buffer.Y);
                     _buffer.ScrollUp(1, true);
                 }
                 else
                 {
-                    _buffer.SetCursor(0, _buffer.Y + 1);
+                    _buffer.SetCursor(WrapHome(), _buffer.Y + 1);
                 }
 
-                _buffer.Lines[_buffer.Y + _buffer.YBase]!.IsWrapped = true;
+                if (lineWrap)
+                    _buffer.Lines[_buffer.Y + _buffer.YBase]!.IsWrapped = true;
             }
 
             var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
             if (line == null)
                 return;
 
-            var take = Math.Min(_terminal.Cols - _buffer.X, remaining);
+            // As above: the margin bounds the batch, or the fast path leaks past it.
+            var take = Math.Min(WrapLimit() + 1 - _buffer.X, remaining);
             line.SetSingleWidthRun(_buffer.X, data.AsSpan(pos, take), _curAttr);
 
             // As above: bypassing Print means keeping the link bookkeeping here as well.
@@ -806,7 +830,9 @@ public class InputHandler
                 break;
 
             case CsiCommand.DeviceAttributes:
-                DeviceAttributes(parameters, isPrivate);
+                // The identifier goes in whole, not as isPrivate: "?c" and ">c" both set that flag,
+                // and only one of them is the secondary DA.
+                DeviceAttributes(identifier, parameters);
                 break;
 
             case CsiCommand.LinePositionAbsolute:
@@ -826,7 +852,14 @@ public class InputHandler
                 break;
 
             case CsiCommand.SaveCursorAnsi:
-                SaveCursorAnsi();
+                // CSI s is two sequences sharing a final character, and the mode decides which.
+                // With DECLRMM set it is DECSLRM; without it, Save Cursor. This is the one place in
+                // the dispatch where that is true, and getting it backwards would make an
+                // application's margins silently save the cursor instead.
+                if (_terminal.LeftRightMarginMode)
+                    SetLeftRightMargins(parameters);
+                else
+                    SaveCursorAnsi();
                 break;
 
             case CsiCommand.RestoreCursorAnsi:
@@ -838,7 +871,25 @@ public class InputHandler
                 break;
 
             case CsiCommand.SelectCursorStyle:
-                SelectCursorStyle(parameters);
+                // "CSI > Ps q" is XTVERSION, not DECSCUSR. They share a final character, and the
+                // identifier has its private marker stripped before the lookup, so without this
+                // guard a terminal version query reshaped the cursor instead of being answered --
+                // a program that asks on startup left the user in a cursor they never chose.
+                //
+                // The marker itself is read rather than isPrivate, which is also true for '?': a
+                // "CSI ? Ps q" is neither of these sequences, and answering it as XTVERSION would
+                // be a second wrong reading of the same character.
+                switch (identifier.PrivateMarker())
+                {
+                    case '>':
+                        ReportVersion(parameters);
+                        break;
+                    case '\0':
+                        SelectCursorStyle(parameters);
+                        break;
+                    // Any other marker is a sequence we do not implement. Ignored, since the
+                    // alternative is reshaping the cursor on some unrelated query's behalf.
+                }
                 break;
 
             case CsiCommand.RequestMode:
@@ -852,6 +903,22 @@ public class InputHandler
             case CsiCommand.ResetMode:
                 // DEC Private Mode Reset (CSI ? Pm l)
                 ResetCSIModeParameters(parameters, isPrivate: isPrivate);
+                break;
+
+            case CsiCommand.KittyKeyboardSet:
+                KittyKeyboardSet(parameters);
+                break;
+
+            case CsiCommand.KittyKeyboardQuery:
+                KittyKeyboardQuery();
+                break;
+
+            case CsiCommand.KittyKeyboardPush:
+                KittyKeyboardPush(parameters);
+                break;
+
+            case CsiCommand.KittyKeyboardPop:
+                KittyKeyboardPop(parameters);
                 break;
 
             case CsiCommand.Unknown:
@@ -982,7 +1049,7 @@ public class InputHandler
         RefreshActiveCharset();
     }
 
-    #region DCS / Sixel
+    #region DCS / Sixel / DECRQSS
 
     /// <summary>The Sixel image being decoded, if a DECSIXEL payload is currently arriving.</summary>
     private Graphics.SixelDecoder? _sixelDecoder;
@@ -994,18 +1061,69 @@ public class InputHandler
     /// </summary>
     private Graphics.SixelPalette? _sharedSixelPalette;
 
+    /// <summary>The XTGETTCAP request being read, if a DCS + q payload is currently arriving.</summary>
+    private StringBuilder? _capabilityRequest;
+
+    /// <summary>Whether that request ran past <see cref="MaxCapabilityRequestLength"/>.</summary>
+    private bool _capabilityRequestTooLong;
+
+    /// <summary>
+    /// How much of an XTGETTCAP request will be read before it is treated as malformed. A real
+    /// request is a handful of capability names; anything past this is not one, and accumulating it
+    /// would let a peer make the terminal hold an arbitrary amount of memory for a reply nobody
+    /// asked for.
+    /// </summary>
+    private const int MaxCapabilityRequestLength = 4096;
+
+    /// <summary>
+    /// Accumulates the payload of a DECRQSS sequence (<c>DCS $ q … ST</c>) while it streams in.
+    /// Null when no DECRQSS is active.
+    /// </summary>
+    private StringBuilder? _decrqssPayload;
+
+    /// <summary>
+    /// The most of a DECRQSS payload worth keeping.
+    /// </summary>
+    /// <remarks>
+    /// Every setting that can be asked for is three characters at most, so a longer payload is one
+    /// we are going to refuse anyway. Truncating at the door keeps a <c>DCS $ q</c> followed by a
+    /// megabyte of anything from being buffered on its way to that refusal.
+    /// </remarks>
+    private const int MaxDecrqssPayloadLength = 16;
+
     /// <summary>
     /// Handles the start of a DCS sequence.
     /// </summary>
     /// <remarks>
     /// The payload that follows is streamed rather than handed over whole, so this is where we
-    /// decide whether it is worth reading at all. Only DECSIXEL is; anything else is left to the
-    /// parser's whole-payload event, which is capped and cheap.
+    /// decide whether it is worth reading at all. Three sequences are: DECSIXEL, whose payload is
+    /// an image; DECRQSS, whose payload names a setting to read back; and XTGETTCAP, whose payload
+    /// is a list of capability names to answer. The identifier keeps them apart the way it does for
+    /// CSI — the bare "q" is Sixel, "$q" is DECRQSS, "+q" is XTGETTCAP — so a terminal that decodes
+    /// images does not have to choose between them. Everything else is left to the parser's
+    /// whole-payload event, which is capped and cheap.
     /// </remarks>
     public void HandleDcsHook(string identifier, Params parameters)
     {
         CancelRepeat();
         _sixelDecoder = null;
+        _capabilityRequest = null;
+        _capabilityRequestTooLong = false;
+        _decrqssPayload = null;
+
+        if (identifier == "+q")
+        {
+            // XTGETTCAP. The payload is a list of hex-encoded capability names to answer.
+            _capabilityRequest = new StringBuilder();
+            return;
+        }
+
+        if (identifier == "$q")
+        {
+            // DECRQSS — Request Status String. The payload names the setting to read back.
+            _decrqssPayload = new StringBuilder();
+            return;
+        }
 
         if (identifier != "q" || !_terminal.Options.SixelEnabled)
             return;
@@ -1036,6 +1154,26 @@ public class InputHandler
     public void HandleDcsPut(ReadOnlySpan<char> data)
     {
         _sixelDecoder?.Put(data);
+
+        // DECRQSS first: the capability branch below returns early, and only one of the two is
+        // ever live at a time anyway -- HandleDcsHook arms exactly one per sequence.
+        if (_decrqssPayload is { } decrqss && decrqss.Length < MaxDecrqssPayloadLength)
+            decrqss.Append(data[..Math.Min(data.Length, MaxDecrqssPayloadLength - decrqss.Length)]);
+
+        if (_capabilityRequest is null || _capabilityRequestTooLong)
+            return;
+
+        // Past the cap the request is dropped rather than truncated: half a name decodes to some
+        // other capability, and answering that confidently would be worse than not answering. The
+        // client still gets its failure reply, so nothing is left waiting on an answer.
+        if (_capabilityRequest.Length + data.Length > MaxCapabilityRequestLength)
+        {
+            _capabilityRequestTooLong = true;
+            _capabilityRequest.Clear();
+            return;
+        }
+
+        _capabilityRequest.Append(data);
     }
 
     /// <summary>
@@ -1047,15 +1185,172 @@ public class InputHandler
     /// </param>
     public void HandleDcsUnhook(bool terminatedCleanly)
     {
+        var capabilityRequest = _capabilityRequest;
+        var tooLong = _capabilityRequestTooLong;
+        _capabilityRequest = null;
+        _capabilityRequestTooLong = false;
+
+        if (capabilityRequest is not null && terminatedCleanly)
+            AnswerCapabilityRequest(tooLong ? string.Empty : capabilityRequest.ToString());
+
         var decoder = _sixelDecoder;
         _sixelDecoder = null;
 
-        if (decoder is null || !terminatedCleanly)
-            return;
+        var decrqssPayload = _decrqssPayload;
+        _decrqssPayload = null;
 
-        var image = decoder.Finish();
-        if (image is not null)
-            PlaceImage(Graphics.ImagePlacement.Natural(image), Graphics.PlacementKind.Sixel);
+        if (decoder is not null && terminatedCleanly)
+        {
+            var image = decoder.Finish();
+            if (image is not null)
+                PlaceImage(Graphics.ImagePlacement.Natural(image), Graphics.PlacementKind.Sixel);
+        }
+
+        if (decrqssPayload is not null && terminatedCleanly)
+            HandleDecrqss(decrqssPayload.ToString());
+    }
+
+    /// <summary>
+    /// Handles a completed DECRQSS request by reading back the named setting.
+    /// </summary>
+    /// <remarks>
+    /// Reply format: <c>DCS 1 $ r &lt;setting&gt; ST</c> when the setting is recognised, or
+    /// <c>DCS 0 $ r ST</c> when it is not. ST is ESC \.
+    /// </remarks>
+    private void HandleDecrqss(string setting)
+    {
+        // DCS 0 $ r ST — unrecognised setting
+        const string Deny = "\x1bP0$r\x1b\\";
+
+        var reply = setting switch
+        {
+            "m" => $"\x1bP1$r{SerializeSgr()}m\x1b\\",
+            "r" => $"\x1bP1$r{_buffer.ScrollTop + 1};{_buffer.ScrollBottom + 1}r\x1b\\",
+            " q" => $"\x1bP1$r{SerializeDecscusr()} q\x1b\\",
+            "\"p" => "\x1bP1$r62;1\"p\x1b\\",
+            "\"q" => "\x1bP1$r0\"q\x1b\\",
+            _ => Deny,
+        };
+
+        _terminal.RaiseDataReceived(reply);
+    }
+
+    /// <summary>
+    /// Serialises the current character attributes as a semicolon-separated SGR parameter string,
+    /// suitable for embedding in a DECRQSS <c>m</c> response.
+    /// </summary>
+    /// <remarks>
+    /// Every code emitted here is one this handler parses back, so a program can read the reply,
+    /// replay it, and land on the attributes it started from — which is the point of asking. What
+    /// is off, and a colour that is still the default, is left out; nothing at all reads as
+    /// <c>0</c>, the reset.
+    /// </remarks>
+    private string SerializeSgr()
+    {
+        var attr = _curAttr;
+
+        // Build a list of SGR code fragments. Each may be a single number ("1") or a
+        // semicolon-separated run ("38;2;255;128;0").
+        var parts = new List<string>(8);
+
+        if (attr.IsBold()) parts.Add("1");
+        if (attr.IsDim()) parts.Add("2");
+        if (attr.IsItalic()) parts.Add("3");
+
+        switch (attr.GetUnderlineStyle())
+        {
+            case UnderlineStyle.Single: parts.Add("4"); break;
+            case UnderlineStyle.Double: parts.Add("21"); break;
+            case UnderlineStyle.Curly: parts.Add("4:3"); break;
+            case UnderlineStyle.Dotted: parts.Add("4:4"); break;
+            case UnderlineStyle.Dashed: parts.Add("4:5"); break;
+        }
+
+        if (attr.IsBlink()) parts.Add("5");
+        if (attr.IsInverse()) parts.Add("7");
+        if (attr.IsInvisible()) parts.Add("8");
+        if (attr.IsStrikethrough()) parts.Add("9");
+        if (attr.IsOverline()) parts.Add("53");
+
+        // Foreground colour
+        var fgMode = attr.GetFgColorMode();
+        var fg = attr.GetFgColor();
+        if (fgMode == 1)
+        {
+            // RGB truecolor
+            parts.Add($"38;2;{(fg >> 16) & 0xFF};{(fg >> 8) & 0xFF};{fg & 0xFF}");
+        }
+        else if (fg <= 7)
+        {
+            parts.Add($"{30 + fg}");
+        }
+        else if (fg <= 15)
+        {
+            parts.Add($"{90 + fg - 8}");
+        }
+        else if (fg <= 255)
+        {
+            parts.Add($"38;5;{fg}");
+        }
+        // 256 (default fg) → omit
+
+        // Background colour
+        var bgMode = attr.GetBgColorMode();
+        var bg = attr.GetBgColor();
+        if (bgMode == 1)
+        {
+            // RGB truecolor
+            parts.Add($"48;2;{(bg >> 16) & 0xFF};{(bg >> 8) & 0xFF};{bg & 0xFF}");
+        }
+        else if (bg <= 7)
+        {
+            parts.Add($"{40 + bg}");
+        }
+        else if (bg <= 15)
+        {
+            parts.Add($"{100 + bg - 8}");
+        }
+        else if (bg <= 255)
+        {
+            parts.Add($"48;5;{bg}");
+        }
+        // 257 (default bg) → omit
+
+        return parts.Count == 0 ? "0" : string.Join(";", parts);
+    }
+
+    /// <summary>
+    /// Serialises the current cursor style as the numeric DECSCUSR parameter.
+    /// </summary>
+    private string SerializeDecscusr()
+    {
+        var style = _terminal.Options.CursorStyle;
+        var blink = _terminal.Options.CursorBlink;
+        return (style, blink) switch
+        {
+            (CursorStyle.Block, true) => "1",
+            (CursorStyle.Block, false) => "2",
+            (CursorStyle.Underline, true) => "3",
+            (CursorStyle.Underline, false) => "4",
+            (CursorStyle.Bar, true) => "5",
+            (CursorStyle.Bar, false) => "6",
+            _ => "0",
+        };
+    }
+
+    /// <summary>
+    /// Answers an XTGETTCAP request (DCS + q), one reply per capability asked about.
+    /// </summary>
+    /// <remarks>
+    /// The point of the sequence is that a program's terminfo entry describes whatever terminal the
+    /// machine it is running on has heard of, which over ssh or in a container is not this one. So
+    /// the answers come from what this emulator actually implements — see
+    /// <see cref="TermCapabilities"/> — and not from the entry named by <c>TermName</c>.
+    /// </remarks>
+    private void AnswerCapabilityRequest(string request)
+    {
+        foreach (var reply in TermCapabilities.Answer(request, _terminal))
+            _terminal.RaiseDataReceived(reply);
     }
 
     /// <summary>The text of the APC sequence currently arriving.</summary>
@@ -2746,30 +3041,43 @@ public class InputHandler
     private void CursorForward(Params parameters)
     {
         var count = Math.Max(parameters.GetParam(0, 1), 1);
-        _buffer.SetCursor(Math.Min(_buffer.X + count, _terminal.Cols - 1), _buffer.Y);
+        // Stops at the right margin when the cursor starts inside the region, the screen edge
+        // when it starts outside — in/out decides, not origin mode, as in xterm. Without the
+        // bound, CSI 200 C walks the cursor out of its pane and the next write lands in the
+        // neighbouring one. (Full-width margins make the two limits the same column.)
+        var limit = CursorInMarginColumns() ? _buffer.ScrollRight : _terminal.Cols - 1;
+        _buffer.SetCursor(Math.Min(_buffer.X + count, limit), _buffer.Y);
     }
 
     private void CursorBackward(Params parameters)
     {
         var count = Math.Max(parameters.GetParam(0, 1), 1);
-        _buffer.SetCursor(Math.Max(_buffer.X - count, 0), _buffer.Y);
+        // The mirror of CursorForward: the left margin stops a cursor that starts inside.
+        var home = CursorInMarginColumns() ? _buffer.ScrollLeft : 0;
+        _buffer.SetCursor(Math.Max(_buffer.X - count, home), _buffer.Y);
     }
 
     private void CursorNextLine(Params parameters)
     {
+        // xterm implements CNL as CUD then CR, so the column is CR’s: the left margin when the
+        // cursor is at or right of it, column 0 when it is left of it — origin mode is not
+        // consulted. The row move cannot change X, so the CR sees the starting column.
         var count = Math.Max(parameters.GetParam(0, 1), 1);
-        _buffer.SetCursor(0, Math.Min(_buffer.Y + count, _terminal.Rows - 1));
+        _buffer.SetCursor(_buffer.X, Math.Min(_buffer.Y + count, _terminal.Rows - 1));
+        _buffer.CarriageReturn();
     }
 
     private void CursorPrecedingLine(Params parameters)
     {
+        // CPL is CUU then CR, mirroring CursorNextLine.
         var count = Math.Max(parameters.GetParam(0, 1), 1);
-        _buffer.SetCursor(0, Math.Max(_buffer.Y - count, 0));
+        _buffer.SetCursor(_buffer.X, Math.Max(_buffer.Y - count, 0));
+        _buffer.CarriageReturn();
     }
 
     private void CursorCharAbsolute(Params parameters)
     {
-        var col = Math.Max(parameters.GetParam(0, 1), 1) - 1;
+        var col = GetAbsoluteCursorCol(Math.Max(parameters.GetParam(0, 1), 1) - 1);
         _buffer.SetCursor(col, _buffer.Y);
     }
 
@@ -2778,6 +3086,7 @@ public class InputHandler
         var row = Math.Max(parameters.GetParam(0, 1), 1) - 1;
         var col = Math.Max(parameters.GetParam(1, 1), 1) - 1;
         row = GetAbsoluteCursorRow(row);
+        col = GetAbsoluteCursorCol(col);
         _buffer.SetCursor(col, row);
     }
 
@@ -2888,12 +3197,87 @@ public class InputHandler
             Print(text);
     }
 
+    /// <summary>
+    /// Whether the cursor is inside the margin columns — the ONE in/out answer every
+    /// column-sensitive operation shares, so no two of them can disagree about the same column.
+    /// </summary>
+    /// <remarks>
+    /// The boundary column is the subtle part. X == ScrollRight + 1 is two different states: the
+    /// pending-wrap residue of filling the region's last column (INSIDE — the wrap is due at the
+    /// margin), and a deliberate placement at the first column right of the margin (OUTSIDE — an
+    /// ordinary cursor position in the split layouts this feature exists for). The buffer's
+    /// <see cref="TerminalBuffer.PendingWrap"/> flag is what tells them apart; deciding by
+    /// position alone either wrapped the next pane's first column into this one, or ran text
+    /// straight through the margin at exactly the moment the wrap was due.
+    /// </remarks>
+    private bool CursorInMarginColumns()
+        => _buffer.X >= _buffer.ScrollLeft
+        && _buffer.X <= _buffer.ScrollRight + (_buffer.PendingWrap ? 1 : 0);
+
+    /// <summary>
+    /// The last column a write may land on before it wraps.
+    /// </summary>
+    /// <remarks>
+    /// The right margin, not the screen edge — that is what makes text stay inside its pane. But
+    /// only for a cursor already INSIDE the margins: a cursor parked to the right of them is not in
+    /// the region at all, and wrapping it at the margin would drag it into a pane it was never in.
+    /// xterm draws the same distinction, and it is the reason this is a method rather than a field.
+    /// </remarks>
+    private int WrapLimit()
+    {
+        if (_buffer.MarginsAreFullWidth || !CursorInMarginColumns())
+            return _terminal.Cols - 1;
+
+        return _buffer.ScrollRight;
+    }
+
+    /// <summary>The column a wrapped line begins on: the left margin, for the same reason.</summary>
+    private int WrapHome()
+    {
+        if (_buffer.MarginsAreFullWidth || !CursorInMarginColumns())
+            return 0;
+
+        return _buffer.ScrollLeft;
+    }
+
+    /// <summary>
+    /// Whether the cursor is inside the scrolling region — the box, not just the band of rows.
+    /// </summary>
+    /// <remarks>
+    /// IL and DL do nothing from outside it. With margins that has to include the columns: a cursor
+    /// in the right-hand pane of a split layout is outside the left pane's region, and shifting the
+    /// left pane's lines from there is the exact corruption margins exist to prevent. The column
+    /// test goes through <see cref="CursorInMarginColumns"/> so the pending-wrap state counts as
+    /// inside — with no margins at all, a cursor resting at X == Cols after a full-width line is
+    /// the ORDINARY place for IL/DL to run from, and reading it as outside made them no-ops on the
+    /// default path.
+    /// </remarks>
+    private bool InsideScrollRegion()
+        => _buffer.Y >= _buffer.ScrollTop && _buffer.Y <= _buffer.ScrollBottom
+        && CursorInMarginColumns();
+
+    /// <summary>A blank carrying the current attributes, which is what BCE fills with.</summary>
+    private BufferCell BlankCell()
+    {
+        var cell = BufferCell.Space;
+        cell.Attributes = _curAttr;
+        return cell;
+    }
+
     private void InsertLines(Params parameters)
     {
         var count = Math.Max(parameters.GetParam(0, 1), 1);
-        // Only works in scroll region
-        if (_buffer.Y < _buffer.ScrollTop || _buffer.Y > _buffer.ScrollBottom)
+        if (!InsideScrollRegion())
             return;
+
+        // Narrowed margins move only their own columns, so the lines stay put and their cells are
+        // copied between them. Splicing whole lines here would drag the columns OUTSIDE the region
+        // along with them, which is the side-by-side layout tearing itself apart.
+        if (!_buffer.MarginsAreFullWidth)
+        {
+            _buffer.ScrollMarginColumns(_buffer.Y, _buffer.ScrollBottom, count, up: false, BlankCell());
+            return;
+        }
 
         for (int i = 0; i < count; i++)
         {
@@ -2906,9 +3290,14 @@ public class InputHandler
     private void DeleteLines(Params parameters)
     {
         var count = Math.Max(parameters.GetParam(0, 1), 1);
-        // Only works in scroll region
-        if (_buffer.Y < _buffer.ScrollTop || _buffer.Y > _buffer.ScrollBottom)
+        if (!InsideScrollRegion())
             return;
+
+        if (!_buffer.MarginsAreFullWidth)
+        {
+            _buffer.ScrollMarginColumns(_buffer.Y, _buffer.ScrollBottom, count, up: true, BlankCell());
+            return;
+        }
 
         for (int i = 0; i < count; i++)
         {
@@ -2925,14 +3314,20 @@ public class InputHandler
         if (line == null)
             return;
 
-        // Shift cells right from cursor position
-        line.CopyCellsFrom(line, _buffer.X, _buffer.X + count,
-            _terminal.Cols - _buffer.X - count, false);
+        // The MARGINS bound this, not the screen — both of them. Shifting past the right margin
+        // would push characters out of one pane and into the next; running from a cursor LEFT of
+        // the left margin shifts the neighbouring pane's columns across it from outside, the same
+        // corruption from the other side. Outside the region on either side, ICH does nothing.
+        var right = _buffer.ScrollRight;
+        if (_buffer.X > right || _buffer.X < _buffer.ScrollLeft)
+            return;
 
-        // Blank the inserted cells at cursor position
-        var emptyCell = BufferCell.Space;
-        emptyCell.Attributes = _curAttr;
-        line.Fill(emptyCell, _buffer.X, Math.Min(_buffer.X + count, _terminal.Cols));
+        count = Math.Min(count, right - _buffer.X + 1);
+
+        line.CopyCellsFrom(line, _buffer.X, _buffer.X + count,
+            right - _buffer.X - count + 1, false);
+
+        line.Fill(BlankCell(), _buffer.X, Math.Min(_buffer.X + count, right + 1));
     }
 
     private void DeleteChars(Params parameters)
@@ -2942,17 +3337,20 @@ public class InputHandler
         if (line == null)
             return;
 
-        // Limit count to remaining characters on line
-        var remaining = _terminal.Cols - _buffer.X;
-        count = Math.Min(count, remaining);
+        // As with ICH, the margins are the edges — what is pulled in comes from inside the
+        // region, the blanks appear at the margin rather than the screen edge, and a cursor
+        // outside the region on EITHER side does nothing rather than dragging the next pane's
+        // columns across the boundary.
+        var right = _buffer.ScrollRight;
+        if (_buffer.X > right || _buffer.X < _buffer.ScrollLeft)
+            return;
+
+        count = Math.Min(count, right - _buffer.X + 1);
 
         line.CopyCellsFrom(line, _buffer.X + count, _buffer.X,
-            _terminal.Cols - _buffer.X - count, false);
+            right - _buffer.X - count + 1, false);
 
-        // Fill vacated cells at right edge with current attributes (BCE)
-        var emptyCell = BufferCell.Space;
-        emptyCell.Attributes = _curAttr;
-        line.Fill(emptyCell, _terminal.Cols - count, _terminal.Cols);
+        line.Fill(BlankCell(), right - count + 1, right + 1);
     }
 
     private void EraseChars(Params parameters)
@@ -3046,32 +3444,77 @@ public class InputHandler
         }
     }
 
-    private void DeviceAttributes(Params parameters, bool isPrivate)
+    /// <summary>
+    /// DA -- CSI c (primary) and CSI &gt; c (secondary). Tells the program on the other end of the
+    /// wire what this terminal is and what it can do.
+    /// </summary>
+    /// <remarks>
+    /// <para>The reply is a promise, not a boast. Every attribute listed here names a sequence the
+    /// program will now go ahead and send, so claiming a feature this emulator does not implement
+    /// does not flatter it, it breaks it: the program emits the sequence, nothing happens, and the
+    /// screen it believes it drew is not the screen that is there. A program that reads attribute
+    /// 21 sets left and right margins and then draws inside them. One that reads attribute 2 pushes
+    /// a print job through printer-controller mode, which an emulator that never enters that mode
+    /// prints onto the screen instead.</para>
+    /// <para>So the list is the intersection of the DA attribute numbers with what the code
+    /// actually does, and nothing else. Deliberately absent, each checked against the tree:
+    /// 1 (132 columns -- <c>TerminalMode.ColumnMode</c> is in the enum, but <c>SetCSIMode</c> has
+    /// no case for it), 2 (printer -- there is no media copy command), 6 (selective erase -- no
+    /// DECSCA), 9 (national replacement character sets -- <c>Charsets</c> holds only the default,
+    /// the line drawing set and UK), 15 (technical characters), 21 (horizontal scrolling -- no
+    /// left and right margins).</para>
+    /// <para>Attribute 4, Sixel, is the one that visibly matters: libsixel, chafa, img2sixel and
+    /// everything built on them read this reply, and send text art instead of pictures unless they
+    /// see it. Claiming it while Sixel is switched off would be the same lie pointed the other
+    /// way, so it follows the option.</para>
+    /// </remarks>
+    private void DeviceAttributes(string identifier, Params parameters)
     {
-        // DA - Device Attributes (CSI c or CSI > c)
-        if (isPrivate)
+        // Only an absent or zero parameter is a request. A non-zero one is another terminal's
+        // reply that has arrived on our input, and answering that starts a ping-pong.
+        if (parameters.GetParam(0, 0) != 0)
+            return;
+
+        if (identifier.StartsWith('>'))
         {
-            // Secondary DA (CSI > c) - Report terminal ID and version
-            // Response: CSI > 0 ; version ; 0 c
-            // We report as VT100-compatible
-            _terminal.RaiseDataReceived("\u001b[>0;10;0c");
+            // Secondary DA: CSI > Pp ; Pv ; Pc c. Pp = 1 is a VT220, matching the conformance
+            // level the primary reply claims -- the old 0 said VT100 and contradicted it. Pv
+            // carries this library's version so a program can tell builds apart, and Pc = 0 is
+            // "no cartridge ROM".
+            _terminal.RaiseDataReceived(SecondaryDeviceAttributes);
         }
-        else
+        else if (identifier.Length == 1)
         {
-            // Primary DA (CSI c) - Report device attributes
-            // Response: CSI ? 1 ; 2 c (VT100 with AVO)
-            // More complete: CSI ? 1 ; 2 ; 6 ; 9 c
-            // 1 = 132 columns, 2 = Printer, 6 = Selective erase, 9 = National replacement character sets
-            //
-            // Attribute 4 is Sixel graphics, and it is not decoration: libsixel, chafa, img2sixel
-            // and everything built on them read this reply, and send text art instead of pictures
-            // unless they see it. Claiming it while Sixel is switched off would be a lie in the
-            // other direction, so it follows the option.
+            // Primary DA: CSI ? 62 ; ... c. 62 is service class 2 (VT220), the level whose core --
+            // scrolling regions, insert and delete line and character, erase character, the
+            // alternate buffer, DECSC/DECRC -- this emulator does implement. 22 is ANSI colour.
             _terminal.RaiseDataReceived(_terminal.Options.SixelEnabled
-                ? "\u001b[?1;2;4c"
-                : "\u001b[?1;2c");
+                ? "\u001b[?62;4;22c"
+                : "\u001b[?62;22c");
         }
+
+        // Any other prefix is left unanswered. "?c" is the one that used to go wrong: it is not the
+        // secondary DA, but it sets isPrivate, so it was handed the secondary reply -- the answer to
+        // a question the program had not asked, while it was still waiting for the one it had. The
+        // tertiary DA, "=c", never reaches this method at all, because ToCsiCommand strips only "?"
+        // and ">" before the lookup and so resolves it to Unknown. Silence is the right outcome for
+        // it regardless: it asks for a unit ID this terminal does not have, and terminals without
+        // DECRPTUI say nothing.
     }
+
+    /// <summary>
+    /// The Pv field of the secondary DA reply: this assembly's version flattened into one number,
+    /// so 2.0 reports 200.
+    /// </summary>
+    private static int FirmwareVersion =>
+        typeof(InputHandler).Assembly.GetName().Version is { } version
+            ? version.Major * 100 + version.Minor
+            : 0;
+
+    /// <summary>
+    /// The secondary DA reply, CSI &gt; Pp ; Pv ; Pc c.
+    /// </summary>
+    private static string SecondaryDeviceAttributes => $"\u001b[>1;{FirmwareVersion};0c";
 
     /// <summary>
     /// XTSMGRAPHICS -- CSI ? Pi ; Pa ; Pv S. Reports the terminal's graphics limits.
@@ -3126,6 +3569,45 @@ public class InputHandler
                 break;
         }
     }
+
+    /// <summary>
+    /// The version XTVERSION reports, read once. It cannot change while the process runs, and the
+    /// query arrives during the startup of every program that sends one, so rediscovering it
+    /// through reflection each time buys nothing.
+    /// </summary>
+    private static readonly string _versionText = ReadVersion();
+
+    private static string ReadVersion()
+    {
+        var version = typeof(InputHandler).Assembly.GetName().Version;
+
+        // Build is -1 on a version that carries only a major and a minor part.
+        return version is null
+            ? "0.0.0"
+            : $"{version.Major}.{version.Minor}.{Math.Max(0, version.Build)}";
+    }
+
+    /// <summary>
+    /// XTVERSION -- CSI > Ps q. Reports the terminal's name and version.
+    /// </summary>
+    /// <remarks>
+    /// <para>The reply is a DCS string, "DCS &gt; | text ST", in the shape xterm defined and the
+    /// terminals that answer have followed: xterm sends "XTerm(370)", foot "foot(1.13.1)", kitty
+    /// "kitty(0.26.5)". Programs send it to work out whether a capability they cannot otherwise
+    /// detect is safe to use, so being answerable at all matters more than what stands inside the
+    /// parentheses.</para>
+    /// <para>Ps 0 is the only request defined, and anything else goes unanswered: a program that
+    /// asked a question we do not know would otherwise read the version back as the answer to
+    /// it.</para>
+    /// </remarks>
+    private void ReportVersion(Params parameters)
+    {
+        if (parameters.GetParam(0, 0) != 0)
+            return;
+
+        _terminal.RaiseDataReceived($"\u001bP>|XTerm.NET({_versionText})\u001b\\");
+    }
+
     private void DeviceStatusReport(Params parameters, bool isPrivate)
     {
         // DSR - Device Status Report (CSI n or CSI ? n)
@@ -3372,8 +3854,49 @@ public class InputHandler
         return index;
     }
 
+    /// <summary>Applies a colour from SGR 38 or 48 to whichever side asked for it.</summary>
+    private void SetExtendedColor(int color, int mode, bool isForeground)
+    {
+        if (isForeground)
+            _curAttr.SetFgColor(color, mode);
+        else
+            _curAttr.SetBgColor(color, mode);
+    }
+
+    /// <summary>
+    /// SGR 38 and 48 — a foreground or background colour beyond the sixteen, either as a 256-palette
+    /// index or as direct RGB.
+    /// </summary>
+    /// <remarks>
+    /// Accepts the colour as sub-parameters (<c>38:2::r:g:b</c>) as well as separate parameters
+    /// (<c>38;2;r;g;b</c>), for the reason SGR 58 already does: both forms are in use, and taking
+    /// only one of them looks broken to half the callers. The colon form was already reaching the
+    /// parser, which collects it as sub-parameters, and then being dropped here — so a program that
+    /// asked for truecolor that way got no colour at all.
+    /// </remarks>
     private int HandleExtendedColor(Params parameters, int index, bool isForeground)
     {
+        var sub = parameters.GetSubParams(index);
+
+        if (sub is { Count: > 0 })
+        {
+            // 38:2::r:g:b — the empty slot is a colour space id nobody uses, and some programs
+            // leave it out entirely, so the run's length says where red starts.
+            if (sub[0] == 2 && sub.Count >= 4)
+            {
+                var offset = sub.Count >= 5 ? 2 : 1;
+                var rgb = (sub[offset] << 16) | (sub[offset + 1] << 8) | sub[offset + 2];
+                SetExtendedColor(rgb, 1, isForeground);
+            }
+            else if (sub[0] == 5 && sub.Count >= 2)
+            {
+                SetExtendedColor(sub[1], 0, isForeground);
+            }
+
+            // Sub-parameters belong to this parameter, so no later one was consumed.
+            return index;
+        }
+
         if (index + 1 >= parameters.Length)
             return index;
 
@@ -3384,28 +3907,41 @@ public class InputHandler
             var r = parameters.GetParam(index + 2, 0);
             var g = parameters.GetParam(index + 3, 0);
             var b = parameters.GetParam(index + 4, 0);
-            var rgb = (r << 16) | (g << 8) | b;
 
-            if (isForeground)
-                _curAttr.SetFgColor(rgb, 1);
-            else
-                _curAttr.SetBgColor(rgb, 1);
-
+            SetExtendedColor((r << 16) | (g << 8) | b, 1, isForeground);
             return index + 4;
         }
         else if (colorType == 5 && index + 2 < parameters.Length) // 256 color
         {
-            var color = parameters.GetParam(index + 2, 0);
-
-            if (isForeground)
-                _curAttr.SetFgColor(color);
-            else
-                _curAttr.SetBgColor(color);
-
+            SetExtendedColor(parameters.GetParam(index + 2, 0), 0, isForeground);
             return index + 2;
         }
 
         return index;
+    }
+
+    /// <summary>
+    /// DECSLRM (<c>CSI Pl ; Pr s</c>) — set the left and right margins of the scrolling region.
+    /// </summary>
+    /// <remarks>
+    /// <para>Only reachable while DECLRMM is set; see the dispatch above for why.</para>
+    /// <para>Omitted parameters mean the extremes, so a bare <c>CSI s</c> under the mode widens the
+    /// margins back to the whole screen rather than doing nothing.</para>
+    /// <para>The cursor goes home afterwards, as it does for DECSTBM. A cursor left outside the new
+    /// region is the thing that makes the next write land somewhere the application did not choose.</para>
+    /// </remarks>
+    private void SetLeftRightMargins(Params parameters)
+    {
+        var left = Math.Max(parameters.GetParam(0, 1), 1) - 1;
+        var right = Math.Max(parameters.GetParam(1, _terminal.Cols), 1) - 1;
+
+        // A degenerate pair is refused outright, and then so is the cursor move: DEC leaves the old
+        // margins in force, and homing the cursor to a region that was not set would be a visible
+        // effect from a sequence that had none.
+        if (!_buffer.SetLeftRightMargins(left, right))
+            return;
+
+        MoveCursorToHome();
     }
 
     private void SetScrollRegion(Params parameters)
@@ -3429,8 +3965,30 @@ public class InputHandler
 
     private void MoveCursorToHome()
     {
+        // Home is the top-left of the SCROLLING REGION under origin mode, which with margins is a
+        // box rather than a band -- so the column matters as well as the row.
         var row = _terminal.OriginMode ? _buffer.ScrollTop : 0;
-        _buffer.SetCursor(0, row);
+        var col = _terminal.OriginMode ? _buffer.ScrollLeft : 0;
+        _buffer.SetCursor(col, row);
+    }
+
+    /// <summary>
+    /// Turns a column an application asked for into an absolute one, honouring origin mode.
+    /// </summary>
+    /// <remarks>
+    /// The column twin of <see cref="GetAbsoluteCursorRow"/>. Under origin mode an application
+    /// addresses the region rather than the screen, so column 1 is the left margin and nothing it
+    /// asks for can land outside the box.
+    /// </remarks>
+    private int GetAbsoluteCursorCol(int col)
+    {
+        if (_terminal.OriginMode)
+        {
+            long absolute = (long)_buffer.ScrollLeft + col;
+            return (int)Math.Clamp(absolute, _buffer.ScrollLeft, _buffer.ScrollRight);
+        }
+
+        return Math.Clamp(col, 0, Math.Max(0, _terminal.Cols - 1));
     }
 
     private void WindowManipulation(Params parameters)
@@ -3654,12 +4212,13 @@ public class InputHandler
     /// <para>This is how an application finds out whether synchronized output is worth using: it
     /// asks, and a terminal that says nothing is one that does not support the query. Emitting the
     /// mode without answering for it would leave well-behaved applications never using it.</para>
-    /// <para>Deliberately answers for 2026 alone. The reply codes distinguish "set" and "reset" from
-    /// "not recognised", and this terminal keeps mode state as individual properties rather than a
-    /// registry — so answering for everything would mean a switch mapping every mode back to its
-    /// property, and getting one wrong tells an application a feature is missing when it is not.
-    /// Staying silent for the rest is exactly the behaviour before this change, so nothing regresses
-    /// while the one mode that needs an answer gets a correct one.</para>
+    /// <para>Deliberately answers only for the modes an application changes its behaviour on —
+    /// 2026 (synchronized output) and 69 (DECSLRM). The reply codes distinguish "set" and "reset"
+    /// from "not recognised", and this terminal keeps mode state as individual properties rather
+    /// than a registry — so answering for everything would mean a switch mapping every mode back to
+    /// its property, and getting one wrong tells an application a feature is missing when it is
+    /// not. Staying silent for the rest is exactly the behaviour before these modes were added, so
+    /// nothing regresses while the modes that need an answer get correct ones.</para>
     /// </remarks>
     private void HandleRequestMode(Params parameters, bool isPrivate)
     {
@@ -3667,12 +4226,88 @@ public class InputHandler
             return;
 
         var mode = parameters.GetParam(0, 0);
-        if (mode != (int)TerminalMode.SynchronizedOutput)
-            return;
 
         // DECRPM: 1 = set, 2 = reset.
-        var state = _terminal.SynchronizedOutput ? 1 : 2;
+        int state;
+        switch ((TerminalMode)mode)
+        {
+            case TerminalMode.SynchronizedOutput:
+                state = _terminal.SynchronizedOutput ? 1 : 2;
+                break;
+
+            // Worth answering, because an application that cannot ask will not use the feature: the
+            // whole point of DECSLRM is a layout that behaves differently when margins are available,
+            // and a well-behaved one checks before relying on them.
+            case TerminalMode.LeftRightMargin:
+                state = _terminal.LeftRightMarginMode ? 1 : 2;
+                break;
+
+            default:
+                return;
+        }
+
         _terminal.RaiseDataReceived($"\u001b[?{mode};{state}$y");
+    }
+
+    /// <summary>
+    /// CSI = flags ; mode u — set the Kitty keyboard protocol flags.
+    /// Mode 1 assigns, 2 sets only the given bits, 3 clears only the given bits.
+    /// </summary>
+    /// <remarks>
+    /// All four Kitty keyboard sequences are consumed even when the option is off — silently
+    /// dropped, never allowed to fall through to whatever a stripped identifier would have
+    /// matched. See <see cref="KittyKeyboardQuery"/> for why that matters.
+    /// </remarks>
+    private void KittyKeyboardSet(Params parameters)
+    {
+        if (!_terminal.Options.KittyKeyboardEnabled)
+            return;
+
+        var flags = (Input.KittyKeyboardFlags)parameters.GetParam(0, 0);
+        // An OMITTED mode means 1; an explicit 0 is an unknown mode and does nothing, matching
+        // kitty's switch, which takes no branch for it.
+        var mode = parameters.Length > 1 ? parameters.GetParam(1, 1) : 1;
+        _terminal.KittyKeyboardState.Set(flags, mode);
+    }
+
+    /// <summary>
+    /// CSI ? u — query the Kitty keyboard protocol flags. The terminal answers CSI ? flags u.
+    /// </summary>
+    /// <remarks>
+    /// This is the probe applications actually send: Neovim asks on startup and enables the
+    /// protocol on the answer. Before these handlers existed, the identifier's "?" was stripped
+    /// and the probe executed RESTORE CURSOR — so merely asking about Kitty support teleported
+    /// the cursor. When the option is off there is deliberately no answer at all: silence is how
+    /// a terminal says "legacy encoding" to this probe.
+    /// </remarks>
+    private void KittyKeyboardQuery()
+    {
+        if (!_terminal.Options.KittyKeyboardEnabled)
+            return;
+
+        _terminal.RaiseDataReceived($"\u001b[?{(int)_terminal.KittyKeyboardState.Flags}u");
+    }
+
+    /// <summary>
+    /// CSI > flags u — push the current flags onto this screen's stack and set new ones.
+    /// </summary>
+    private void KittyKeyboardPush(Params parameters)
+    {
+        if (!_terminal.Options.KittyKeyboardEnabled)
+            return;
+
+        _terminal.KittyKeyboardState.Push((Input.KittyKeyboardFlags)parameters.GetParam(0, 0));
+    }
+
+    /// <summary>
+    /// CSI < count u — pop flags from this screen's stack.
+    /// </summary>
+    private void KittyKeyboardPop(Params parameters)
+    {
+        if (!_terminal.Options.KittyKeyboardEnabled)
+            return;
+
+        _terminal.KittyKeyboardState.Pop(Math.Max(1, parameters.GetParam(0, 1)));
     }
 
     private void SetCSIModeParameters(Params parameters, bool isPrivate)
@@ -3717,6 +4352,10 @@ public class InputHandler
                 case TerminalMode.Origin:
                     _terminal.OriginMode = true;
                     MoveCursorToHome();
+                    break;
+
+                case TerminalMode.LeftRightMargin:
+                    _terminal.LeftRightMarginMode = true;
                     break;
 
                 case TerminalMode.Wraparound:
@@ -3924,6 +4563,14 @@ public class InputHandler
                     MoveCursorToHome();
                     break;
 
+                case TerminalMode.LeftRightMargin:
+                    // Turning the mode off widens the margins back out, per DEC. Leaving them
+                    // narrowed would keep the region in force with no sequence able to reach it --
+                    // CSI s means Save Cursor again the moment the mode is off.
+                    _terminal.LeftRightMarginMode = false;
+                    _buffer.ResetLeftRightMargins();
+                    break;
+
                 case TerminalMode.Wraparound:
                     // Mode 7: Wraparound mode
                     _terminal.Options.Wraparound = false;
@@ -4075,8 +4722,9 @@ public class InputHandler
 
     private void NextLine()
     {
+        // NEL is Index plus carriage return in xterm, so the column follows CR’s margin rule.
         IndexDown();
-        _buffer.SetCursor(0, _buffer.Y);
+        _buffer.CarriageReturn();
     }
 
     private void ReverseIndex()

@@ -97,6 +97,12 @@ public enum TerminalMode
     /// Backarrow Key Mode (DECBKM).
     /// </summary>
     BackspaceKey = 67,
+
+    /// <summary>
+    /// DECLRMM — left and right margin mode. While set, <c>CSI Pl ; Pr s</c> is DECSLRM and sets the
+    /// margins; while reset, that same sequence is Save Cursor.
+    /// </summary>
+    LeftRightMargin = 69,
     
     /// <summary>
     /// Bracketed Paste Mode.

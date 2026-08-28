@@ -2,6 +2,15 @@ name: BuildAndRunTests
 
 on:
   workflow_dispatch:
+    inputs:
+      chars:
+        description: >-
+          PerfCompare: work budget per corpus per run, divided by that corpus's known relative cost
+          so each is measured for about the same length of time. More is slower and quieter.
+        default: "100000000"
+      runs:
+        description: "PerfCompare: runs of each side."
+        default: "3"
   push:
     branches:
       - main
@@ -11,7 +20,7 @@ on:
     branches: [ "main" ]
     paths:
     - src/**
-    
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -30,6 +39,103 @@ jobs:
 
     - name: Build
       run: dotnet build --no-restore src/XTerm.NET.slnx --property WarningLevel=0
-      
+
     - name: Test
       run: dotnet test --no-build --verbosity normal src/XTerm.NET.slnx
+
+  # Measures this branch against the commit it forked from, on one machine, alternating.
+  #
+  # Allocation is gated exactly and time is gated against the noise the job observes in itself --
+  # see src/XTerm.NET.Bench/ComparePr.cs for why those two are held to different standards.
+  #
+  # A job here rather than a workflow of its own, because `needs` is the only way to say "after
+  # the build passed" that keeps the pull_request context. workflow_run would run this in the
+  # default branch's context with no github.event.pull_request at all, and its
+  # workflow_run.pull_requests[] is empty for FORK pull requests -- which is most of them -- so
+  # the base sha and PR number this job depends on would both be missing exactly when needed.
+  perf:
+    needs: build
+    # Nothing to compare a push against: base.sha is empty outside a pull request, and the
+    # HEAD~1 fallback below would measure main against its own previous commit on every merge.
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+
+    # Only this job needs to write; the build job keeps the repository default.
+    permissions:
+      contents: read
+      pull-requests: write
+
+    env:
+      CHARS: ${{ inputs.chars || '100000000' }}
+      RUNS: ${{ inputs.runs || '3' }}
+      OUT: src/XTerm.NET.Bench/bin/Release/net10.0
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: 10.0.x
+
+    # The harness comes from THIS branch and is used against both libraries, so the two sides are
+    # measured by identical code. That is only safe because the ci mode touches nothing but
+    # Terminal, TerminalOptions and Write(string) -- anything newer would fail against the base.
+    - name: Build the harness and this branch's library
+      run: |
+        dotnet build src/XTerm.NET.Bench -c Release --property WarningLevel=0
+        mkdir -p /tmp/libs
+        cp "$OUT/XTerm.NET.dll" /tmp/libs/head.dll
+
+    - name: Build the base library
+      run: |
+        BASE="${{ github.event.pull_request.base.sha || 'HEAD~1' }}"
+        echo "base commit: $BASE"
+        git worktree add /tmp/base "$BASE"
+        dotnet build /tmp/base/src/XTerm.NET -c Release --property WarningLevel=0
+        cp /tmp/base/src/XTerm.NET/bin/Release/net10.0/XTerm.NET.dll /tmp/libs/base.dll
+
+    # Alternating, so a runner that gets slower or faster part way through does so to both sides
+    # rather than to one. Run through `dotnet <dll>` rather than `dotnet run`, which would rebuild
+    # and put the branch's own library straight back over the one being measured.
+    - name: Measure
+      run: |
+        for r in $(seq 1 "$RUNS"); do
+          for side in base head; do
+            cp "/tmp/libs/$side.dll" "$OUT/XTerm.NET.dll"
+            dotnet "$OUT/XTerm.NET.Bench.dll" ci \
+              --chars "$CHARS" --warm-chars $((CHARS / 4)) \
+              --out "/tmp/$side-$r.json"
+          done
+        done
+
+    - name: Compare
+      id: compare
+      run: |
+        cp /tmp/libs/head.dll "$OUT/XTerm.NET.dll"
+        set +e
+        dotnet "$OUT/XTerm.NET.Bench.dll" compare \
+          --base $(ls /tmp/base-*.json) \
+          --head $(ls /tmp/head-*.json) \
+          --out /tmp/report.md
+        echo "status=$?" >> "$GITHUB_OUTPUT"
+        set -e
+        cat /tmp/report.md >> "$GITHUB_STEP_SUMMARY"
+
+    # Best effort. A pull request from a fork gets a read-only token, so this cannot post -- the job
+    # summary above is the copy that always exists.
+    - name: Comment on the pull request
+      if: github.event_name == 'pull_request'
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh pr comment "${{ github.event.pull_request.number }}" --edit-last --body-file /tmp/report.md \
+          || gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/report.md
+
+    - name: Fail on a regression
+      if: steps.compare.outputs.status != '0'
+      run: |
+        echo "::error::Perf comparison reported a regression. See the job summary."
+        exit 1

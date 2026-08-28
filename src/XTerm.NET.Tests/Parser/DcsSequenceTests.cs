@@ -74,6 +74,20 @@ public class DcsSequenceTests
     }
 
     [Fact]
+    public void XtGetTcap_is_told_apart_from_Sixel_by_its_intermediate()
+    {
+        // "ESC P + q" and "ESC P q" are one character apart and mean entirely different things: a
+        // capability query and an image. The identifier is what keeps them apart, so it has to carry
+        // the intermediate rather than just the final character.
+        var query = Recorder.Of(Esc + "P+q544e" + St);
+        var sixel = Recorder.Of(Esc + "Pq#0;2;100;0;0~" + St);
+
+        Assert.Equal("+q", query.Identifier);
+        Assert.Equal("544e", query.Payload.ToString());
+        Assert.Equal("q", sixel.Identifier);
+    }
+
+    [Fact]
     public void Parameters_before_the_final_character_are_parsed()
     {
         var recorded = Recorder.Of(Esc + "P0;1;8q" + St);
