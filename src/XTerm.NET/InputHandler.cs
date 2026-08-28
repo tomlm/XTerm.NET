@@ -3331,7 +3331,8 @@ public class InputHandler
 
         // An erase is the likeliest way for the last tall block to leave the buffer, and a flag left
         // set retires the print fast path for the rest of the session.
-        _buffer.RefreshMultiRowSizedRuns();
+        if (hasBlocks)
+            _buffer.RefreshMultiRowSizedRuns();
     }
 
     private void EraseInLine(Params parameters)

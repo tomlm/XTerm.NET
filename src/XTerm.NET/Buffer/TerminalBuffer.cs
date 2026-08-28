@@ -276,7 +276,10 @@ public class TerminalBuffer
                 var scrollRegionEnd = _yBase + _scrollBottom;
 
                 // The splice below is what IL and DL do, so it owes any block it tears the same.
-                EraseSizedRunsSplitBy(scrollRegionStart, scrollRegionEnd);
+                // Flag tested HERE: a DECSTBM region scrolls once per newline — the tmux shape —
+                // and no bench corpus walks this path to catch a method call per line.
+                if (HasMultiRowSizedRuns)
+                    EraseSizedRunsSplitBy(scrollRegionStart, scrollRegionEnd);
 
                 // Delete the line at the top of scroll region
                 _lines.Splice(scrollRegionStart, 1);
@@ -306,7 +309,8 @@ public class TerminalBuffer
             var scrollRegionStart = _yBase + _scrollTop;
             var scrollRegionEnd = _yBase + _scrollBottom;
 
-            EraseSizedRunsSplitBy(scrollRegionStart, scrollRegionEnd);
+            if (HasMultiRowSizedRuns)
+                EraseSizedRunsSplitBy(scrollRegionStart, scrollRegionEnd);
 
             // Remove line from scroll region bottom
             _lines.Splice(scrollRegionEnd, 1);
