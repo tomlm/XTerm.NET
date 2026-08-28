@@ -3286,6 +3286,8 @@ public class InputHandler
         var emptyCell = BufferCell.Space;
         emptyCell.Attributes = _curAttr;
 
+        var hasBlocks = _buffer.HasMultiRowSizedRuns;
+
         switch (mode)
         {
             case 0: // Erase below
@@ -3293,14 +3295,16 @@ public class InputHandler
                 for (int i = _buffer.Y + 1; i < _terminal.Rows; i++)
                 {
                     _buffer.Lines[_buffer.YBase + i]?.Fill(emptyCell);
-                    EraseBlocksHangingOver(_buffer.YBase + i, 0, _terminal.Cols);
+                    if (hasBlocks)
+                        EraseBlocksHangingOver(_buffer.YBase + i, 0, _terminal.Cols);
                 }
                 break;
             case 1: // Erase above
                 for (int i = 0; i < _buffer.Y; i++)
                 {
                     _buffer.Lines[_buffer.YBase + i]?.Fill(emptyCell);
-                    EraseBlocksHangingOver(_buffer.YBase + i, 0, _terminal.Cols);
+                    if (hasBlocks)
+                        EraseBlocksHangingOver(_buffer.YBase + i, 0, _terminal.Cols);
                 }
                 EraseInLine(parameters); // Current line to cursor
                 break;
@@ -3308,7 +3312,8 @@ public class InputHandler
                 for (int i = 0; i < _terminal.Rows; i++)
                 {
                     _buffer.Lines[_buffer.YBase + i]?.Fill(emptyCell);
-                    EraseBlocksHangingOver(_buffer.YBase + i, 0, _terminal.Cols);
+                    if (hasBlocks)
+                        EraseBlocksHangingOver(_buffer.YBase + i, 0, _terminal.Cols);
                 }
                 break;
             case 3: // Erase scrollback (xterm extension) — the scrollback only; the screen is kept
@@ -3343,15 +3348,18 @@ public class InputHandler
         {
             case 0: // Erase to right
                 line.Fill(emptyCell, _buffer.X, _terminal.Cols);
-                EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, _buffer.X, _terminal.Cols - _buffer.X);
+                if (_buffer.HasMultiRowSizedRuns)
+                    EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, _buffer.X, _terminal.Cols - _buffer.X);
                 break;
             case 1: // Erase to left
                 line.Fill(emptyCell, 0, _buffer.X + 1);
-                EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, 0, _buffer.X + 1);
+                if (_buffer.HasMultiRowSizedRuns)
+                    EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, 0, _buffer.X + 1);
                 break;
             case 2: // Erase entire line
                 line.Fill(emptyCell);
-                EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, 0, _terminal.Cols);
+                if (_buffer.HasMultiRowSizedRuns)
+                    EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, 0, _terminal.Cols);
                 break;
         }
     }
@@ -3367,11 +3375,15 @@ public class InputHandler
     /// drawn across whatever is there now, and its columns would go on displacing text written to
     /// rows that are no longer under it.
     /// </remarks>
-    private void EraseBlocksHangingOver(int absoluteRow, int column, int count)
-    {
-        if (_buffer.HasMultiRowSizedRuns)
-            _buffer.EraseSizedRunsCovering(absoluteRow, column, count);
-    }
+    /// <summary>
+    /// Erases every block covering the given cells from an earlier row. Callers test
+    /// <see cref="TerminalBuffer.HasMultiRowSizedRuns"/> AT THE CALL — hoisted outside the loop
+    /// where there is one — for the reason NoteLinkRun's guard records: these sit on the
+    /// erase hot paths, a full-screen redraw erases every line, and a method call per line just
+    /// to read a false flag is the shape that has now cost alt-redraw twice.
+    /// </summary>
+    private void EraseBlocksHangingOver(int absoluteRow, int column, int count) =>
+        _buffer.EraseSizedRunsCovering(absoluteRow, column, count);
 
     /// <summary>
     /// REP (<c>CSI Pn b</c>) — repeat the preceding graphic character <c>Pn</c> times.
@@ -3499,7 +3511,8 @@ public class InputHandler
 
         // A block hanging over the cursor's row is split by the insertion -- its lower rows are
         // pushed away from the line that describes them -- so the protocol has it erased.
-        EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, 0, _terminal.Cols);
+        if (_buffer.HasMultiRowSizedRuns)
+            EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, 0, _terminal.Cols);
 
         for (int i = 0; i < count; i++)
         {
@@ -3527,7 +3540,8 @@ public class InputHandler
         // The blocks anchored ON those rows leave with the lines that describe them.
         var last = Math.Min(_buffer.Y + count - 1, _buffer.ScrollBottom);
         for (int row = _buffer.Y; row <= last; row++)
-            EraseBlocksHangingOver(row + _buffer.YBase, 0, _terminal.Cols);
+            if (_buffer.HasMultiRowSizedRuns)
+                EraseBlocksHangingOver(row + _buffer.YBase, 0, _terminal.Cols);
 
         for (int i = 0; i < count; i++)
         {
@@ -3603,7 +3617,8 @@ public class InputHandler
         emptyCell.Attributes = _curAttr;
 
         line?.Fill(emptyCell, _buffer.X, Math.Min(_buffer.X + count, _terminal.Cols));
-        EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, _buffer.X,
+        if (_buffer.HasMultiRowSizedRuns)
+            EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, _buffer.X,
             Math.Min(_buffer.X + count, _terminal.Cols) - _buffer.X);
     }
 
