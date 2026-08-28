@@ -550,4 +550,127 @@ public class TextSizingTests
         Assert.Equal("https://example.com", link.Url);
         Assert.Equal(2, link.Cols);
     }
+    /// <summary>
+    /// The protocol erases over a REGION, so clearing the screen below a block's own row still takes
+    /// the block: two of its three rows were inside what was cleared.
+    /// </summary>
+    [Fact]
+    public void Erasing_below_takes_a_block_hanging_into_it()
+    {
+        var t = Fresh();
+        t.Write(Sized("s=3", "H"));
+        t.Write($"{Esc}[2;1H{Esc}[J");   // cursor to row 2, erase below
+
+        Assert.False(Row(t).HasSizedRuns);
+        Assert.Equal(" ", Row(t)[0].Content);
+        Assert.False(t.Buffer.TryGetSizedRunCovering(t.Buffer.YBase + 1, 0, out _, out _));
+    }
+
+    /// <summary>
+    /// Same rule, a line at a time and a few cells at a time.
+    /// </summary>
+    [Theory]
+    [InlineData("[K")]      // erase to the right of a covered cell
+    [InlineData("[2K")]     // erase the whole covered row
+    [InlineData("[4X")]     // erase characters on the covered row
+    public void Erasing_a_covered_row_takes_the_block(string erase)
+    {
+        var t = Fresh();
+        t.Write(Sized("s=2", "H"));
+        t.Write($"{Esc}[2;1H{Esc}{erase}");
+
+        Assert.False(Row(t).HasSizedRuns);
+        Assert.Equal(" ", Row(t)[0].Content);
+    }
+
+    /// <summary>
+    /// An erase that misses the block entirely leaves it alone -- the region rule is about
+    /// intersection, not about the presence of a block anywhere above.
+    /// </summary>
+    [Fact]
+    public void Erasing_beside_a_block_leaves_it_alone()
+    {
+        var t = Fresh();
+        t.Write(Sized("s=2", "H"));         // columns 0..1
+        t.Write($"{Esc}[2;5H{Esc}[K");      // erase from column 5 rightwards on the row below
+
+        Assert.True(Row(t).TryGetSizedRunAt(0, out _));
+    }
+
+    /// <summary>
+    /// Splicing a line into the middle of a block would leave its lower rows stranded a row further
+    /// down than the run says, so the block is erased instead.
+    /// </summary>
+    [Fact]
+    public void Inserting_a_line_through_a_block_erases_it()
+    {
+        var t = Fresh();
+        t.Write(Sized("s=2", "Hi"));
+        t.Write($"{Esc}[2;1H{Esc}[L");
+
+        Assert.False(Row(t).HasSizedRuns);
+        Assert.Equal(" ", Row(t)[0].Content);
+    }
+
+    /// <summary>
+    /// And deleting one of the rows a block hangs over does the same.
+    /// </summary>
+    [Fact]
+    public void Deleting_a_covered_line_erases_the_block()
+    {
+        var t = Fresh();
+        t.Write(Sized("s=2", "Hi"));
+        t.Write($"{Esc}[2;1H{Esc}[M");
+
+        Assert.False(Row(t).HasSizedRuns);
+    }
+
+    /// <summary>
+    /// The rule is about the cells the text will OVERWRITE, so a double-width character whose right
+    /// half would land inside a block is moved past it too, not just one that starts there.
+    /// </summary>
+    [Fact]
+    public void A_wide_character_may_not_overlap_a_block_from_the_left()
+    {
+        var t = Fresh();
+        t.Write("x" + Sized("s=2", "A"));   // block at columns 1..2, two rows tall
+        t.Write("\r\n\u4e2d");             // a CJK ideograph, two columns wide
+
+        Assert.Equal(" ", Row(t, 1)[0].Content);
+        Assert.Equal("\u4e2d", Row(t, 1)[3].Content);
+    }
+
+    /// <summary>
+    /// Clearing the screen takes the last block with it, so the print path stops looking for rows
+    /// hanging over -- a heading early in a session must not retire the fast path for the rest of it.
+    /// </summary>
+    [Fact]
+    public void Clearing_the_screen_stops_the_search_for_blocks()
+    {
+        var t = Fresh();
+        t.Write(Sized("s=2", "H"));
+        Assert.True(t.Buffer.HasMultiRowSizedRuns);
+
+        t.Write($"{Esc}[2J");
+
+        Assert.False(t.Buffer.HasMultiRowSizedRuns);
+    }
+
+    /// <summary>
+    /// A row full of blocks that cannot be merged into one run is still skipped completely -- the
+    /// loop's bound is for hostile input, not for a legal screen.
+    /// </summary>
+    [Fact]
+    public void A_row_of_many_blocks_is_skipped_completely()
+    {
+        var t = Fresh(cols: 80, rows: 4);
+        for (var i = 0; i < 20; i++)
+            t.Write(Sized("s=2", "a") + Sized("s=2:n=1:d=2", "b"));   // 40 unmergeable blocks, 80 columns
+
+        t.Write("\r\nZ");
+
+        // Nowhere on the covered row is free, so the text lands on the row after it.
+        Assert.Equal("Z", Row(t, 2)[0].Content);
+        Assert.Equal(" ", Row(t, 1)[0].Content);
+    }
 }

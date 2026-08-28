@@ -235,16 +235,6 @@ public class InputHandler
         if (_buffer.X >= _terminal.Cols && !ResolveAutowrap())
             return; // Don't print beyond line edge
 
-        // A cell belonging to a scaled block anchored on an earlier row is not written into: the
-        // cursor moves past the block's cells on this row and the text lands after them. One field
-        // read for every session that has never seen an OSC 66 block, which is nearly all of them.
-        if (_buffer.HasMultiRowSizedRuns && !SkipCellsCoveredFromAbove())
-            return;
-
-        var line = _buffer.Lines[_buffer.Y + _buffer.YBase]; 
-        if (line == null)
-            return;
-
         // Translate character through active charset
         var translatedData = data;
         if (data.Length == 1)
@@ -254,6 +244,17 @@ public class InputHandler
 
         // Get character width
         var width = GetStringCellWidth(translatedData);
+
+        // A cell belonging to a scaled block anchored on an earlier row is not written into: the
+        // cursor moves past the block's cells on this row and the text lands after them. Known
+        // before the line is fetched, because skipping can wrap onto another row. One field read for
+        // every session that has never seen an OSC 66 block, which is nearly all of them.
+        if (_buffer.HasMultiRowSizedRuns && !SkipCellsCoveredFromAbove(width))
+            return;
+
+        var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
+        if (line == null)
+            return;
 
         // Create cell
         var cell = new BufferCell
@@ -367,23 +368,47 @@ public class InputHandler
     /// usual way and the search continues on the row it lands on -- a block on the next row down can
     /// cover the column it wrapped to.</para>
     /// </remarks>
-    /// <returns>False when the skip ran off the end of a line that cannot wrap.</returns>
-    private bool SkipCellsCoveredFromAbove()
+    /// <param name="width">
+    /// How many columns the caller is about to write. The rule is about the cells the text will
+    /// overwrite, so a double-width character or a block of its own must clear the whole span it
+    /// covers -- checking only the cursor cell would let its right half land inside a block.
+    /// </param>
+    /// <returns>False when there is nowhere left to write.</returns>
+    private bool SkipCellsCoveredFromAbove(int width)
     {
-        // Bounded rather than "until clear": the loop advances every pass, but a bound costs nothing
-        // and cannot be the thing that hangs a terminal on hostile input.
-        for (var guard = 0; guard <= TextSizing.MaxScale * 2; guard++)
+        // Bounded rather than "until clear": every pass moves the cursor strictly forwards, so the
+        // loop terminates on its own, but a bound cannot be the thing that hangs a terminal on
+        // hostile input. Generous enough that legal content cannot reach it -- a row holds at most
+        // Cols blocks and a skip can wrap onto a new row -- because giving up mid-skip would write
+        // into a covered cell.
+        var guard = (_terminal.Cols + 1) * TextSizing.MaxScale;
+        while (guard-- > 0)
         {
             if (!ResolveAutowrap())
                 return false;
 
-            if (!_buffer.TryGetSizedRunCovering(_buffer.Y + _buffer.YBase, _buffer.X, out var run, out _))
+            var row = _buffer.Y + _buffer.YBase;
+            var end = Math.Min(_buffer.X + Math.Max(width, 1), _terminal.Cols);
+
+            LineSizedRun covering = default;
+            var found = false;
+            for (var column = _buffer.X; column < end; column++)
+            {
+                if (_buffer.TryGetSizedRunCovering(row, column, out var run, out _))
+                {
+                    covering = run;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
                 return true;
 
-            _buffer.SetCursorRaw(Math.Min(run.EndColumn, _terminal.Cols), _buffer.Y);
+            _buffer.SetCursorRaw(Math.Min(covering.EndColumn, _terminal.Cols), _buffer.Y);
         }
 
-        return true;
+        return false;
     }
 
     /// <summary>
@@ -2649,12 +2674,23 @@ public class InputHandler
             return;
 
         // A block is text like any other, so it is placed after any block already covering the
-        // cursor from an earlier row rather than into the middle of one.
-        if (_buffer.HasMultiRowSizedRuns && !SkipCellsCoveredFromAbove())
-            return;
-
-        if (_buffer.X + cols > _terminal.Cols)
+        // cursor from an earlier row rather than into the middle of one -- and then it still has to
+        // fit on the row it landed on. The two settle each other, so they are asked together rather
+        // than once each: skipping can leave too little room, and making room can land under another
+        // block. Bounded, and a block that cannot be settled is dropped rather than written into
+        // cells that belong to something else.
+        var placed = false;
+        for (var attempt = 0; attempt < 3 && !placed; attempt++)
         {
+            if (_buffer.HasMultiRowSizedRuns && !SkipCellsCoveredFromAbove(cols))
+                return;
+
+            if (_buffer.X + cols <= _terminal.Cols)
+            {
+                placed = true;
+                break;
+            }
+
             if (_terminal.Options.Wraparound)
             {
                 if (_buffer.Y == _buffer.ScrollBottom)
@@ -2677,6 +2713,9 @@ public class InputHandler
                 _buffer.SetCursorRaw(_terminal.Cols - cols, _buffer.Y);
             }
         }
+
+        if (!placed)
+            return;
 
         var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
         if (line == null)
@@ -2950,12 +2989,14 @@ public class InputHandler
                 for (int i = _buffer.Y + 1; i < _terminal.Rows; i++)
                 {
                     _buffer.Lines[_buffer.YBase + i]?.Fill(emptyCell);
+                    EraseBlocksHangingOver(_buffer.YBase + i, 0, _terminal.Cols);
                 }
                 break;
             case 1: // Erase above
                 for (int i = 0; i < _buffer.Y; i++)
                 {
                     _buffer.Lines[_buffer.YBase + i]?.Fill(emptyCell);
+                    EraseBlocksHangingOver(_buffer.YBase + i, 0, _terminal.Cols);
                 }
                 EraseInLine(parameters); // Current line to cursor
                 break;
@@ -2963,6 +3004,7 @@ public class InputHandler
                 for (int i = 0; i < _terminal.Rows; i++)
                 {
                     _buffer.Lines[_buffer.YBase + i]?.Fill(emptyCell);
+                    EraseBlocksHangingOver(_buffer.YBase + i, 0, _terminal.Cols);
                 }
                 break;
             case 3: // Erase scrollback (xterm extension) — the scrollback only; the screen is kept
@@ -2977,6 +3019,10 @@ public class InputHandler
                 _buffer.ClearScrollback();
                 break;
         }
+
+        // An erase is the likeliest way for the last tall block to leave the buffer, and a flag left
+        // set retires the print fast path for the rest of the session.
+        _buffer.RefreshMultiRowSizedRuns();
     }
 
     private void EraseInLine(Params parameters)
@@ -2993,14 +3039,34 @@ public class InputHandler
         {
             case 0: // Erase to right
                 line.Fill(emptyCell, _buffer.X, _terminal.Cols);
+                EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, _buffer.X, _terminal.Cols - _buffer.X);
                 break;
             case 1: // Erase to left
                 line.Fill(emptyCell, 0, _buffer.X + 1);
+                EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, 0, _buffer.X + 1);
                 break;
             case 2: // Erase entire line
                 line.Fill(emptyCell);
+                EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, 0, _terminal.Cols);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Erases the OSC 66 blocks anchored on earlier rows whose cells hang over the region an erase
+    /// or a line splice is about to change.
+    /// </summary>
+    /// <remarks>
+    /// The protocol's rules for erasing and for inserting or deleting lines are stated over the
+    /// REGION affected rather than over a line, and a block <c>s</c> rows tall is inside every region
+    /// its lower rows touch. A block left alive over rows that have been cleared or moved would be
+    /// drawn across whatever is there now, and its columns would go on displacing text written to
+    /// rows that are no longer under it.
+    /// </remarks>
+    private void EraseBlocksHangingOver(int absoluteRow, int column, int count)
+    {
+        if (_buffer.HasMultiRowSizedRuns)
+            _buffer.EraseSizedRunsCovering(absoluteRow, column, count);
     }
 
     /// <summary>
@@ -3051,12 +3117,18 @@ public class InputHandler
         if (_buffer.Y < _buffer.ScrollTop || _buffer.Y > _buffer.ScrollBottom)
             return;
 
+        // A block hanging over the cursor's row is split by the insertion -- its lower rows are
+        // pushed away from the line that describes them -- so the protocol has it erased.
+        EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, 0, _terminal.Cols);
+
         for (int i = 0; i < count; i++)
         {
             _buffer.Lines.Splice(_buffer.YBase + _buffer.ScrollBottom, 1);
             _buffer.Lines.Splice(_buffer.Y + _buffer.YBase, 0,
                 _buffer.GetBlankLine(_curAttr));
         }
+
+        _buffer.RefreshMultiRowSizedRuns();
     }
 
     private void DeleteLines(Params parameters)
@@ -3066,12 +3138,20 @@ public class InputHandler
         if (_buffer.Y < _buffer.ScrollTop || _buffer.Y > _buffer.ScrollBottom)
             return;
 
+        // Every deleted row is part of the region, so a block hanging over any of them goes too.
+        // The blocks anchored ON those rows leave with the lines that describe them.
+        var last = Math.Min(_buffer.Y + count - 1, _buffer.ScrollBottom);
+        for (int row = _buffer.Y; row <= last; row++)
+            EraseBlocksHangingOver(row + _buffer.YBase, 0, _terminal.Cols);
+
         for (int i = 0; i < count; i++)
         {
             _buffer.Lines.Splice(_buffer.Y + _buffer.YBase, 1);
             _buffer.Lines.Splice(_buffer.YBase + _buffer.ScrollBottom, 0,
                 _buffer.GetBlankLine(_curAttr));
         }
+
+        _buffer.RefreshMultiRowSizedRuns();
     }
 
     private void InsertChars(Params parameters)
@@ -3129,6 +3209,8 @@ public class InputHandler
         emptyCell.Attributes = _curAttr;
 
         line?.Fill(emptyCell, _buffer.X, Math.Min(_buffer.X + count, _terminal.Cols));
+        EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, _buffer.X,
+            Math.Min(_buffer.X + count, _terminal.Cols) - _buffer.X);
     }
 
     private void ScrollUp(Params parameters)

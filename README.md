@@ -342,8 +342,10 @@ if (terminal.Buffer.TryGetSizedRunCovering(absoluteRow, col, out var run, out va
 }
 ```
 
-A renderer that cannot scale at all should draw the text at the base size in the first cell of the
-block; the columns are reported honestly either way.
+Erasing or splicing any row a block touches — `ED`, `EL`, `ECH`, `IL`, `DL` — erases the whole
+block, as the protocol asks, so a block never outlives the rows it was drawn over. A renderer that
+cannot scale at all should draw the text at the base size in the first cell of the block; the columns
+are reported honestly either way.
 
 ### Images
 

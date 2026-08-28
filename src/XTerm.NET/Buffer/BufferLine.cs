@@ -604,6 +604,19 @@ public class BufferLine : IEnumerable<BufferCell>
         => EraseSizedRunsOver(column, Math.Max(0, _length - column), blankAll: true);
 
     /// <summary>
+    /// Erases every sized run on this line that both touches the given columns and is tall enough to
+    /// reach <paramref name="rowsBelow"/> rows down, blanking all of their cells.
+    /// </summary>
+    /// <remarks>
+    /// What a line further down owes the blocks hanging over it. The protocol's erase rule is about
+    /// the REGION of the screen erased rather than about a line, so a block whose lower rows are
+    /// inside that region dies with it even though its own line was never touched.
+    /// </remarks>
+    /// <param name="rowsBelow">How far below this line the erased row is; 1 is the next line down.</param>
+    internal void EraseSizedRunsReaching(int column, int count, int rowsBelow)
+        => EraseSizedRunsOver(column, count, blankAll: true, reachingRows: rowsBelow);
+
+    /// <summary>
     /// Erases every sized run touching the given columns, blanking the cells of theirs that the
     /// caller is not about to write itself.
     /// </summary>
@@ -612,7 +625,11 @@ public class BufferLine : IEnumerable<BufferCell>
     /// about to write itself. Callers that only overwrite part of the range -- a shift, a delete --
     /// pass true, so no orphaned continuation cell is left behind.
     /// </param>
-    private void EraseSizedRunsOver(int column, int count, bool blankAll = false)
+    /// <param name="reachingRows">
+    /// When above zero, only runs drawn over MORE than this many rows are erased -- the caller is a
+    /// row below this line, and a run that does not reach it is none of its business.
+    /// </param>
+    private void EraseSizedRunsOver(int column, int count, bool blankAll = false, int reachingRows = 0)
     {
         if (_sizedRuns is null)
             return;
@@ -623,6 +640,9 @@ public class BufferLine : IEnumerable<BufferCell>
         {
             var run = _sizedRuns[i];
             if (run.Column >= end || run.EndColumn <= column)
+                continue;
+
+            if (run.Rows <= reachingRows)
                 continue;
 
             _sizedRuns.RemoveAt(i);

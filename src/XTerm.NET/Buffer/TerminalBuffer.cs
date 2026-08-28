@@ -370,9 +370,11 @@ public class TerminalBuffer
     /// <remarks>
     /// The guard in front of <see cref="TryGetSizedRunCovering"/>, which the print path asks per
     /// character. Almost no session ever sets it, and one that does pays a bounded walk of at most
-    /// <see cref="Common.TextSizing.MaxScale"/> minus one lines. Sticky rather than refcounted: it
-    /// answers "is this worth looking for", and a stale true costs a few field reads while a stale
-    /// false would lose the skipping behaviour entirely.
+    /// <see cref="Common.TextSizing.MaxScale"/> minus one lines. It answers "is this worth looking
+    /// for" rather than counting: a stale false would lose the skipping behaviour entirely, so it is
+    /// only ever set by writing a tall block and cleared by
+    /// <see cref="RefreshMultiRowSizedRuns"/>, which the operations that can remove the last one
+    /// call.
     /// </remarks>
     public bool HasMultiRowSizedRuns { get; internal set; }
 
@@ -416,6 +418,67 @@ public class TerminalBuffer
         run = default;
         anchorRow = -1;
         return false;
+    }
+
+    /// <summary>
+    /// Erases every OSC 66 block anchored ABOVE <paramref name="absoluteRow"/> whose cells reach
+    /// into the given columns of that row, blanking what is left of each on its own line.
+    /// </summary>
+    /// <remarks>
+    /// The protocol's erase rule is about the region of the screen erased, not about a line: a block
+    /// intersected anywhere -- including on a row it merely hangs over -- is erased whole. The
+    /// controls that erase a line's own cells get that for free, because writing over any cell of a
+    /// block destroys it; this is the other half, for the rows below the block's own.
+    /// </remarks>
+    public void EraseSizedRunsCovering(int absoluteRow, int column, int count)
+    {
+        if (!HasMultiRowSizedRuns || count <= 0)
+            return;
+
+        for (var above = 1; above < Common.TextSizing.MaxScale; above++)
+        {
+            var row = absoluteRow - above;
+            if (row < 0)
+                break;
+
+            var line = row < _lines.Length ? _lines[row] : null;
+            if (line is null || !line.HasSizedRuns)
+                continue;
+
+            line.EraseSizedRunsReaching(column, count, above);
+        }
+    }
+
+    /// <summary>
+    /// Re-derives <see cref="HasMultiRowSizedRuns"/> from what the buffer actually holds.
+    /// </summary>
+    /// <remarks>
+    /// The flag only ever turns itself on, because turning it off wrongly would lose the skipping
+    /// behaviour while turning it on wrongly costs only a lookup. That leaves it to the operations
+    /// that plausibly remove the last tall block -- clearing the screen, a reset -- to ask for it to
+    /// be worked out again, which is worth doing because a stale true retires the print fast path
+    /// for the rest of the session. The scan is bounded by the ring and only runs when the flag is
+    /// set, so a session that has never drawn a tall block never pays for it.
+    /// </remarks>
+    public void RefreshMultiRowSizedRuns()
+    {
+        if (!HasMultiRowSizedRuns)
+            return;
+
+        for (int i = 0; i < _lines.Length; i++)
+        {
+            var line = _lines[i];
+            if (line is null || !line.HasSizedRuns)
+                continue;
+
+            foreach (var run in line.SizedRuns)
+            {
+                if (run.Rows > 1)
+                    return;
+            }
+        }
+
+        HasMultiRowSizedRuns = false;
     }
 
     /// <summary>
