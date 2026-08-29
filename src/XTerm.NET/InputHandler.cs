@@ -5522,6 +5522,9 @@ public class InputHandler
             case (int)TerminalMode.SynchronizedOutput:
                 set = _terminal.SynchronizedOutput;
                 return true;
+            case (int)TerminalMode.InBandResize:
+                set = _terminal.InBandResize;
+                return true;
             case (int)TerminalMode.Win32InputMode:
                 set = _terminal.Win32InputMode;
                 return true;
@@ -5694,6 +5697,14 @@ public class InputHandler
 
                 case TerminalMode.SynchronizedOutput:
                     _terminal.RaiseSynchronizedOutputChanged(true);
+                    break;
+
+                case TerminalMode.InBandResize:
+                    _terminal.InBandResize = true;
+                    // The first report is mandatory, and it is what makes the mode worth setting:
+                    // the application learns the size the moment it asks to be kept informed,
+                    // instead of enabling this and then waiting for a resize that may never come.
+                    _terminal.SendInBandResizeReport();
                     break;
 
                 case TerminalMode.BracketedPasteMode:
@@ -5910,6 +5921,10 @@ public class InputHandler
 
                 case TerminalMode.SynchronizedOutput:
                     _terminal.RaiseSynchronizedOutputChanged(false);
+                    break;
+
+                case TerminalMode.InBandResize:
+                    _terminal.InBandResize = false;
                     break;
 
                 case TerminalMode.BracketedPasteMode:
