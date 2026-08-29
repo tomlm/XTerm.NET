@@ -51,3 +51,27 @@ internal static partial class WidthTables
 out = "src/XTerm.NET/Common/WidthTables.Generated.cs"
 open(out, "w").write(header)
 print(f"wrote {out}: wcwidth {wcwidth.__version__}, unicode {list_versions()[-1]}")
+
+# Parity fixture: python's answer for EVERY codepoint, run-length encoded. The suite replays
+# all 1,114,112 against WidthTables.Lookup on every run, so the tables and the referee cannot
+# drift apart silently -- and neither file can be hand-edited without the other noticing.
+from wcwidth import wcwidth as _wcw
+runs = []
+prev = None
+count = 0
+for cp in range(0x110000):
+    w = _wcw(chr(cp))
+    if w == prev:
+        count += 1
+    else:
+        if prev is not None:
+            runs.append(f"{prev} {count}")
+        prev, count = w, 1
+runs.append(f"{prev} {count}")
+fixture = "src/XTerm.NET.Tests/Fixtures/wcwidth-parity.rle"
+import os
+os.makedirs(os.path.dirname(fixture), exist_ok=True)
+open(fixture, "w").write(
+    f"# python wcwidth {wcwidth.__version__}, unicode {list_versions()[-1]}: width runlength\n"
+    + "\n".join(runs) + "\n")
+print(f"wrote {fixture}: {len(runs)} runs")
