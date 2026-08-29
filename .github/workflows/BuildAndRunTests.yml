@@ -95,6 +95,11 @@ jobs:
         git worktree add /tmp/base "$BASE"
         dotnet build /tmp/base/src/XTerm.NET -c Release --property WarningLevel=0
         cp /tmp/base/src/XTerm.NET/bin/Release/net10.0/XTerm.NET.dll /tmp/libs/base.dll
+        # The base library may depend on assemblies the head's output no longer carries — the
+        # swap below only replaces XTerm.NET.dll, so stage the base's companions no-clobber.
+        # Head-side companions win when both sides have one, which is the version head built
+        # against; the base's extras merely sit unloaded while head runs.
+        cp -n /tmp/base/src/XTerm.NET/bin/Release/net10.0/*.dll "$OUT/" || true
 
     # Alternating, so a runner that gets slower or faster part way through does so to both sides
     # rather than to one. Run through `dotnet <dll>` rather than `dotnet run`, which would rebuild
