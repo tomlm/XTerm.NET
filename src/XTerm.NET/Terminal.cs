@@ -780,6 +780,7 @@ public class Terminal : IDisposable
 
         // Reset parser
         _parser.Reset();
+        _inputHandler.ResetAttributes();
 
         // Reset modes
         InsertMode = false;

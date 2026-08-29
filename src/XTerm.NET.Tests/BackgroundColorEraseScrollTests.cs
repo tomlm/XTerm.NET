@@ -66,4 +66,38 @@ public class BackgroundColorEraseScrollTests
         Assert.All(Enumerable.Range(0, line.Length), column =>
             Assert.Equal(5, line[column].Attributes.GetBgColor()));
     }
+
+    [Theory]
+    [InlineData("\u001b[2K", 0, 0)]
+    [InlineData("\u001b[2J", 0, 0)]
+    [InlineData("\u001b[3X", 0, 0)]
+    [InlineData("\u001b[2@", 0, 0)]
+    [InlineData("\u001b[2P", 0, 4)]
+    [InlineData("\u001b[L", 0, 0)]
+    [InlineData("\u001b[M", 2, 0)]
+    public void Every_BCE_operation_keeps_only_the_current_background(
+        string operation, int row, int column)
+    {
+        var terminal = new Terminal(new TerminalOptions { Cols = 5, Rows = 3 });
+        terminal.Write($"{Esc}[1;31;44m{operation}");
+
+        var attributes = terminal.Buffer.Lines[terminal.Buffer.YBase + row]![column].Attributes;
+        Assert.Equal(4, attributes.GetBgColor());
+        Assert.Equal(256, attributes.GetFgColor());
+        Assert.False(attributes.IsBold());
+    }
+
+    [Fact]
+    public void Reset_clears_the_background_used_by_later_scrolls()
+    {
+        var terminal = new Terminal(new TerminalOptions { Cols = 5, Rows = 3 });
+        terminal.Write($"{Esc}[44m");
+
+        terminal.Reset();
+        terminal.Write($"{Esc}[3;1H\n");
+
+        var line = terminal.Buffer.Lines[terminal.Buffer.YBase + 2]!;
+        Assert.All(Enumerable.Range(0, line.Length), column =>
+            Assert.Equal(257, line[column].Attributes.GetBgColor()));
+    }
 }

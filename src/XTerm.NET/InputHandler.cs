@@ -99,7 +99,11 @@ public class InputHandler
 
     private void RefreshActiveCharset() => _activeCharset = _charsets.GetValueOrDefault(_currentCharset);
 
-    /// <summary>The current background, without foreground or text rendition attributes.</summary>
+    /// <summary>
+    /// The current background, without foreground or text rendition attributes. This mirrors
+    /// xterm.js <c>_eraseAttrData()</c>: BCE paints a background, while a later write supplies its
+    /// own foreground and rendition.
+    /// </summary>
     private AttributeData GetEraseAttributes()
     {
         var attributes = AttributeData.Default;
@@ -4599,7 +4603,7 @@ public class InputHandler
     {
         var mode = parameters.GetParam(0, 0);
         var emptyCell = BufferCell.Space;
-        emptyCell.Attributes = _curAttr;
+        emptyCell.Attributes = GetEraseAttributes();
 
         var hasBlocks = _buffer.HasMultiRowSizedRuns;
 
@@ -4658,7 +4662,7 @@ public class InputHandler
             return;
 
         var emptyCell = BufferCell.Space;
-        emptyCell.Attributes = _curAttr;
+        emptyCell.Attributes = GetEraseAttributes();
 
         switch (mode)
         {
@@ -4801,11 +4805,11 @@ public class InputHandler
         => _buffer.Y >= _buffer.ScrollTop && _buffer.Y <= _buffer.ScrollBottom
         && CursorInMarginColumns();
 
-    /// <summary>A blank carrying the current attributes, which is what BCE fills with.</summary>
+    /// <summary>A blank carrying only the current background, which is what BCE fills with.</summary>
     private BufferCell BlankCell()
     {
         var cell = BufferCell.Space;
-        cell.Attributes = _curAttr;
+        cell.Attributes = GetEraseAttributes();
         return cell;
     }
 
@@ -4843,7 +4847,7 @@ public class InputHandler
         {
             _buffer.Lines.Splice(_buffer.YBase + _buffer.ScrollBottom, 1);
             _buffer.Lines.Splice(_buffer.Y + _buffer.YBase, 0,
-                _buffer.GetBlankLine(_curAttr));
+                _buffer.GetBlankLine(GetEraseAttributes()));
         }
 
         _buffer.RefreshMultiRowSizedRuns();
@@ -4881,7 +4885,7 @@ public class InputHandler
         {
             _buffer.Lines.Splice(_buffer.Y + _buffer.YBase, 1);
             _buffer.Lines.Splice(_buffer.YBase + _buffer.ScrollBottom, 0,
-                _buffer.GetBlankLine(_curAttr));
+                _buffer.GetBlankLine(GetEraseAttributes()));
         }
 
         _buffer.RefreshMultiRowSizedRuns();
@@ -4966,7 +4970,7 @@ public class InputHandler
         var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
 
         var emptyCell = BufferCell.Space;
-        emptyCell.Attributes = _curAttr;
+        emptyCell.Attributes = GetEraseAttributes();
 
         line?.Fill(emptyCell, _buffer.X, Math.Min(_buffer.X + count, _terminal.Cols));
         if (_buffer.HasMultiRowSizedRuns)
@@ -6798,4 +6802,7 @@ public class InputHandler
         _buffer = buffer;
         _buffer.EraseAttributesProvider = GetEraseAttributes;
     }
+
+    /// <summary>Restores the rendition state consumed by printing and background erasure.</summary>
+    internal void ResetAttributes() => _curAttr = AttributeData.Default;
 }
