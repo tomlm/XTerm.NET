@@ -129,6 +129,51 @@ public class CursorAndMarginTests
     }
 
     [Fact]
+    public void Clearing_all_stops_removes_the_defaults_too()
+    {
+        // The earlier test could not catch TBC doing nothing: its custom stop at column 4 merely
+        // preceded the untouched default at 8, so a tab landed on 4 either way. This one asks
+        // whether a DEFAULT stop was actually removed, which only passes if TBC works.
+        var terminal = NewTerminal(cols: 40);
+        terminal.Write($"{Esc}[3g");        // clear every stop
+        terminal.Write($"{Esc}[1;1H" + "\t");
+
+        // With no stops at all a tab goes to the last column, not to 8.
+        Assert.Equal(39, terminal.Buffer.X);
+    }
+
+    [Fact]
+    public void Backward_tab_uses_the_stops_a_program_set()
+    {
+        // CBT derived its answer arithmetically, so it ignored HTS stops and disagreed with
+        // forward tab on the same screen: from column 6 with a stop at 4 it went to 0.
+        var terminal = NewTerminal(cols: 40);
+        terminal.Write($"{Esc}[3g");                    // no stops
+        terminal.Write($"{Esc}[1;5H{Esc}H");            // HTS at column 4
+        terminal.Write($"{Esc}[1;7H");                  // cursor at column 6
+        terminal.Write($"{Esc}[Z");                     // CBT
+
+        Assert.Equal(4, terminal.Buffer.X);
+    }
+
+    [Fact]
+    public void Restoring_a_cursor_that_was_pending_a_wrap_still_wraps()
+    {
+        // The saved position is X == Cols, one past the last column. Restoring it through the
+        // clamp put the cursor ON the last cell, so the next character overwrote that cell
+        // instead of wrapping to the next row.
+        var terminal = NewTerminal(cols: 10, rows: 4);
+        terminal.Write("0123456789");       // fills the line; cursor pending wrap
+        terminal.Write($"{Esc}7");          // DECSC
+        terminal.Write($"{Esc}[3;1H");      // go elsewhere
+        terminal.Write($"{Esc}8");          // DECRC
+        terminal.Write("X");
+
+        Assert.Equal("9", Row(terminal, 0, 10)[9..]);   // the last cell survived
+        Assert.Equal("X", Row(terminal, 1, 1));         // and X wrapped
+    }
+
+    [Fact]
     public void Both_tab_motions_agree_on_the_same_screen()
     {
         // C0 HT hardcoded 8 while CHT honoured the option, so the two disagreed.

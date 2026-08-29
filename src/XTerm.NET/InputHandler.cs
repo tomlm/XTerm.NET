@@ -4961,35 +4961,29 @@ public class InputHandler
     {
         // CBT - Cursor Backward Tabulation (CSI Z)
         var count = Math.Max(parameters.GetParam(0, 1), 1);
-        var tabWidth = _terminal.Options.TabStopWidth;
 
-        for (int i = 0; i < count; i++)
+        for (var i = 0; i < count; i++)
         {
             if (_buffer.X == 0)
                 break;
 
-            var prevTabStop = ((_buffer.X - 1) / tabWidth) * tabWidth;
-            _buffer.SetCursor(Math.Max(prevTabStop, 0), _buffer.Y);
+            // The stop SET, like HT and CHT. Deriving the previous stop arithmetically ignored
+            // every stop a program set with HTS and every one it cleared with TBC, so backward
+            // tab disagreed with forward tab on the same screen.
+            _buffer.SetCursor(_terminal.PreviousTabStop(_buffer.X), _buffer.Y);
         }
     }
 
     private void TabClear(Params parameters)
     {
-        // TBC - Tab Clear (CSI g)
-        // Ps = 0: Clear tab stop at current column (default)
-        // Ps = 3: Clear all tab stops
-        // Note: We use fixed tab stops, so this is acknowledged but has no effect
-        // A full implementation would maintain a list of custom tab stops
+        // TBC - Tab Clear (CSI g). Ps=0 clears the stop at the cursor, Ps=3 clears them all.
+        // This used to acknowledge both and do nothing, which its own comment admitted, so
+        // `tabs 4` and every program that manages its own stops was quietly ignored.
         var mode = parameters.GetParam(0, 0);
-        switch (mode)
-        {
-            case 0:
-                // Clear current column tab stop - acknowledged but no action
-                break;
-            case 3:
-                // Clear all tab stops - acknowledged but no action
-                break;
-        }
+        if (mode == 0)
+            _terminal.ClearTabStop(_buffer.X, all: false);
+        else if (mode == 3)
+            _terminal.ClearTabStop(0, all: true);
     }
 
     /// <summary>
@@ -6537,7 +6531,15 @@ public class InputHandler
 
     private void RestoreCursor()
     {
-        _buffer.SetCursor(_buffer.SavedCursorState.X, _buffer.SavedCursorState.Y);
+        // SetCursorRaw when the saved cursor was pending a wrap, because that position is X ==
+        // Cols -- one past the last column, where no character sits -- and SetCursor clamps it to
+        // Cols - 1. Restoring through the clamp put the cursor ON the last cell instead of past
+        // it, so the next character overwrote that cell rather than wrapping, and the flag set
+        // below could not undo it: the coordinate was already gone.
+        if (_buffer.SavedCursorState.PendingWrap)
+            _buffer.SetCursorRaw(_buffer.SavedCursorState.X, _buffer.SavedCursorState.Y);
+        else
+            _buffer.SetCursor(_buffer.SavedCursorState.X, _buffer.SavedCursorState.Y);
         _curAttr = _buffer.SavedCursorState.Attr;
         if (_savedCharsetDesignations is not null)
         {
