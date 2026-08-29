@@ -1,4 +1,3 @@
-using NeoSmart.Unicode;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -45,6 +44,10 @@ public class InputHandler
     private const int VariationSelectorEmojiSymbol = 0xFE0F;  // Emoji presentation selector
     private const int VariationSelectorTextSymbol = 0xFE0E;   // Text presentation selector
     private const int ZeroWidthJoiner = 0x200D;               // ZWJ for emoji sequences
+    private const int ObjectReplacementCharacter = 0xFFFC;    // stands in for an embedded object
+    private const int KeycapCombiner = 0x20E3;                // 1️⃣: digit + VS16 + this
+    private const int SkinToneFirst = 0x1F3FB;                // Fitzpatrick modifiers,
+    private const int SkinToneLast = 0x1F3FF;                 // light through dark
 
     // Where a ZWJ was just merged, if anywhere. The character that FOLLOWS a ZWJ continues the same
     // grapheme cluster and belongs in the same cell, but it is an ordinary emoji and so passes no
@@ -295,7 +298,7 @@ public class InputHandler
 
     /// <summary>The Fitzpatrick skin tone modifiers, U+1F3FB to U+1F3FF.</summary>
     private static bool IsSkinToneModifier(int codePoint)
-        => codePoint >= 0x1F3FB && codePoint <= 0x1F3FF;
+        => codePoint >= SkinToneFirst && codePoint <= SkinToneLast;
 
     /// <summary>
     /// The last code point in a cell's content — the one a modifier would actually be attaching to, since a
@@ -6411,7 +6414,7 @@ public class InputHandler
 
             if (!char.IsSurrogate(c))
             {
-                if (c == Emoji.ZeroWidthJoiner)
+                if (c == ZeroWidthJoiner)
                     return 0;
 
                 var w = CellWidth.Get(c);
@@ -6434,7 +6437,7 @@ public class InputHandler
             int runeWidth = CellWidth.Get(rune.Value);   // memoised; the library call is ~23 ns
             if (runeWidth >= 0)
             {
-                if (rune.Value == Emoji.ZeroWidthJoiner || rune.Value == Emoji.ObjectReplacementCharacter)
+                if (rune.Value == ZeroWidthJoiner || rune.Value == ObjectReplacementCharacter)
                 {
                     if (!supportsComplexEmoji)
                         // we return the first emoji as the result because terminal doesn't support chaining them
@@ -6454,14 +6457,14 @@ public class InputHandler
                         // too and is unaffected, being genuinely zero-width in its own right.
                         width += (ushort)runeWidth;
                 }
-                else if (rune.Value == Codepoints.VariationSelectors.EmojiSymbol &&
+                else if (rune.Value == VariationSelectorEmojiSymbol &&
                          lastWidth == 1)
                 {
                     // adjust for the emoji presentation, which is width 2
                     width++;
                     lastWidth = 2;
                 }
-                else if (rune.Value == Codepoints.VariationSelectors.TextSymbol &&
+                else if (rune.Value == VariationSelectorTextSymbol &&
                          lastWidth == 2)
                 {
                     // adjust for the text presentation, which is width 1
@@ -6489,14 +6492,14 @@ public class InputHandler
                     // answer must not depend on which Wcwidth version a host resolves.
                 }
                 else if (lastWidth > 0 &&
-                         (rune.Value >= Emoji.SkinTones.Light && rune.Value <= Emoji.SkinTones.Dark ||
-                          rune.Value == Codepoints.Keycap))
+                         (rune.Value >= SkinToneFirst && rune.Value <= SkinToneLast ||
+                          rune.Value == KeycapCombiner))
                 {
                     // Emoji modifier (skin tone) or keycap extender should continue current glyph
 
                     // else: combining � ignore
                 }
-                else if (rune.Value >= Emoji.SkinTones.Light && rune.Value <= Emoji.SkinTones.Dark)
+                else if (rune.Value >= SkinToneFirst && rune.Value <= SkinToneLast)
                 {
                     // A skin tone with nothing in front of it to modify. Unicode gives these East Asian
                     // Width W, and every other terminal draws a lone one as a two-column swatch — so that is
