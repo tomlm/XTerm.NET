@@ -510,7 +510,7 @@ public class TextSizingTests
     /// payload here is the more expensive of the two to let through.
     /// </summary>
     [Fact]
-    public void An_oversized_payload_is_cut_to_the_protocol_limit_without_a_width_too()
+    public void A_payload_over_the_limit_is_cut_when_each_grapheme_is_its_own_block()
     {
         var t = Fresh(cols: 80, rows: 4);
         t.Write(Sized("s=1", new string('x', 5000)));
