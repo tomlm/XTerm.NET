@@ -124,6 +124,27 @@ public class WideCellInvariantTests
     }
 
     [Fact]
+    public void An_ascii_run_does_not_leave_a_zwj_continuation_for_a_later_emoji_to_pick_up()
+    {
+        // The run path writes its span directly and never consults the pending ZWJ continuation,
+        // so it used to leave that state behind. The letters themselves never showed it -- GB11
+        // only continues a cluster for a pictograph, and a letter is not one -- but the STALE
+        // continuation survived, and the next pictograph printed at the column it still named was
+        // merged into the emoji from before the run: the woman below joined the man's cell at
+        // column 0 and never appeared where she was actually printed.
+        var terminal = NewTerminal(cols: 20);
+        terminal.Write("\U0001F468‍");         // man, ZWJ -- a continuation is now pending at col 2
+        terminal.Write("ab");                       // an ASCII run, which takes the run path
+        terminal.Write($"{Esc}[1;3H");              // back to column 3 (0-based 2)
+        terminal.Write("\U0001F469");               // a pictograph, printed where the state pointed
+
+        var line = terminal.Buffer.Lines[0]!;
+        Assert.Equal("\U0001F469", line[2].Content);
+        Assert.Equal(2, line[2].Width);
+        Assert.Equal("\U0001F468‍", line[0].Content);
+    }
+
+    [Fact]
     public void A_wide_character_that_cannot_fit_is_dropped_when_wrapping_is_off()
     {
         // The early wrap that makes room for a two-column character is guarded by DECAWM, so with

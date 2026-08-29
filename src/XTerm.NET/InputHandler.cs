@@ -862,17 +862,30 @@ public class InputHandler
         // character past the last column OVERWRITES it rather than being discarded, and the run
         // path can only stop. Rare enough to hand to Print rather than teach twice -- the default
         // is on, so nothing in normal output takes this branch.
-        // A pending ZWJ continuation is per-character state the run path does not carry: it wrote
-        // its span directly and never consulted or cleared _zwjContinuation, so an emoji ending in
-        // ZWJ followed by an ASCII chunk lost the continuation that Print would have honoured --
-        // the two paths disagreed about the same bytes depending only on how they were chunked.
         if (!UseRunPrinting || _terminal.InsertMode || _activeCharset is not null
-            || _buffer.HasMultiRowSizedRuns || !_terminal.Options.Wraparound
-            || _zwjContinuation is not null)
+            || _buffer.HasMultiRowSizedRuns || !_terminal.Options.Wraparound)
         {
             foreach (var b in data)
                 Print(CodePointText.Get((char)b));
             return;
+        }
+
+        // A pending ZWJ continuation is per-character state the run path does not carry: it writes
+        // its span directly and never consults or clears _zwjContinuation, so an emoji ending in
+        // ZWJ followed by an ASCII chunk lost the continuation that Print would have honoured --
+        // the two paths disagreed about the same bytes depending only on how they were chunked.
+        //
+        // ONE character, not the whole run. The state belongs to the character standing where the
+        // ZWJ was merged, and the first Print clears it unconditionally, so only that character
+        // needs the slow path. Handing the entire run over meant every ASCII run following an
+        // emoji printed a character at a time -- and text that mixes emoji with words is the
+        // ordinary case, not an exotic one.
+        if (_zwjContinuation is not null)
+        {
+            Print(CodePointText.Get((char)data[0]));
+            data = data[1..];
+            if (data.IsEmpty)
+                return;
         }
 
         while (!data.IsEmpty)
@@ -956,17 +969,23 @@ public class InputHandler
         // character past the last column OVERWRITES it rather than being discarded, and the run
         // path can only stop. Rare enough to hand to Print rather than teach twice -- the default
         // is on, so nothing in normal output takes this branch.
-        // A pending ZWJ continuation is per-character state the run path does not carry: it wrote
-        // its span directly and never consulted or cleared _zwjContinuation, so an emoji ending in
-        // ZWJ followed by an ASCII chunk lost the continuation that Print would have honoured --
-        // the two paths disagreed about the same bytes depending only on how they were chunked.
         if (!UseRunPrinting || _terminal.InsertMode || _activeCharset is not null
-            || _buffer.HasMultiRowSizedRuns || !_terminal.Options.Wraparound
-            || _zwjContinuation is not null)
+            || _buffer.HasMultiRowSizedRuns || !_terminal.Options.Wraparound)
         {
             for (var k = 0; k < count; k++)
                 Print(CodePointText.Get(data[start + k]));
             return;
+        }
+
+        // As in the span overload: the pending ZWJ continuation belongs to ONE character, and the
+        // first Print clears it, so only that character takes the slow path rather than the run.
+        if (_zwjContinuation is not null)
+        {
+            Print(CodePointText.Get(data[start]));
+            start++;
+            count--;
+            if (count == 0)
+                return;
         }
 
         var pos = start;
