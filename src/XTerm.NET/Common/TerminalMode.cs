@@ -116,6 +116,12 @@ public enum TerminalMode
     /// <see cref="BracketedPasteMode"/>; the terminal must never send both for one paste.
     /// </summary>
     PasteNotification = 5522,
+
+    /// <summary>
+    /// Terminal Unicode Core grapheme clustering mode. Clustering is permanently enabled, so
+    /// DECSET and DECRST do not change it and DECRQM reports it as permanently set.
+    /// </summary>
+    GraphemeClustering = 2027,
     
     // Buffer Switching Modes
     /// <summary>

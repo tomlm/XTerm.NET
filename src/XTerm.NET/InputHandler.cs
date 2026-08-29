@@ -1,4 +1,5 @@
 using NeoSmart.Unicode;
+using System.Globalization;
 using System.Text;
 using Wcwidth;
 using XTerm.Buffer;
@@ -105,26 +106,6 @@ public class InputHandler
         if (codePoint == ZeroWidthJoiner)
             return true;
 
-        // Combining Diacritical Marks (U+0300�U+036F)
-        if (codePoint >= 0x0300 && codePoint <= 0x036F)
-            return true;
-
-        // Combining Diacritical Marks Extended (U+1AB0�U+1AFF)
-        if (codePoint >= 0x1AB0 && codePoint <= 0x1AFF)
-            return true;
-
-        // Combining Diacritical Marks Supplement (U+1DC0�U+1DFF)
-        if (codePoint >= 0x1DC0 && codePoint <= 0x1DFF)
-            return true;
-
-        // Combining Diacritical Marks for Symbols (U+20D0�U+20FF)
-        if (codePoint >= 0x20D0 && codePoint <= 0x20FF)
-            return true;
-
-        // Combining Half Marks (U+FE20�U+FE2F)
-        if (codePoint >= 0xFE20 && codePoint <= 0xFE2F)
-            return true;
-
         // Emoji Modifiers / Skin Tones (U+1F3FB..U+1F3FF)
         //
         // Combining is not decided here alone: a skin tone modifies an EMOJI, and TryAppendToPreviousCell
@@ -134,11 +115,12 @@ public class InputHandler
         if (IsSkinToneModifier(codePoint))
             return true;
 
-        // Keycap combining sequence (U+20E3)
-        if (codePoint == 0x20E3)
-            return true;
-
-        return false;
+        // Unicode marks in every script, including astral codepoints. SpacingCombiningMark sounds
+        // as though it should advance the cursor, but terminal wcwidth implementations conventionally
+        // give Indic matras in that category width zero and keep them in their base character's cell.
+        return CharUnicodeInfo.GetUnicodeCategory(codePoint) is UnicodeCategory.NonSpacingMark
+            or UnicodeCategory.SpacingCombiningMark
+            or UnicodeCategory.EnclosingMark;
     }
 
     /// <summary>The Fitzpatrick skin tone modifiers, U+1F3FB to U+1F3FF.</summary>
@@ -5390,8 +5372,9 @@ public class InputHandler
     /// <para>This is how an application finds out whether a feature is worth using: it asks, and a
     /// terminal that says nothing is one that does not support the query. Emitting a mode without
     /// answering for it would leave well-behaved applications never using it.</para>
-    /// <para>The reply only ever carries 1 (set) or 2 (reset). DEC's other two values — 0 for "not
-    /// recognised" and 4 for "permanently reset" — are never sent, so a mode this terminal keeps no
+    /// <para>Most replies carry 1 (set) or 2 (reset), while a feature that is always active carries
+    /// 3 (permanently set). DEC's other two values — 0 for "not recognised" and 4 for "permanently
+    /// reset" — are never sent, so a mode this terminal keeps no
     /// state for is answered by silence rather than by a report. That costs an application asking
     /// about such a mode its read timeout, where xterm replies 0 straight away, and it is
     /// deliberate: see issue #55. Reporting "reset" for a mode that was accepted and ignored would
@@ -5404,20 +5387,33 @@ public class InputHandler
     {
         var mode = parameters.GetParam(0, 0);
 
-        bool set;
+        int state;
         if (isPrivate)
         {
-            if (!TryGetPrivateModeState(mode, out set))
-                return;
+            if (mode == (int)TerminalMode.GraphemeClustering)
+            {
+                // Clustering is unconditional: DECSET and DECRST cannot change it, so DECRPM's
+                // "permanently set" value is the only truthful capability report.
+                state = 3;
+            }
+            else
+            {
+                if (!TryGetPrivateModeState(mode, out var set))
+                    return;
+                state = set ? 1 : 2;
+            }
         }
-        else if (!TryGetAnsiModeState(mode, out set))
+        else if (TryGetAnsiModeState(mode, out var set))
+        {
+            state = set ? 1 : 2;
+        }
+        else
         {
             return;
         }
 
-        // DECRPM: 1 = set, 2 = reset. The marker is echoed back so the reply answers the question
-        // that was asked -- CSI ? 4 ; 1 $ y is DECSCLM, CSI 4 ; 1 $ y is IRM.
-        var state = set ? 1 : 2;
+        // The marker is echoed back so the reply answers the question that was asked --
+        // CSI ? 4 ; 1 $ y is DECSCLM, CSI 4 ; 1 $ y is IRM.
         var marker = isPrivate ? "?" : string.Empty;
         _terminal.RaiseDataReceived($"\u001b[{marker}{mode};{state}$y");
     }

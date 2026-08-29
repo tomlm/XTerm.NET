@@ -35,6 +35,8 @@ public class RequestModeTests
     /// <summary>The DECRPM report expected back for a mode in a given state: 1 is set, 2 is reset.</summary>
     private static string Report(int mode, bool set) => Esc.Csi($"?{mode};{(set ? 1 : 2)}$y");
 
+    private static string PermanentReport(int mode) => Esc.Csi($"?{mode};3$y");
+
     /// <summary>The same report for an ANSI mode, which carries no private marker.</summary>
     private static string AnsiReport(int mode, bool set) => Esc.Csi($"{mode};{(set ? 1 : 2)}$y");
 
@@ -113,6 +115,21 @@ public class RequestModeTests
         terminal.Write(Query(mode));
 
         Assert.Equal(new[] { Report(mode, false) }, replies);
+    }
+
+    [Fact]
+    public void Reports_grapheme_clustering_as_permanently_set()
+    {
+        var terminal = Fresh();
+        var replies = Replies(terminal);
+        var mode = (int)TerminalMode.GraphemeClustering;
+
+        terminal.Write(Reset(mode));
+        terminal.Write(Query(mode));
+        terminal.Write(Set(mode));
+        terminal.Write(Query(mode));
+
+        Assert.Equal(new[] { PermanentReport(mode), PermanentReport(mode) }, replies);
     }
 
     /// <summary>
