@@ -126,8 +126,17 @@ public class BufferLine : IEnumerable<BufferCell>
     /// </summary>
     public bool HasWideCells { get; private set; }
 
-    /// <summary>Blanks either half of a wide character that the range [start, end) would orphan.</summary>
-    private void RepairAround(int start, int end)
+    /// <summary>
+    /// Blanks either half of a wide character that the range [start, end) would orphan.
+    /// </summary>
+    /// <remarks>
+    /// Callers on the run path must guard this with <see cref="HasWideCells"/> themselves.
+    /// Putting the guard INSIDE SetSingleWidthRun cost scroll-ascii 8%: the extra call pushed that
+    /// method past the JIT's inlining budget, so every run paid a real call and lost the
+    /// optimizations that come with being inlined. One bool read cannot cost 8%; not being inlined
+    /// can.
+    /// </remarks>
+    internal void RepairAround(int start, int end)
     {
         if (start > 0 && start < _length && GetWidth(start - 1) == 2)
         {
@@ -176,13 +185,6 @@ public class BufferLine : IEnumerable<BufferCell>
     {
         if (index < 0 || text.Length == 0 || index + text.Length > _length)
             return;
-
-        // Same invariant Fill keeps, for the same reason: a run landing on either half of a wide
-        // character must take the other half with it, or the renderer draws a two-column glyph
-        // into one column. Behind the latch, because this is the ASCII path -- a line that never
-        // held a wide cell cannot orphan one, and two array reads per run were measurable on it.
-        if (HasWideCells)
-            RepairAround(index, index + text.Length);
 
         var cells = _cells.AsSpan(index, text.Length);
         for (var i = 0; i < text.Length; i++)

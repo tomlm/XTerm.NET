@@ -343,21 +343,26 @@ public class InputHandler
     /// </remarks>
     private void RepairSplitWideCell(BufferLine line)
     {
-        if (_buffer.X > 0 && line.GetWidth(_buffer.X - 1) == 2)
+        // ONE read decides both cases, because the cell being overwritten already says which half
+        // it is: width 2 means this is a wide character and its spacer at X+1 is about to be
+        // orphaned, width 0 means this IS the spacer and the character at X-1 is. Reading both
+        // neighbours instead cost the unicode corpus, where every CJK line takes this path.
+        var here = line.GetWidth(_buffer.X);
+
+        if (here == 2)
+        {
+            if (_buffer.X + 1 < _terminal.Cols)
+            {
+                var orphan = BufferCell.Space;
+                orphan.Attributes = line[_buffer.X].Attributes;
+                line.SetCell(_buffer.X + 1, ref orphan);
+            }
+        }
+        else if (here == 0 && _buffer.X > 0)
         {
             var orphan = BufferCell.Space;
             orphan.Attributes = line[_buffer.X - 1].Attributes;
             line.SetCell(_buffer.X - 1, ref orphan);
-        }
-
-        // GetWidth, not line[X].Width: the indexer hands back a COPY of the cell struct, and
-        // paying that copy on every printed character to read one field of it is most of what
-        // this repair cost the unicode corpus.
-        if (_buffer.X + 1 < _terminal.Cols && line.GetWidth(_buffer.X) == 2)
-        {
-            var orphan = BufferCell.Space;
-            orphan.Attributes = line[_buffer.X].Attributes;
-            line.SetCell(_buffer.X + 1, ref orphan);
         }
     }
 
@@ -867,6 +872,12 @@ public class InputHandler
             // other side -- and only when the fast path takes the write, which is the difference
             // that reads as an intermittent fault rather than a missing case.
             var take = Math.Min(WrapLimit() + 1 - _buffer.X, data.Length);
+            // Guarded HERE rather than inside SetSingleWidthRun: putting the check in that method
+            // pushed it past the JIT's inlining budget and cost the ASCII corpus 8%. A line that
+            // never held a wide cell cannot have a half to orphan.
+            if (line.HasWideCells)
+                line.RepairAround(_buffer.X, _buffer.X + data[..take].Length);
+
             line.SetSingleWidthRun(_buffer.X, data[..take], _curAttr);
 
             // This path bypasses Print, so it keeps the link bookkeeping itself -- otherwise a link
@@ -957,6 +968,12 @@ public class InputHandler
 
             // As above: the margin bounds the batch, or the fast path leaks past it.
             var take = Math.Min(WrapLimit() + 1 - _buffer.X, remaining);
+            // Guarded HERE rather than inside SetSingleWidthRun: putting the check in that method
+            // pushed it past the JIT's inlining budget and cost the ASCII corpus 8%. A line that
+            // never held a wide cell cannot have a half to orphan.
+            if (line.HasWideCells)
+                line.RepairAround(_buffer.X, _buffer.X + take);
+
             line.SetSingleWidthRun(_buffer.X, data.AsSpan(pos, take), _curAttr);
 
             // As above: bypassing Print means keeping the link bookkeeping here as well.
