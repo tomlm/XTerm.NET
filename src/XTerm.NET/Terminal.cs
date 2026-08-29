@@ -1587,9 +1587,49 @@ public class Terminal
         if (text is null)
             return;
 
+        text = PrepareForPaste(text);
+
         RaiseDataReceived(BracketedPasteMode
             ? $"\u001b[200~{text}\u001b[201~"
             : text);
+    }
+
+    /// <summary>
+    /// Makes pasted text safe to hand to the application: newlines become carriage returns, and
+    /// control characters are dropped unless <see cref="TerminalOptions.AllowPasteControls"/>
+    /// says otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <para>The newline half is parity with every other terminal: a paste arrives with LF or CRLF
+    /// line endings, and an application reading a terminal expects CR, because that is what the
+    /// Return key sends. Without it, multi-line pastes reach a shell as line feeds it does not
+    /// treat as submitted lines.</para>
+    /// <para>The control half is why this method exists at all. The bracketed-paste wrapper is a
+    /// promise to the application that everything between the markers is data -- and the wrapper is
+    /// built from the same byte stream as its contents, so text containing <c>ESC [ 2 0 1 ~</c>
+    /// ends the promise early and the remainder arrives as though typed. Filtering ESC out of the
+    /// payload is what makes the wrapper mean anything; anything narrower (escaping only the
+    /// terminator) still lets a paste start a sequence of its own.</para>
+    /// </remarks>
+    private string PrepareForPaste(string text)
+    {
+        var normalized = text.Replace("\r\n", "\r").Replace('\n', '\r');
+        if (Options.AllowPasteControls)
+            return normalized;
+
+        // Tab and carriage return are the two controls a paste legitimately carries: one is
+        // indentation, the other is the line ending everything above just normalized to.
+        if (!normalized.Any(c => char.IsControl(c) && c != '\r' && c != '\t'))
+            return normalized;
+
+        var kept = new System.Text.StringBuilder(normalized.Length);
+        foreach (var c in normalized)
+        {
+            if (!char.IsControl(c) || c == '\r' || c == '\t')
+                kept.Append(c);
+        }
+
+        return kept.ToString();
     }
 
     private void AnnouncePaste(TerminalPaste paste)

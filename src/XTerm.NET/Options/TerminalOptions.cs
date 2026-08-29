@@ -184,6 +184,21 @@ public class TerminalOptions : ICloneable
     public bool ClipboardReadEnabled { get; set; } = false;
 
     /// <summary>
+    /// Whether control characters survive <see cref="Terminal.Paste(TerminalPaste)"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>Off by default, matching xterm's own <c>allowPasteControls</c>. Pasted text is
+    /// attacker-influenced far more often than typed input is -- it comes from a web page, a chat
+    /// message, a README -- and a paste carrying <c>ESC</c> can close the bracketed-paste wrapper
+    /// early with <c>ESC [ 2 0 1 ~</c> and have everything after it read as though the user typed
+    /// it. That is a path from "copied a command from a website" to "ran a different command".</para>
+    /// <para>While off, C0 controls other than tab and carriage return are dropped from pasted
+    /// text. An embedder that genuinely wants to feed escape sequences to the application should
+    /// call <see cref="Terminal.Write(string)"/>, which is the unfiltered path and always was.</para>
+    /// </remarks>
+    public bool AllowPasteControls { get; set; } = false;
+
+    /// <summary>
     /// Maximum decoded clipboard bytes accepted in a Kitty OSC 5522 write.
     /// </summary>
     public int MaxClipboardBytes { get; set; } = 64 * 1024 * 1024;
@@ -340,6 +355,7 @@ public class TerminalOptions : ICloneable
         KittyNotificationsEnabled = other.KittyNotificationsEnabled;
         ClipboardWriteEnabled = other.ClipboardWriteEnabled;
         ClipboardReadEnabled = other.ClipboardReadEnabled;
+        AllowPasteControls = other.AllowPasteControls;
         MaxClipboardBytes = other.MaxClipboardBytes;
         KittyKeyboardEnabled = other.KittyKeyboardEnabled;
         PointerShapesEnabled = other.PointerShapesEnabled;
