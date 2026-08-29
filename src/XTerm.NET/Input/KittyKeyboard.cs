@@ -478,7 +478,30 @@ public static class KittyKeyboard
             return ev.AltKey ? "\u001b" + text : text;
         }
 
+        // Some functional keys have no legacy encoding at all. Even when the active flags only
+        // request alternate keys or associated text, returning null would make these key presses
+        // disappear. Their assigned CSI-u codepoint is the only representation available.
+        // Functional keys that DO have a legacy form deliberately fall through: Terminal owns
+        // the legacy generator and can preserve mode-dependent details such as application keypad.
+        if (isFunc && !HasLegacyFunctionalEncoding(ev))
+            return BuildCsiUSequence(ev, keyCode.Value, modifiers, eventType, flags, isFunc, isMod);
+
         return null;
+    }
+
+    private static bool HasLegacyFunctionalEncoding(KeyEvent ev)
+    {
+        if (ev.Key == "Escape" || ev.Code == "NumpadEnter")
+            return true;
+
+        if (ev.Key.Length is 3 or 4
+            && ev.Key[0] == 'F'
+            && int.TryParse(ev.Key.AsSpan(1), out var number))
+        {
+            return number is >= 13 and <= 20;
+        }
+
+        return false;
     }
 
     /// <summary>

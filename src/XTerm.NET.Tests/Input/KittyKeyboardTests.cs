@@ -475,6 +475,17 @@ public class KittyKeyboardTests
         Assert.NotNull(KittyKeyboard.Evaluate(Ev("c", "KeyC", ctrl: true), (KittyKeyboardFlags)flags));
     }
 
+    [Theory]
+    [InlineData("F21", 57384)]
+    [InlineData("F25", 57388)]
+    [InlineData("MediaPlayPause", 57430)]
+    [InlineData("AudioVolumeMute", 57440)]
+    public void Functional_keys_without_legacy_bytes_never_disappear(string key, int codepoint)
+    {
+        Assert.Equal($"\u001b[{codepoint}u", KittyKeyboard.Evaluate(Ev(key), Alternates));
+        Assert.Equal($"\u001b[{codepoint}u", KittyKeyboard.Evaluate(Ev(key), Text));
+    }
+
     // ----- Releases without ReportEventTypes -----------------------------------------------
 
     [Fact]

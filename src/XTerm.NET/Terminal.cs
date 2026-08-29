@@ -1249,7 +1249,49 @@ public class Terminal : IDisposable
     /// <returns>The bytes to send to the application, or null to send nothing.</returns>
     public string? GenerateKittyKeyInput(KeyEvent ev, KittyKeyboardEventType eventType = KittyKeyboardEventType.Press)
     {
-        return KittyKeyboard.Evaluate(ev, KittyKeyboardState.Flags, eventType, Options.MacOptionIsMeta);
+        var result = KittyKeyboard.Evaluate(ev, KittyKeyboardState.Flags, eventType, Options.MacOptionIsMeta);
+        if (result is not null || eventType == KittyKeyboardEventType.Release)
+            return result;
+
+        return TryGetLegacyKey(ev, out var key)
+            ? _keyboardInput.GenerateKeySequence(key, GetLegacyModifiers(ev))
+            : null;
+    }
+
+    private static bool TryGetLegacyKey(KeyEvent ev, out Key key)
+    {
+        if (ev.Key == "Escape")
+        {
+            key = Key.Escape;
+            return true;
+        }
+
+        if (ev.Code == "NumpadEnter")
+        {
+            key = Key.KeypadEnter;
+            return true;
+        }
+
+        if (ev.Key.Length is 3 or 4
+            && ev.Key[0] == 'F'
+            && int.TryParse(ev.Key.AsSpan(1), out var number)
+            && number is >= 13 and <= 20)
+        {
+            key = Key.F13 + (number - 13);
+            return true;
+        }
+
+        key = default;
+        return false;
+    }
+
+    private static KeyModifiers GetLegacyModifiers(KeyEvent ev)
+    {
+        var modifiers = KeyModifiers.None;
+        if (ev.ShiftKey) modifiers |= KeyModifiers.Shift;
+        if (ev.AltKey) modifiers |= KeyModifiers.Alt;
+        if (ev.CtrlKey) modifiers |= KeyModifiers.Control;
+        return modifiers;
     }
 
     /// <summary>

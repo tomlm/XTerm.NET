@@ -346,4 +346,28 @@ public class KittyKeyboardStateTests
         var ev = new KeyEvent { Key = "ƒ", Code = "KeyF", AltKey = true };
         Assert.Equal("\u001b[102;3u", t.GenerateKittyKeyInput(ev));
     }
+
+    [Theory]
+    [InlineData("Escape", "", "\u001b")]
+    [InlineData("F13", "", "\u001b[25~")]
+    [InlineData("F20", "", "\u001b[34~")]
+    [InlineData("Enter", "NumpadEnter", "\r")]
+    public void GenerateKittyKeyInput_uses_legacy_functional_bytes_when_flags_do_not_request_CSI_u(
+        string key, string code, string expected)
+    {
+        var t = NewTerminal();
+        t.Write("\u001b[=4u");
+
+        Assert.Equal(expected, t.GenerateKittyKeyInput(new KeyEvent { Key = key, Code = code }));
+    }
+
+    [Fact]
+    public void NumpadEnter_legacy_fallback_honours_application_keypad_mode()
+    {
+        var t = NewTerminal();
+        t.Write("\u001b[=16u");
+        t.Write("\u001b=");
+
+        Assert.Equal("\u001bOM", t.GenerateKittyKeyInput(new KeyEvent { Key = "Enter", Code = "NumpadEnter" }));
+    }
 }
