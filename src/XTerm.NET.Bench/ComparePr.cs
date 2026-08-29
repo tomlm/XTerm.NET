@@ -24,7 +24,8 @@ public static class ComparePr
     /// <summary>Allocation may not grow at all, give or take a rounding epsilon.</summary>
     private const double AllocEpsilon = 0.05;
 
-    public static int Run(string[] baseFiles, string[] headFiles, string outputPath, double timeFloor)
+    public static int Run(string[] baseFiles, string[] headFiles, string outputPath, double timeFloor,
+                          string label = "")
     {
         var baseRuns = baseFiles.Select(Read).ToArray();
         var headRuns = headFiles.Select(Read).ToArray();
@@ -42,7 +43,10 @@ public static class ComparePr
         var failures = new List<string>();
         var watch = new List<string>();
 
-        md.AppendLine("### Perf comparison");
+        // The heading names WHAT was compared. Two of these reports land on the same pull request
+        // -- this change against its base, and everything since the last release -- and a reader
+        // cannot act on a number without knowing which question it answers.
+        md.AppendLine(string.IsNullOrEmpty(label) ? "### Perf comparison" : $"### Perf comparison — {label}");
         md.AppendLine();
         md.AppendLine($"{baseRuns.Length} run(s) of each side, alternating on one machine. "
                     + "Allocation is a count and is gated exactly. Time is a measurement, so its gate "

@@ -112,8 +112,10 @@ jobs:
     - name: Build the baseline library
       id: baseline
       run: |
-        # Absent or unfetchable, the cumulative gate is skipped rather than failing the run --
-        # a fork or a shallow clone should not look like a regression.
+        # A gate that cannot run FAILS the job. It does not skip: a skipped gate reports green,
+        # which is indistinguishable from a gate that ran and passed, and the whole point of this
+        # one is to catch drift nobody is watching for. If this fires, the fix is a reachable
+        # release tag (and a checkout that fetches tags), not a lower budget.
         # The nearest tag reachable from here, unless one was pinned above. --abbrev=0 gives the
         # closest by commit distance rather than the lexically largest, which is what "the release
         # this branched from" means once release numbering stops sorting the way you expect.
@@ -130,10 +132,9 @@ jobs:
             -p:CopyLocalLockFileAssemblies=true
           cp /tmp/baseline/src/XTerm.NET/bin/Release/net10.0/XTerm.NET.dll /tmp/libs/baseline.dll
           cp -n /tmp/baseline/src/XTerm.NET/bin/Release/net10.0/*.dll "$OUT/" || true
-          echo "available=true" >> "$GITHUB_OUTPUT"
         else
-          echo "no baseline ref resolved; cumulative gate skipped"
-          echo "available=false" >> "$GITHUB_OUTPUT"
+          echo "::error::No release tag reachable, so cumulative drift cannot be measured. Tag a release, or pin BASELINE_REF."
+          exit 1
         fi
 
     - name: Build the base library
@@ -157,8 +158,7 @@ jobs:
       run: |
         # The baseline joins the alternation rather than being measured separately: comparing
         # against a number recorded on some other runner would measure the runner, not the code.
-        SIDES="base head"
-        [ "${{ steps.baseline.outputs.available }}" = "true" ] && SIDES="baseline base head"
+        SIDES="baseline base head"
 
         for r in $(seq 1 "$RUNS"); do
           for side in $SIDES; do
@@ -184,20 +184,21 @@ jobs:
           --base $(ls /tmp/base-*.json) \
           --head $(ls /tmp/head-*.json) \
           --time-floor "$TIME_FLOOR" \
+          --label "this change, against its base" \
           --out /tmp/report.md
         echo "status=$?" >> "$GITHUB_OUTPUT"
         set -e
         cat /tmp/report.md >> "$GITHUB_STEP_SUMMARY"
 
-    - name: Compare against the pinned baseline
+    - name: Compare against the latest release
       id: compare-baseline
-      if: steps.baseline.outputs.available == 'true'
       run: |
         set +e
         dotnet "$OUT/XTerm.NET.Bench.dll" compare \
           --base $(ls /tmp/baseline-*.json) \
           --head $(ls /tmp/head-*.json) \
           --time-floor "$BASELINE_FLOOR" \
+          --label "cumulative, everything since ${{ steps.baseline.outputs.ref }}" \
           --out /tmp/baseline-report.md
         echo "status=$?" >> "$GITHUB_OUTPUT"
         set -e
@@ -220,17 +221,43 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        gh pr comment "${{ github.event.pull_request.number }}" --edit-last --body-file /tmp/report.md \
-          || gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/report.md
+        # BOTH tables, in one comment. The cumulative one used to reach only the job summary,
+        # where nobody looks unless something already went wrong -- and the number it carries is
+        # the one a reviewer cannot reconstruct from the diff.
+        cat /tmp/report.md > /tmp/pr-comment.md
+        if [ -f /tmp/baseline-report.md ]; then
+          echo "" >> /tmp/pr-comment.md
+          echo "---" >> /tmp/pr-comment.md
+          echo "" >> /tmp/pr-comment.md
+          cat /tmp/baseline-report.md >> /tmp/pr-comment.md
+        fi
+
+        # Found by a MARKER, not by "the last comment this bot made". --edit-last edits whatever
+        # the bot posted most recently, which is the perf report only until something else posts;
+        # the marker names this comment specifically, so repeated runs keep updating the same one
+        # and a pull request that is pushed to ten times still carries one perf table.
+        MARKER="<!-- xterm-perf-report -->"
+        printf '%s\n' "$MARKER" | cat - /tmp/pr-comment.md > /tmp/pr-comment-marked.md
+
+        ID=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+               --paginate --jq "[.[] | select(.body | contains(\"$MARKER\"))] | last | .id // empty")
+
+        if [ -n "$ID" ]; then
+          gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$ID" \
+            -F body=@/tmp/pr-comment-marked.md >/dev/null
+          echo "updated comment $ID"
+        else
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/pr-comment-marked.md
+          echo "posted a new comment"
+        fi
 
     - name: Fail on a regression
-      if: steps.compare.outputs.status != '0' || (steps.compare-baseline.outputs.status != '' && steps.compare-baseline.outputs.status != '0')
+      if: steps.compare.outputs.status != '0' || steps.compare-baseline.outputs.status != '0' 
       run: |
         if [ "${{ steps.compare.outputs.status }}" != "0" ]; then
           echo "::error::This change regressed against its base. See the job summary."
         fi
-        if [ "${{ steps.compare-baseline.outputs.status }}" != "" ] \
-           && [ "${{ steps.compare-baseline.outputs.status }}" != "0" ]; then
+        if [ "${{ steps.compare-baseline.outputs.status }}" != "0" ]; then
           echo "::error::Cumulative drift since ${{ steps.baseline.outputs.ref }} is over budget. Either find the time back, or move the reference deliberately in a change that says why."
         fi
         exit 1
