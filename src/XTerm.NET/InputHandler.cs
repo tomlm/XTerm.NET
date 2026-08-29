@@ -257,6 +257,35 @@ public class InputHandler
         return IsCombiningCharacter(codePoint);
     }
 
+    /// <summary>
+    /// Whether the sequence rules can refuse this join without touching the buffer: the current
+    /// codepoint is a sequence candidate, the previous printed codepoint is known and still where
+    /// the cursor left it, and the classes do not join. Anything uncertain answers false and
+    /// falls through to <see cref="TryAppendToPreviousCell"/>, whose own context checks remain
+    /// the authority.
+    /// </summary>
+    private bool RefusesSequenceCheaply(int codePoint)
+    {
+        if ((uint)(codePoint - 0x0900) > 0xD7FB - 0x0900)
+            return false;                     // marks, VS, ZWJ: never sequence candidates
+        // The REP tracker is exactly the context needed: stamped after every print and append,
+        // cancelled by the operations that move the cursor, and position-checked here besides —
+        // a stale entry simply fails the match and the full path decides.
+        if (_lastPrinted is not { } lp
+            || lp.Row != _buffer.Y + _buffer.YBase
+            || lp.CursorCol != _buffer.X)
+            return false;                     // context unknown: the full path decides
+        var currentClass = HangulClassOf(codePoint);
+        if (currentClass != 0)
+            return !HangulJoins(HangulClassOf(lp.LastCodePoint), currentClass);
+        if (IsConjunctConsonantCandidate(codePoint))
+        {
+            // A previous ZWJ may hide a linker before it; only the full path can see that far.
+            return !IsConjunctLinker(lp.LastCodePoint) && lp.LastCodePoint != ZeroWidthJoiner;
+        }
+        return false;
+    }
+
     /// <summary>The Fitzpatrick skin tone modifiers, U+1F3FB to U+1F3FF.</summary>
     private static bool IsSkinToneModifier(int codePoint)
         => codePoint >= 0x1F3FB && codePoint <= 0x1F3FF;
@@ -362,8 +391,11 @@ public class InputHandler
             // every frame — pays one inline compare here instead of two real calls answering no.
             if (continuesCluster || (codePoint >= 0x0300 && MayContinueCluster(codePoint)))
             {
-                // Find the previous cell to combine with
-                if (TryAppendToPreviousCell(data, codePoint))
+                // Find the previous cell to combine with — unless the tracked neighbour already
+                // says no: Korean prose is syllable after non-joining syllable, and each one was
+                // paying the full line fetch below just to be refused.
+                if ((continuesCluster || !RefusesSequenceCheaply(codePoint))
+                    && TryAppendToPreviousCell(data, codePoint))
                 {
                     // A ZWJ promises another component after it; remember where, so it can be recognised.
                     if (codePoint == ZeroWidthJoiner)
@@ -590,14 +622,20 @@ public class InputHandler
     /// </remarks>
     private void RememberForRepeat(int codePoint, int clusterId)
     {
-        _lastPrinted = (_buffer.Y + _buffer.YBase, _buffer.X, codePoint, clusterId);
+        _lastPrinted = (_buffer.Y + _buffer.YBase, _buffer.X, codePoint, clusterId, codePoint);
     }
 
     /// <summary>Forgets the preceding character. See <see cref="RememberForRepeat"/> for when.</summary>
     internal void CancelRepeat() => _lastPrinted = null;
 
-    /// <summary>The character last printed, and the cursor position it left behind. See <see cref="RememberForRepeat"/>.</summary>
-    private (int Row, int CursorCol, int CodePoint, int ClusterId)? _lastPrinted;
+    /// <summary>
+    /// The character last printed, and the cursor position it left behind. See
+    /// <see cref="RememberForRepeat"/>. <c>LastCodePoint</c> is the final codepoint of the cell's
+    /// cluster — the base itself until an append replaces it — because the sequence rules in
+    /// <see cref="RefusesSequenceCheaply"/> ask what the cluster ENDS with, while REP repeats the
+    /// whole cluster and reads <c>CodePoint</c>/<c>ClusterId</c>.
+    /// </summary>
+    private (int Row, int CursorCol, int CodePoint, int ClusterId, int LastCodePoint)? _lastPrinted;
 
     /// <summary>
     /// Joins a second regional indicator to the one already at <paramref name="cellX"/>, making the pair a
@@ -990,7 +1028,7 @@ public class InputHandler
         // marks would be a different character from the one on screen. Recorded AFTER the width
         // adjustments above, which can move the cursor: recorded any earlier, a variation selector
         // that widened the cell left the saved position stale and silently cancelled the next REP.
-        _lastPrinted = (_buffer.Y + _buffer.YBase, _buffer.X, updatedCell.CodePoint, updatedCell.ClusterId);
+        _lastPrinted = (_buffer.Y + _buffer.YBase, _buffer.X, updatedCell.CodePoint, updatedCell.ClusterId, codePoint);
 
         return true;
     }
