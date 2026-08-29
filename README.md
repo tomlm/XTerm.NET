@@ -650,9 +650,11 @@ character and are dispatched apart on it.
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
-## Author
+## Authors
 
 Tom Laird-McConnell — [Iciclecreek](https://github.com/tomlm)
+
+John Campion Jr — [JohnCampionJr](https://github.com/JohnCampionJr)
 
 ## Links
 
