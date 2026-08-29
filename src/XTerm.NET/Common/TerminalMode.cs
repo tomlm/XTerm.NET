@@ -108,6 +108,14 @@ public enum TerminalMode
     /// Bracketed Paste Mode.
     /// </summary>
     BracketedPasteMode = 2004,
+
+    /// <summary>
+    /// Bracketed paste MIME (private mode 5522): a paste arrives as an unsolicited Kitty
+    /// clipboard read response listing the MIME types on offer, with a single-use token the
+    /// application redeems to fetch the ones it wants. Takes precedence over
+    /// <see cref="BracketedPasteMode"/>; the terminal must never send both for one paste.
+    /// </summary>
+    PasteNotification = 5522,
     
     // Buffer Switching Modes
     /// <summary>

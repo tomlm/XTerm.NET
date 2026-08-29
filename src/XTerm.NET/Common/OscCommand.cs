@@ -68,7 +68,16 @@ public enum OscCommand
     /// Set cursor color (OSC 12).
     /// </summary>
     CursorColor = 12,
-    
+
+    /// <summary>
+    /// Mouse pointer shape, Kitty's protocol (OSC 22).
+    /// Format: OSC 22 ; [=] shape ST      - set the current shape, or reset it when bare
+    ///         OSC 22 ; &gt; shape,... ST    - push shapes, the last one becoming current
+    ///         OSC 22 ; &lt; ST             - pop the current shape
+    ///         OSC 22 ; ? name,... ST     - query support, answered with an OSC 22
+    /// </summary>
+    PointerShape = 22,
+
     /// <summary>
     /// Clipboard operations (OSC 52).
     /// Format: OSC 52 ; c ; data ST
@@ -87,6 +96,12 @@ public enum OscCommand
     KittyClipboard = 5522,
     
     /// <summary>
+    /// Kitty text sizing (OSC 66).
+    /// Format: OSC 66 ; key=value : ... ; text ST
+    /// </summary>
+    TextSizing = 66,
+    
+    /// <summary>
     /// Shell integration marks, FinalTerm/FTCS (OSC 133).
     /// Format: OSC 133 ; A ST            - start of prompt
     ///         OSC 133 ; B ST            - start of command line, i.e. end of prompt
@@ -94,6 +109,11 @@ public enum OscCommand
     ///         OSC 133 ; D [; exit] ST   - end of command, with optional exit code
     /// </summary>
     ShellIntegration = 133,
+
+    /// <summary>
+    /// iTerm2 proprietary extensions (OSC 1337).
+    /// </summary>
+    ITerm2 = 1337,
     
     /// <summary>
     /// Reset color palette (OSC 104).

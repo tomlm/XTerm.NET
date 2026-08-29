@@ -44,7 +44,7 @@ public static class BufferReflow
                 nextLine = ++i < lines.Length ? lines[i] : null;
             }
 
-            if (HasNonNormalLineAttribute(wrappedLines))
+            if (IsUnreflowable(wrappedLines))
             {
                 y += wrappedLines.Count - 1;
                 continue;
@@ -252,6 +252,37 @@ public static class BufferReflow
         for (var i = 0; i < lines.Count; i++)
         {
             if (lines[i].LineAttribute != LineAttribute.Normal)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether a wrapped group must be left alone by reflow.
+    /// </summary>
+    /// <remarks>
+    /// <para>Two kinds of line say so, for one reason. Reflow redistributes CELLS between lines, and
+    /// both a DEC line attribute and an OSC 66 sized run are properties of a line and a column range
+    /// that the cells know nothing about -- so cells arriving on a new line would keep neither, and
+    /// the metadata left behind would describe columns whose contents had moved away.</para>
+    /// <para>Leaving the group unreflowed keeps the two consistent with each other: a scaled block
+    /// stays whole, on the line that describes it, at the columns it claims. The cost is that such a
+    /// group does not re-wrap to the new width, which is the same cost double-width lines already
+    /// pay here.</para>
+    /// </remarks>
+    internal static bool IsUnreflowable(IReadOnlyList<BufferLine> lines)
+    {
+        if (HasNonNormalLineAttribute(lines))
+        {
+            return true;
+        }
+
+        for (var i = 0; i < lines.Count; i++)
+        {
+            if (lines[i].HasSizedRuns)
             {
                 return true;
             }

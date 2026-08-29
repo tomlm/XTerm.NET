@@ -363,6 +363,17 @@ public static class TerminalEvents
         public string? Icon { get; }
     }
 
+    /// <summary>iTerm2's requested attention action.</summary>
+    public class AttentionRequestedEventArgs : EventArgs
+    {
+        public AttentionRequestedEventArgs(string action)
+        {
+            Action = action;
+        }
+
+        /// <summary>The requested action, such as yes, once, no, or fireworks.</summary>
+        public string Action { get; }
+    }
 
     /// <summary>
     /// Raw OSC event - fired for EVERY OSC sequence the parser completes, including ones this
@@ -439,6 +450,32 @@ public static class TerminalEvents
         {
             Url = url;
             IsCleared = isCleared;
+        }
+    }
+
+    /// <summary>
+    /// Pointer shape event - fired when the mouse pointer shape requested with OSC 22 changes.
+    /// </summary>
+    /// <remarks>
+    /// The emulator owns the shape stack; turning a name into a real pointer is the host's job,
+    /// since only the host knows what its toolkit calls the same shape.
+    /// </remarks>
+    public class PointerShapeEventArgs : EventArgs
+    {
+        /// <summary>
+        /// The requested shape, one of <see cref="PointerShapes.All"/>, or null when nothing is
+        /// requested any more and the host should go back to its own pointer.
+        /// </summary>
+        public string? Shape { get; }
+
+        /// <summary>
+        /// True when no shape is requested any more.
+        /// </summary>
+        public bool IsCleared => Shape is null;
+
+        public PointerShapeEventArgs(string? shape)
+        {
+            Shape = shape;
         }
     }
 
