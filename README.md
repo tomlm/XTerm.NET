@@ -20,9 +20,17 @@ that part of the picture; Kitty is an *overlay* ordered against the text by its 
 - **Keyboard & Mouse Input Generation** — Generate escape sequences for keyboard and mouse events
 - **Rich Event System** — Subscribe to terminal events like title changes, bell, resize, and window manipulation
 - **256 and True Color Support** — Full RGB and 256-color palette support
-- **Unicode Support** — Proper handling of wide characters and Unicode text
-- **Sixel Graphics** — Decodes Sixel images (`ESC P … q`) and stores them on the cells they cover, so
-  `img2sixel`, `chafa`, `lsix` and `timg` work against a host that renders them
+- **Unicode Support** — Wide characters, combining marks, and grapheme clusters: ZWJ emoji
+  sequences, regional-indicator flags, skin-tone modifiers and Hangul jamo each occupy one cell, and
+  mode 2027 is supported. Widths follow python `wcwidth`, whose tables are vendored and replayed
+  codepoint-by-codepoint in tests so the two cannot drift apart. See [Unicode](#unicode)
+- **Kitty Keyboard Protocol** — Progressive enhancement (`CSI > … u`) with the flag stack, event
+  types and alternate keys, falling back to legacy encodings for anything not requested
+- **Left and Right Margins** — `DECSLRM` under `DECLRMM`, so text and scrolling stay inside a pane
+- **Shell Integration** — `OSC 133` prompt marks survive reflow, `OSC 8` hyperlinks, `OSC 52`
+  clipboard, and desktop notifications (`OSC 9`/`99`/`777`)
+- **Sixel Graphics** — Decodes Sixel images (`ESC P … q`) and holds them as runs on the lines they
+  appear on, so `img2sixel`, `chafa`, `lsix` and `timg` work against a host that renders them
 - **Kitty Graphics** — Decodes the Kitty protocol (`ESC _ G …`), including chunked transmission, PNG,
   transmit-once/place-many by image id, animation, and U+10EEEE Unicode placeholders, so `icat`,
   `chafa -f kitty`, `timg -pk`, `yazi` and `image.nvim` work the same way
@@ -55,6 +63,11 @@ it came from and cannot answer for a run anchored to both. Ask the line instead:
 
 **Changed elsewhere.**
 
+- `Terminal` implements `IDisposable`. It always had a `Dispose` method, but without the interface
+  no `using` statement, DI container or analyzer could see it. Disposing releases the parser
+  subscriptions and clears every event handler; writes after disposal are ignored rather than
+  throwing, because a host reading a pty on a background thread will race teardown as a matter of
+  course and an exception there kills the read loop rather than the object being torn down.
 - `Terminal` now snapshots constructor-supplied `TerminalOptions`. Mutating the original options
   object after construction no longer reconfigures that terminal or another terminal created from
   the same object. Change live settings through `terminal.Options`; dimensions use `Resize`, while
@@ -95,12 +108,24 @@ Install-Package XTerm.NET
 ```
 
 ## Usage
-The basic architecture is that the Terminal is a XxY array of Buffer Cell structures which represent each cell of the console screen.
 
-* Incoming text from a hosted process is written to the terminal and the terminal will interpret any ANSI VT Escape codes to 
-change color, underline, position etc.
-* The terminal host application calls Terminal.GenerateMouseEvent(), Terminal.GenerateKeyEvent() to send input to the console process.
-* Requests for information are modeled as events (GetWindowTitle, SetWindowTitle etc.).
+A `Terminal` is a grid of `BufferCell` structs — one per cell of the screen — plus the scrollback
+behind it. A cell carries a character, its width and its attributes, and nothing else: pictures and
+sized text blocks are held by the **line** as runs, so they survive a resize rather than being
+scattered across cells that get re-wrapped. Traffic runs in three directions:
+
+* **In.** Write what the hosted process produced with `Write`, and the terminal interprets the
+  ANSI/VT escape codes in it — colour, cursor movement, attributes, graphics. A pty host should
+  prefer the `ReadOnlySpan<byte>` overload and hand over the bytes it read: the terminal decodes
+  UTF-8 itself, statefully across calls, so a multi-byte character split across two reads still
+  arrives whole and nothing pays for a UTF-16 transcode on the way in.
+* **Out.** Turn user input into the sequences the process expects with `GenerateKeyInput`,
+  `GenerateCharInput`, `GenerateMouseEvent` and `GenerateFocusEvent`, and send the result to the pty.
+  Anything the terminal itself needs to reply — cursor position reports, device attributes,
+  capability answers — arrives on the `DataReceived` event, which a host forwards the same way.
+* **Asks.** Requests the terminal cannot answer alone are events: `TitleChanged` for a new window
+  title, `WindowInfoRequested` for size queries, `ClipboardReadRequested` for `OSC 52`, and the
+  window-manipulation events below.
 
 ### Creating a Terminal
 
@@ -111,6 +136,17 @@ using XTerm;
 
 var terminal = new Terminal();
 ```
+
+`Terminal` is `IDisposable` — disposing releases the parser subscriptions and clears every event
+handler, so a host that creates terminals per tab or per session should dispose them:
+
+```csharp
+using var terminal = new Terminal();
+```
+
+Writing to a disposed terminal is ignored rather than throwing. A host reading a pty on a background
+thread races teardown as a matter of course, and throwing there would kill the read loop rather than
+the object being torn down.
 
 Or customize the terminal with `TerminalOptions`:
 
@@ -316,9 +352,35 @@ void RenderTerminal(Terminal terminal)
 - `1` — 256-color palette index (0–255)
 - `2` — True color RGB (extract with `color & 0xFF` for each channel)
 
-**Handling wide characters:**
+### Unicode
 
-Wide characters (e.g., CJK ideographs, emoji) have `Width = 2`. The first cell contains the character, and the second cell has `Width = 0` as a placeholder — skip it during rendering but allocate space for the double-width glyph.
+Wide characters — CJK ideographs, Hangul, fullwidth forms, most emoji — have `Width = 2`. The first
+cell holds the character and the next has `Width = 0` as a spacer: skip it while rendering, but
+allocate the two columns for the glyph.
+
+The two always travel together, on every path that writes a cell. That is not a detail a renderer
+can paper over: a `Width = 2` cell whose second column holds a real character makes the renderer draw
+a two-column glyph into one column, and **every character to its right on that row shifts**. So
+printing over either half blanks the other, an erase that cuts through a pair widens to take the
+whole character, and a wide character with no room at the right margin wraps rather than being
+crammed in.
+
+**A cluster is one cell.** A ZWJ emoji sequence (`👨‍👩‍👧‍👦`), a regional-indicator flag
+(`🇯🇵`), a base plus combining marks (`é`), a skin-tone modifier (`👍🏽`) and a Hangul jamo
+sequence each occupy a single cell holding every codepoint, so selection, search and
+`TranslateToString` treat them as the unit a user sees. Mode 2027 is supported for clients that want
+to state the same thing explicitly.
+
+**Widths follow python `wcwidth`**, which is what `ucs-detect` measures terminals against. The tables
+are vendored — generated from `wcwidth` itself by `scripts/generate-width-tables.py` — and a parity
+test replays every codepoint against them, so the two cannot drift apart between releases.
+
+Width deliberately diverges from Terminal Unicode Core in one place: a cluster is one *cell*, but its
+*width* follows wcwidth arithmetic — a spacing mark adds a column, conjunct letters keep theirs,
+capped at two — because that is what applications lay out against. kitty makes the same trade.
+
+A cell can exceed two columns only through the `OSC 66` text sizing protocol below, never through
+character width.
 
 **Handling sized text (`OSC 66`):**
 
@@ -367,16 +429,15 @@ are reported honestly either way.
 ### Images
 
 Two graphics protocols are decoded — Sixel (`ESC P … q … ESC \`) and Kitty
-(`ESC _ G … ESC \`) — and both end up in the same place: the cells the picture covers. Each covered
-cell carries a reference to a shared `ImagePlacement` plus the coordinates of the piece it shows, so
-an image behaves like terminal content rather than an overlay: printing over a cell replaces that
-part of the picture, `ED`/`EL` clear it, scrolling carries it, and the image is freed once the last
-cell holding it is gone.
+(`ESC _ G … ESC \`) — and both end up in the same place: a **run held by the line** the picture
+appears on. Nothing about a picture is written into cells, which is what makes it survive a resize:
+a run keeps its natural width, so narrowing a window shows less of a picture instead of destroying
+it. The run scrolls with its line, is cleared by `ED`/`EL`, and is freed when the line falls out of
+the scrollback.
 
-A **placement** is one appearance of a picture: which `TerminalImage` it draws, which rectangle of
-that image it takes, and how many cells it fills. Sixel makes one placement per image. Kitty can
-transmit a picture once and place it many times, so several placements may share one `TerminalImage`
-— which is why cells reference the placement and not the image.
+A **placement** is one appearance of a picture: which image it draws, which rectangle of that image
+it takes, and how many cells it fills. Sixel makes one placement per image. Kitty can transmit a
+picture once and place it many times, so several placements may share one `TerminalImage`.
 
 **Tell the terminal your cell size.** XTerm.NET is headless and cannot measure a font, so it cannot
 work out how many columns an image covers unless you say. Set these from your renderer's metrics,
@@ -411,61 +472,55 @@ up to a whole row of the control's height belongs to no row at all. An applicati
 figure by the row count is told the terminal is taller than it is, sizes a picture to fill it, and the
 surplus runs off the bottom and scrolls the screen.
 
-**Rendering the tiles.** Extend the per-cell loop above:
+**Drawing the runs.** This is per *line*, not per cell — a run is one blit, not a row of tiles:
 
 ```csharp
-BufferCell cell = line[col];
+var line = buffer.Lines[buffer.YDisp + row];
 
-if (cell.Placement is ImagePlacement placement &&
-    placement.TryGetTileLayout(cell.ImageCol, cell.ImageRow,
-                               out int sx, out int sy, out int sw, out int sh,
-                               out double offX, out double offY,
-                               out double cellsWide, out double cellsHigh))
+// Back to front. A stable sort, so equal depths keep the order they were placed in, which is age.
+foreach (var p in line.Placements.OrderBy(p => p.ZIndex))
 {
     // Pixels are BGRA8888 with straight (unpremultiplied) alpha, top row first.
-    // Cache your framework's bitmap against `placement.Image` — a ConditionalWeakTable keyed on the
-    // image lets the bitmap die when the image does, with no eviction list to maintain, and two
+    // Cache your framework's bitmap against the TerminalImage — a ConditionalWeakTable keyed on it
+    // lets the bitmap die when the image does, with no eviction list to maintain, and two
     // placements of one picture share the single upload.
-    var bitmap = _bitmaps.GetOrCreate(placement.Image);
+    // Matched by id rather than by column: two pictures may overlap the same columns, and a
+    // column lookup answers with whichever placement comes first, not necessarily this one.
+    var image = line.Images.FirstOrDefault(i => i.Id == p.ImageId);
+    if (image is null) continue;
+    var bitmap = _bitmaps.GetOrCreate(image);
 
     DrawImage(bitmap,
-        source: (sx, sy, sw, sh),
-        dest: ((col + offX) * cellWidth, (row + offY) * cellHeight,
-               cellWidth * cellsWide, cellHeight * cellsHigh));
-    continue;
+        source: (p.SrcX, p.SrcY, p.SrcWidth, p.SrcHeight),
+        dest: ((p.Column * cellWidth) + p.OffsetX, (row * cellHeight) + p.OffsetY,
+               p.Cols * cellWidth, cellHeight));
 }
 ```
 
-`TryGetTileLayout` answers both halves in one call: which pixels to take, and where in the cell to
-put them. Both are needed because neither implies the other — a natural-size tile at the right edge
-is clipped short, a stretched tile is a proportional slice, and a placement carrying `X=`/`Y=` starts
-partway into its first cell and is *both* narrower and shifted. The older
-`GetTileCoverage(sw, sh, out cellsWide, out cellsHigh)` still works and still returns the same
-numbers, but it has no way to express that shift, so a renderer that wants offsets must use the
-layout call.
+Clip the destination to the line's width and narrow the source by the same proportion — that is what
+makes a narrowed window show less of a picture rather than a squashed one. `OffsetX`/`OffsetY` are
+the sub-cell shift a Kitty placement asks for with `X=`/`Y=`; they are zero for Sixel and for most
+Kitty placements.
 
-Adjacent cells sharing the same **`Placement`** reference and `ImageRow` with consecutive `ImageCol`
-values are contiguous, so a renderer can coalesce them into a single draw call per row instead of one
-per cell. Compare the placement, not the image: under Kitty two appearances of one picture can sit
-side by side, and coalescing on the image would run a single strip across the join and blit the wrong
-pixels into both halves. If you cache rendered rows, note that image cells must break a text run —
-compare `Placement` by reference as well as comparing `Attributes`.
+Paint each cell's own background once, underneath the runs, and from the bottom-most run covering it
+only — painting it again for a nearer run erases what is behind instead of letting it show through.
 
-`cell.Image` remains available as shorthand for `cell.Placement?.Image` and still identifies the
-pixels, so bitmap caches keyed on it need no change.
+Text goes down *between* the negative z-indices and the rest: see [Draw order](#kitty-graphics)
+below for why a negative `ZIndex` means behind the text rather than merely further back.
 
-Image cells hold `" "` as their content, so `TranslateToString` and selection copy yield blanks.
+Cells under a picture hold `" "` as their content, so `TranslateToString` and selection copy yield
+blanks.
 
-**Placement geometry.** `ImagePlacement.Scaling` says how tiles divide the source:
+To ask what covers one column rather than walking the list:
 
-- `Natural` — a fixed cell pitch with edge tiles clipped. Sixel always, and Kitty when neither `c`
-  nor `r` is given.
-- `Stretched` — the source rectangle divided proportionally across the cell box, which is what
-  Kitty's `c`/`r` keys ask for. Tiles are not all the same width, so size each from its own source
-  rectangle rather than from the first one.
+```csharp
+if (line.TryGetPlacementAt(col, out LinePlacement placement)) { … }
+if (line.TryGetImageAt(col, out TerminalImage image)) { … }
+```
 
-`TryGetTileSource` and `GetTileCoverage` handle both, so a renderer using them does not need to
-branch on the mode.
+Both answer with the *first* placement covering that column, so they are the convenient form for the
+ordinary case of one picture at a time — a renderer handling overlapping pictures should walk
+`line.Placements` and resolve through `line.Images` as above.
 
 **Options:**
 
