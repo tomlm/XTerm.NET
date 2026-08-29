@@ -1246,47 +1246,30 @@ public class Terminal : IDisposable
     /// </remarks>
     /// <param name="ev">The keyboard event, with <see cref="KeyEvent.Code"/> filled in when known.</param>
     /// <param name="eventType">Press, repeat or release.</param>
-    /// <returns>The bytes to send to the application, or null to send nothing.</returns>
+    /// <returns>
+    /// The bytes to send, or null when the event is suppressed or needs legacy encoding. Hosts
+    /// should call this terminal-level method rather than <see cref="KittyKeyboard.Evaluate"/>, as
+    /// it performs the mode-aware legacy hand-off.
+    /// </returns>
     public string? GenerateKittyKeyInput(KeyEvent ev, KittyKeyboardEventType eventType = KittyKeyboardEventType.Press)
     {
         var result = KittyKeyboard.Evaluate(ev, KittyKeyboardState.Flags, eventType, Options.MacOptionIsMeta);
-        if (result is not null || eventType == KittyKeyboardEventType.Release)
+        // Legacy encodings describe presses and repeats only. Falling back for a release would
+        // turn key-up into a second key-down. With no active flags this Kitty-specific entry point
+        // retains its historical null result; the host uses GenerateKeyInput directly instead.
+        if (result is not null
+            || eventType == KittyKeyboardEventType.Release
+            || KittyKeyboardState.Flags == KittyKeyboardFlags.None)
             return result;
 
-        return TryGetLegacyKey(ev, out var key)
+        return KittyKeyboard.TryGetLegacyKey(ev, out var key)
             ? _keyboardInput.GenerateKeySequence(key, GetLegacyModifiers(ev))
             : null;
     }
 
-    private static bool TryGetLegacyKey(KeyEvent ev, out Key key)
-    {
-        if (ev.Key == "Escape")
-        {
-            key = Key.Escape;
-            return true;
-        }
-
-        if (ev.Code == "NumpadEnter")
-        {
-            key = Key.KeypadEnter;
-            return true;
-        }
-
-        if (ev.Key.Length is 3 or 4
-            && ev.Key[0] == 'F'
-            && int.TryParse(ev.Key.AsSpan(1), out var number)
-            && number is >= 13 and <= 20)
-        {
-            key = Key.F13 + (number - 13);
-            return true;
-        }
-
-        key = default;
-        return false;
-    }
-
     private static KeyModifiers GetLegacyModifiers(KeyEvent ev)
     {
+        // KeyModifiers has no Meta/Super member, so legacy encoding cannot represent ev.MetaKey.
         var modifiers = KeyModifiers.None;
         if (ev.ShiftKey) modifiers |= KeyModifiers.Shift;
         if (ev.AltKey) modifiers |= KeyModifiers.Alt;

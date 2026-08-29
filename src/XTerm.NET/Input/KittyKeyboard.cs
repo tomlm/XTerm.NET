@@ -395,7 +395,11 @@ public static class KittyKeyboard
     /// True when the host treats macOS Option as Alt, so an Option-composed key name ("ƒ") is
     /// unwound to the letter under it via <see cref="KeyEvent.Code"/>.
     /// </param>
-    /// <returns>The bytes to send, or null when this event sends nothing.</returns>
+    /// <returns>
+    /// The bytes to send, or null when the event is suppressed or has a mode-dependent legacy
+    /// encoding. <see cref="Terminal.GenerateKittyKeyInput"/> performs that legacy hand-off;
+    /// direct callers must do the same when <see cref="TryGetLegacyKey"/> succeeds.
+    /// </returns>
     public static string? Evaluate(
         KeyEvent ev,
         KittyKeyboardFlags flags,
@@ -483,24 +487,39 @@ public static class KittyKeyboard
         // disappear. Their assigned CSI-u codepoint is the only representation available.
         // Functional keys that DO have a legacy form deliberately fall through: Terminal owns
         // the legacy generator and can preserve mode-dependent details such as application keypad.
-        if (isFunc && !HasLegacyFunctionalEncoding(ev))
+        if (isFunc && !TryGetLegacyKey(ev, out _))
             return BuildCsiUSequence(ev, keyCode.Value, modifiers, eventType, flags, isFunc, isMod);
 
         return null;
     }
 
-    private static bool HasLegacyFunctionalEncoding(KeyEvent ev)
+    /// <summary>Maps the functional keys whose bytes come from the legacy terminal modes.</summary>
+    internal static bool TryGetLegacyKey(KeyEvent ev, out Key key)
     {
-        if (ev.Key == "Escape" || ev.Code == "NumpadEnter")
+        if (ev.Key == "Escape")
+        {
+            key = Key.Escape;
             return true;
+        }
+
+        if (ev.Code == "NumpadEnter")
+        {
+            key = Key.KeypadEnter;
+            return true;
+        }
 
         if (ev.Key.Length is 3 or 4
             && ev.Key[0] == 'F'
             && int.TryParse(ev.Key.AsSpan(1), out var number))
         {
-            return number is >= 13 and <= 20;
+            if (number is >= 13 and <= 20)
+            {
+                key = (Key)((int)Key.F13 + number - 13);
+                return true;
+            }
         }
 
+        key = default;
         return false;
     }
 

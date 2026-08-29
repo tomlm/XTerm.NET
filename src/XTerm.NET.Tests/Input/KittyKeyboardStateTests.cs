@@ -370,4 +370,18 @@ public class KittyKeyboardStateTests
 
         Assert.Equal("\u001bOM", t.GenerateKittyKeyInput(new KeyEvent { Key = "Enter", Code = "NumpadEnter" }));
     }
+
+    [Fact]
+    public void Legacy_fallback_does_not_run_without_active_Kitty_flags()
+        => Assert.Null(NewTerminal().GenerateKittyKeyInput(new KeyEvent { Key = "Escape" }));
+
+    [Fact]
+    public void Legacy_fallback_does_not_turn_a_release_into_another_press()
+    {
+        var t = NewTerminal();
+        t.Write("\u001b[=4u");
+
+        Assert.Null(t.GenerateKittyKeyInput(
+            new KeyEvent { Key = "Escape" }, KittyKeyboardEventType.Release));
+    }
 }
