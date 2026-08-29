@@ -82,17 +82,19 @@ jobs:
       # PRs passes its own gate on the way. This is the budget for ALL drift since the
       # reference, so the PR that spends the last of it is the one that has to find the time
       # back -- or the reference moves deliberately, in a change that says why.
-      # A COMMIT, not a tag: this repository has no tag on the 2.0 line, and a ref that cannot
-      # resolve makes the gate below skip itself silently -- which is the failure mode a gate
-      # least wants. b83dcda is main as 2.0.0-rc001 was published from it (27 Aug). Move it when
-      # a release makes the drift since it uninteresting, in a change that says what was spent.
-      BASELINE_REF: "b83dcda"
+      # Empty means THE LATEST RELEASE TAG, resolved at run time, so this never goes stale and
+      # nobody has to remember to move it: cutting a release moves the reference with it, and the
+      # budget below then covers drift since that release. Set it to a ref to pin deliberately.
+      BASELINE_REF: ""
       BASELINE_FLOOR: "0.05"
 
     steps:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        # Tags too: the cumulative gate below resolves the latest release tag, and a checkout
+        # without them silently finds nothing and skips itself.
+        fetch-tags: true
 
     - uses: actions/setup-dotnet@v3
       with:
@@ -112,15 +114,25 @@ jobs:
       run: |
         # Absent or unfetchable, the cumulative gate is skipped rather than failing the run --
         # a fork or a shallow clone should not look like a regression.
-        if git rev-parse --verify "$BASELINE_REF^{commit}" >/dev/null 2>&1; then
-          git worktree add /tmp/baseline "$BASELINE_REF"
+        # The nearest tag reachable from here, unless one was pinned above. --abbrev=0 gives the
+        # closest by commit distance rather than the lexically largest, which is what "the release
+        # this branched from" means once release numbering stops sorting the way you expect.
+        REF="$BASELINE_REF"
+        if [ -z "$REF" ]; then
+          REF="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+        fi
+        echo "baseline ref: ${REF:-<none found>}"
+        echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
+        if [ -n "$REF" ] && git rev-parse --verify "$REF^{commit}" >/dev/null 2>&1; then
+          git worktree add /tmp/baseline "$REF"
           dotnet build /tmp/baseline/src/XTerm.NET -c Release --property WarningLevel=0 \
             -p:CopyLocalLockFileAssemblies=true
           cp /tmp/baseline/src/XTerm.NET/bin/Release/net10.0/XTerm.NET.dll /tmp/libs/baseline.dll
           cp -n /tmp/baseline/src/XTerm.NET/bin/Release/net10.0/*.dll "$OUT/" || true
           echo "available=true" >> "$GITHUB_OUTPUT"
         else
-          echo "baseline ref $BASELINE_REF not found; cumulative gate skipped"
+          echo "no baseline ref resolved; cumulative gate skipped"
           echo "available=false" >> "$GITHUB_OUTPUT"
         fi
 
@@ -191,7 +203,7 @@ jobs:
         set -e
         {
           echo ""
-          echo "## Cumulative, against \`$BASELINE_REF\`"
+          echo "## Cumulative, against \`${{ steps.baseline.outputs.ref }}\`"
           echo ""
           echo "Everything merged since the reference, measured together. A per-PR gate bounds"
           echo "each change and nothing about the trajectory: 4% allowed five times compounds to"
@@ -219,6 +231,6 @@ jobs:
         fi
         if [ "${{ steps.compare-baseline.outputs.status }}" != "" ] \
            && [ "${{ steps.compare-baseline.outputs.status }}" != "0" ]; then
-          echo "::error::Cumulative drift since $BASELINE_REF is over budget. Either find the time back, or move the reference deliberately in a change that says why."
+          echo "::error::Cumulative drift since ${{ steps.baseline.outputs.ref }} is over budget. Either find the time back, or move the reference deliberately in a change that says why."
         fi
         exit 1
