@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Text;
 using XTerm.Common;
 using XTerm.Events.Parser;
@@ -952,13 +953,25 @@ public class EscapeSequenceParser
     /// than either refusing it or clamping it. Handlers already clamp what they are given; this
     /// only guarantees the value they see has the sign and magnitude the stream actually asked for.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int Saturate(int current, int digit)
     {
-        if (current > (MaxParamValue - digit) / 10)
+        // No division. The obvious guard -- current > (MaxParamValue - digit) / 10 -- divides once
+        // per DIGIT, and a truecolor stream is CSI 38;2;R;G;B m over and over: five parameters and
+        // a dozen digits per sequence, all on the parser's hottest path. Comparing against a
+        // constant costs a compare instead.
+        //
+        // SafeCurrent is MaxParamValue / 10, so anything at or below it cannot overflow an int
+        // when multiplied by ten and given a digit; anything above it is already past the ceiling.
+        if (current > SafeCurrent)
             return MaxParamValue;
 
-        return current * 10 + digit;
+        var next = current * 10 + digit;
+        return next > MaxParamValue ? MaxParamValue : next;
     }
+
+    /// <summary>The largest accumulator that can still take another digit without overflowing.</summary>
+    private const int SafeCurrent = MaxParamValue / 10;
 
     /// <summary>
     /// Ceiling for a single CSI parameter. Far above any real sequence; handlers clamp to the
