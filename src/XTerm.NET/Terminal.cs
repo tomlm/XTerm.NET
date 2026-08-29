@@ -458,6 +458,12 @@ public class Terminal : IDisposable
         _buffer = _normalBuffer;
         _usingAltBuffer = false;
 
+        // Scrollback was read once, here, and never again: a host that lowered it to reclaim
+        // memory or raised it because the user asked got a property that reported the new value
+        // and did nothing. It reaches the buffer now. The normal buffer only -- the alternate
+        // screen has no history by definition, and keeps none while this is set.
+        Options.ScrollbackChanged = _normalBuffer.SetScrollback;
+
         // Initialize parser and input handler
         _parser = new EscapeSequenceParser();
         _inputHandler = new InputHandler(this);
@@ -1617,6 +1623,10 @@ public class Terminal : IDisposable
             return;
 
         _disposed = true;
+
+        // The options snapshot outlives this terminal whenever the caller kept a reference to what
+        // it passed in, and the hook holds the buffer, so it goes with the rest of the handlers.
+        Options.ScrollbackChanged = null;
 
         // Unsubscribe from parser events
         _parser.PrintFast = null;

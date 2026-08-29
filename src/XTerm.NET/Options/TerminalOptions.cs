@@ -20,7 +20,38 @@ public class TerminalOptions : ICloneable
     /// <summary>
     /// Amount of scrollback in the terminal. 0 disables scrollback.
     /// </summary>
-    public int Scrollback { get; set; } = 1000;
+    /// <remarks>
+    /// Live: setting this resizes the history a terminal already holds, growing it or dropping the
+    /// oldest lines to fit. It was read once at construction and never again, so a host lowering a
+    /// scrollback to reclaim memory, or raising it because the user asked, was answered by a
+    /// property that reported the new value and changed nothing.
+    ///
+    /// Only the terminal this options object belongs to is affected, which is what makes the hook
+    /// below safe: since options are snapshotted at construction, exactly one terminal reads any
+    /// given instance.
+    /// </remarks>
+    public int Scrollback
+    {
+        get => _scrollback;
+        set
+        {
+            if (value == _scrollback)
+                return;
+
+            _scrollback = value;
+            ScrollbackChanged?.Invoke(value);
+        }
+    }
+
+    private int _scrollback = 1000;
+
+    /// <summary>
+    /// Installed by <see cref="Terminal"/> on the snapshot it owns, so a later write to
+    /// <see cref="Scrollback"/> reaches the buffer. Deliberately not copied by the copy
+    /// constructor: a clone belongs to whoever cloned it, and carrying the hook would let one
+    /// terminal resize another's history.
+    /// </summary>
+    internal Action<int>? ScrollbackChanged;
 
     /// <summary>
     /// Tab stop width.

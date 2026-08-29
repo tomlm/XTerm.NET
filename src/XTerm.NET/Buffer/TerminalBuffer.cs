@@ -771,6 +771,55 @@ public class TerminalBuffer
     }
 
     /// <summary>
+    /// Sets how many lines of history this buffer keeps behind the screen.
+    /// </summary>
+    /// <remarks>
+    /// The ring holds the screen and the history together, so its capacity is rows + scrollback and
+    /// the scrollback is whatever the rows do not account for — the same arithmetic
+    /// <see cref="Resize"/> uses to carry the history across a change of row count.
+    ///
+    /// Shrinking drops the OLDEST lines. <see cref="CircularList{T}.Resize"/> keeps the front of
+    /// the list, which for a scrollback is precisely backwards: it would discard the screen the
+    /// user is looking at and keep the history nobody asked to keep. So the front is trimmed first
+    /// and the viewport recomputed against what is left, exactly as the resize path does.
+    ///
+    /// A buffer with no scrollback of its own — the alternate screen — ignores this.
+    /// </remarks>
+    public void SetScrollback(int scrollback)
+    {
+        if (!_hasScrollback)
+            return;
+
+        var newMaxLength = Math.Max(_rows, _rows + Math.Max(0, scrollback));
+        if (newMaxLength == _lines.MaxLength)
+            return;
+
+        if (newMaxLength > _lines.MaxLength)
+        {
+            _lines.Resize(newMaxLength);
+            return;
+        }
+
+        var amountToTrim = _lines.Length - newMaxLength;
+        if (amountToTrim > 0)
+        {
+            // Read BEFORE the trim, because afterwards there is nothing left to tell it from.
+            var wasFollowingBottom = _yDisp == _yBase;
+
+            _lines.TrimStart(amountToTrim);
+            Trimmed?.Invoke(amountToTrim);
+
+            _yBase = Math.Max(0, _lines.Length - _rows);
+            _yDisp = wasFollowingBottom
+                ? _yBase
+                : Math.Clamp(_yDisp - amountToTrim, 0, _yBase);
+            SavedCursorState.Y = Math.Max(SavedCursorState.Y - amountToTrim, 0);
+        }
+
+        _lines.Resize(newMaxLength);
+    }
+
+    /// <summary>
     /// Resizes the buffer.
     /// </summary>
     public void Resize(int newCols, int newRows)
