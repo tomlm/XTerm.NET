@@ -216,8 +216,12 @@ internal readonly struct KittyCommand
                 case 's': width = ReadInt(value, width); break;
                 case 'v': height = ReadInt(value, height); break;
                 case 't': medium = value[0]; break;
-                case 'i': imageId = (uint)ReadInt(value, 0); break;
-                case 'I': imageNumber = (uint)ReadInt(value, 0); break;
+                // The unsigned reader, which exists a few lines below for exactly this reason: an
+                // image id is a u32 in the protocol, and the signed one saturates at int.MaxValue,
+                // so every id above 2^31 collapsed onto the same value. Two images with distinct
+                // legal ids became one, and a delete for either removed both.
+                case 'i': imageId = ReadUInt(value, 0); break;
+                case 'I': imageNumber = ReadUInt(value, 0); break;
                 case 'p': placementId = ReadInt(value, placementId); break;
                 case 'm': more = ReadInt(value, 0) == 1; break;
                 case 'o': compression = value[0]; break;

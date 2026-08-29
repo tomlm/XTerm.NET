@@ -13,7 +13,7 @@ namespace XTerm;
 /// Main terminal class - the core of xterm.js functionality.
 /// Manages buffer, parser, input handler, and terminal state.
 /// </summary>
-public class Terminal
+public class Terminal : IDisposable
 {
     private readonly EscapeSequenceParser _parser;
     private readonly InputHandler _inputHandler;
@@ -569,7 +569,11 @@ public class Terminal
     /// </remarks>
     public void Write(string data)
     {
-        if (string.IsNullOrEmpty(data))
+        // Writes after Dispose are IGNORED, deliberately, and not an exception. A host reads its
+        // pty on a background thread and writes what it gets to the terminal; disposing the
+        // control while a read is in flight is ordinary, not a bug, and throwing there would kill
+        // the read loop rather than the object being torn down. Two tests pin this.
+        if (_disposed || string.IsNullOrEmpty(data))
             return;
 
         _parser.Parse(data);
@@ -586,7 +590,7 @@ public class Terminal
     /// </summary>
     public void Write(ReadOnlySpan<byte> data)
     {
-        if (data.IsEmpty)
+        if (_disposed || data.IsEmpty)
             return;
 
         _parser.Parse(data);
@@ -798,6 +802,17 @@ public class Terminal
         AltSendsEscape = false;
         Win32InputMode = false;
         InBandResize = false;
+        // The three Sixel modes survived RIS, so DECRQM went on reporting mode 80 as set after a
+        // reset and the next image drew with the previous program's geometry. Their defaults are
+        // not all false, which is why they are named rather than cleared in a loop.
+        SixelDisplayMode = false;
+        SixelPrivateColorRegisters = true;
+        SixelCursorRight = false;
+
+        // And the charset designations, with the SO/SI shift state. InputHandler.ResetCharsets
+        // existed for exactly this and was called from nowhere, so a program that designated line
+        // drawing into G0 and died left the next one printing box characters for letters.
+        _inputHandler.ResetCharsets();
 
         // Kitty keyboard flags do not survive a reset: RIS is exactly how someone recovers from
         // an application that set them and died.
@@ -1489,6 +1504,14 @@ public class Terminal
                 {
                     _buffer.SetCursor(_buffer.X - 1, _buffer.Y);
                 }
+                else if (ReverseWraparound && _buffer.Y > 0)
+                {
+                    // DECSET 45 was stored and reported by DECRQM but nothing ever read it, so a
+                    // program that enabled reverse wraparound and backspaced off the left edge sat
+                    // there -- a shell erasing a wrapped command line stopped at the wrap and left
+                    // the first row of it on screen.
+                    _buffer.SetCursor(Cols - 1, _buffer.Y - 1);
+                }
                 break;
 
             case 0x09: // HT - Tab
@@ -1546,8 +1569,25 @@ public class Terminal
     /// <summary>
     /// Disposes the terminal and releases resources.
     /// </summary>
+    /// <summary>Whether <see cref="Dispose"/> has run. A disposed terminal accepts no writes.</summary>
+    private bool _disposed;
+
+    /// <summary>
+    /// Releases the parser subscriptions and clears every event handler.
+    /// </summary>
+    /// <remarks>
+    /// The class declares <see cref="IDisposable"/> now. It always had this method, but without
+    /// the interface no `using` statement, no DI container and no analyzer could see it -- an
+    /// embedder had to know by reading the source, and the handlers stayed subscribed for anyone
+    /// who did not.
+    /// </remarks>
     public void Dispose()
     {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+
         // Unsubscribe from parser events
         _parser.PrintFast = null;
         _parser.PrintRunFast = null;

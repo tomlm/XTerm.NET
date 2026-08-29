@@ -3321,7 +3321,12 @@ public class InputHandler
             return;
 
         _kittyNotifications.Remove(key);
+        // Braces, because their absence changed what this method does: only the inner `if` was
+        // guarded by TryBuild, so a notification that FAILED to build was raised anyway with null
+        // title and null body -- a host handing Title to an OS notification API got null with
+        // nothing to show.
         if (notification.TryBuild(out var title, out var body))
+        {
             // "If a notification has no title, the body will be used as title" — the spec's own
             // sentence, honoured here so every host does not rediscover it, and so a host that
             // hands Title to an OS API requiring one never gets null with content present.
@@ -3330,7 +3335,9 @@ public class InputHandler
                 title = body;
                 body = null;
             }
+
             _terminal.RaiseKittyNotificationReceived(notification.Identifier, title, body, notification.Urgency, notification.Icon);
+        }
     }
 
     private void RemoveExpiredKittyNotifications()
