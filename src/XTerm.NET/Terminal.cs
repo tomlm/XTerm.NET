@@ -1619,6 +1619,9 @@ public class Terminal
 
         // Tab and carriage return are the two controls a paste legitimately carries: one is
         // indentation, the other is the line ending everything above just normalized to.
+        // char.IsControl covers C1 as well as C0, which is wanted: U+009B is eight-bit CSI and
+        // opens a sequence exactly as ESC [ does, so a filter that stopped at C0 would leave the
+        // wrapper breakable by a paste that spells its escape differently.
         if (!normalized.Any(c => char.IsControl(c) && c != '\r' && c != '\t'))
             return normalized;
 

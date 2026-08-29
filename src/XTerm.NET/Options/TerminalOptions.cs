@@ -192,9 +192,12 @@ public class TerminalOptions : ICloneable
     /// message, a README -- and a paste carrying <c>ESC</c> can close the bracketed-paste wrapper
     /// early with <c>ESC [ 2 0 1 ~</c> and have everything after it read as though the user typed
     /// it. That is a path from "copied a command from a website" to "ran a different command".</para>
-    /// <para>While off, C0 controls other than tab and carriage return are dropped from pasted
-    /// text. An embedder that genuinely wants to feed escape sequences to the application should
-    /// call <see cref="Terminal.Write(string)"/>, which is the unfiltered path and always was.</para>
+    /// <para>While off, control characters other than tab and carriage return are dropped from
+    /// pasted text — C1 as well as C0, which is deliberate rather than incidental: U+009B is
+    /// eight-bit CSI and starts a sequence exactly as <c>ESC [</c> does, so filtering only C0
+    /// would leave the wrapper breakable by a paste that spells its escape differently. An
+    /// embedder that genuinely wants to feed escape sequences to the application should call
+    /// <see cref="Terminal.Write(string)"/>, which is the unfiltered path and always was.</para>
     /// </remarks>
     public bool AllowPasteControls { get; set; } = false;
 
