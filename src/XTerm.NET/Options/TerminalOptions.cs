@@ -151,6 +151,21 @@ public class TerminalOptions : ICloneable
     /// </remarks>
     public bool KittyGraphicsEnabled { get; set; } = true;
 
+    /// <summary>Whether iTerm2 OSC 1337 inline images are honoured.</summary>
+    public bool ITerm2ImagesEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Whether Kitty desktop notification requests (OSC 99) are honoured.
+    /// </summary>
+    /// <remarks>
+    /// Off by default, unlike the other Kitty gates: those draw inside the terminal surface,
+    /// whereas a notification hands pty-controlled text to an OS-level API on behalf of any
+    /// program that can write to the pty, including a remote host over ssh. A host that is
+    /// prepared to show notifications opts in. While off the terminal also refuses the p=?
+    /// capability query, so a well-behaved application stays quiet rather than notifying
+    /// into the void.
+    /// </remarks>
+    public bool KittyNotificationsEnabled { get; set; }
     /// <summary>
     /// Whether applications may write to the host clipboard using OSC 52 or Kitty OSC 5522.
     /// </summary>
@@ -179,6 +194,19 @@ public class TerminalOptions : ICloneable
     public bool KittyKeyboardEnabled { get; set; } = true;
 
     /// <summary>
+    /// Whether mouse pointer shape requests (OSC 22) are honoured. Off by default.
+    /// </summary>
+    /// <remarks>
+    /// Opt-in, because the emulator cannot make this work on its own: only the host can change a
+    /// real pointer, and it does that by subscribing to
+    /// <see cref="Terminal.PointerShapeChanged"/>. Left on by default, a host that has not wired
+    /// that event would still answer the support query with a yes, and an application would go on
+    /// using shapes that never appear. Turning it on is the host saying it has wired the event, so
+    /// the yes is true when it is given.
+    /// </remarks>
+    public bool PointerShapesEnabled { get; set; }
+
+    /// <summary>
     /// Budget for images held by client id but not currently on screen, in bytes.
     /// </summary>
     /// <remarks>
@@ -187,6 +215,12 @@ public class TerminalOptions : ICloneable
     /// could transmit without ever placing and never be collected. Oldest goes first.
     /// </remarks>
     public long MaxImageRegistryBytes { get; set; } = 32L * 1024 * 1024;
+
+    /// <summary>Maximum number of iTerm2 OSC 1337 user variables retained.</summary>
+    public int MaxUserVariables { get; set; } = 128;
+
+    /// <summary>Maximum decoded UTF-8 bytes retained for one iTerm2 user variable.</summary>
+    public int MaxUserVariableBytes { get; set; } = 4096;
 
     /// <summary>
     /// Width of a character cell in pixels.
@@ -205,6 +239,13 @@ public class TerminalOptions : ICloneable
     /// Height of a character cell in pixels. See <see cref="CellWidthPixels"/>.
     /// </summary>
     public int CellHeightPixels { get; set; } = 20;
+
+    /// <summary>
+    /// Device pixels per logical point on the display the terminal renders to — 2.0 on a Retina
+    /// display, 1.0 (the default) where pixels are points. Set by the host beside the cell pixel
+    /// metrics; iTerm2's ReportCellSize divides by it, because that query speaks points.
+    /// </summary>
+    public double DisplayScale { get; set; } = 1.0;
 
     /// <summary>
     /// Largest Sixel image accepted, in pixels. Larger ones are discarded as they decode.
@@ -291,13 +332,19 @@ public class TerminalOptions : ICloneable
         RendererType = other.RendererType;
         SixelEnabled = other.SixelEnabled;
         KittyGraphicsEnabled = other.KittyGraphicsEnabled;
+        ITerm2ImagesEnabled = other.ITerm2ImagesEnabled;
+        KittyNotificationsEnabled = other.KittyNotificationsEnabled;
         ClipboardWriteEnabled = other.ClipboardWriteEnabled;
         ClipboardReadEnabled = other.ClipboardReadEnabled;
         MaxClipboardBytes = other.MaxClipboardBytes;
         KittyKeyboardEnabled = other.KittyKeyboardEnabled;
+        PointerShapesEnabled = other.PointerShapesEnabled;
         MaxImageRegistryBytes = other.MaxImageRegistryBytes;
+        MaxUserVariables = other.MaxUserVariables;
+        MaxUserVariableBytes = other.MaxUserVariableBytes;
         CellWidthPixels = other.CellWidthPixels;
         CellHeightPixels = other.CellHeightPixels;
+        DisplayScale = other.DisplayScale;
         MaxSixelPixels = other.MaxSixelPixels;
         MaxImageBytes = other.MaxImageBytes;
         WindowOptions = new WindowOptions(other.WindowOptions);
@@ -368,6 +415,7 @@ public class WindowOptions : ICloneable
     public bool MaximizeWin { get; set; } = false;
     public bool MinimizeWin { get; set; } = false;
     public bool FullscreenWin { get; set; } = false;
+    public bool RequestAttention { get; set; } = false;
 
     /// <summary>
     /// Default constructor.
@@ -399,6 +447,7 @@ public class WindowOptions : ICloneable
         MaximizeWin = other.MaximizeWin;
         MinimizeWin = other.MinimizeWin;
         FullscreenWin = other.FullscreenWin;
+        RequestAttention = other.RequestAttention;
     }
 
     /// <summary>

@@ -27,8 +27,8 @@ public class OscPassthroughTests
     public void OscReceived_FiresForUnknownSequence()
     {
         // The reason this event exists: a code with no case here reaches Debug.WriteLine and is
-        // otherwise unrecoverable. OSC 1337 is iTerm2's proprietary space, which this terminal does
-        // not implement and has no plans to.
+        // otherwise unrecoverable. OSC 1337 is iTerm2's proprietary space; its unknown keys remain
+        // available to a listener even though the useful keys have built-in handling.
         //
         // This used to use OSC 133, which was unimplemented when the event was added and is not any
         // more. That is the Recognized contract working rather than a test going stale: a listener

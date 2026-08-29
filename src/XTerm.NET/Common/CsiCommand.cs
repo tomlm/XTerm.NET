@@ -86,7 +86,13 @@ public enum CsiCommand
     /// Scroll Up (CSI S).
     /// </summary>
     ScrollUp,
-    
+
+    /// <summary>
+    /// Graphics Attributes (XTSMGRAPHICS, CSI ? Pi ; Pa ; Pv S). Shares its final character with
+    /// <see cref="ScrollUp"/> and is a separate command, not a variant of it.
+    /// </summary>
+    GraphicsAttributes,
+
     /// <summary>
     /// Scroll Down (CSI T).
     /// </summary>
@@ -110,10 +116,10 @@ public enum CsiCommand
     TabClear,
     
     /// <summary>
-    /// Device Attributes (CSI c).
+    /// Device Attributes (CSI c is the primary request, CSI &gt; c the secondary).
     /// </summary>
     DeviceAttributes,
-    
+
     /// <summary>
     /// Line Position Absolute (CSI d).
     /// </summary>

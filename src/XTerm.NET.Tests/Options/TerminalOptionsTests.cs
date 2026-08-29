@@ -43,6 +43,7 @@ public class TerminalOptionsTests
         Assert.NotNull(options.Theme);
         Assert.Equal(1, options.MinimumContrastRatio);
         Assert.True(options.DrawBoldTextInBrightColors);
+        Assert.False(options.KittyNotificationsEnabled);
         Assert.Null(options.CustomKeyEventHandler);
         Assert.True(options.ClipboardWriteEnabled);
         Assert.False(options.ClipboardReadEnabled);
@@ -283,6 +284,7 @@ public class TerminalOptionsTests
         options.RendererType = RendererType.WebGL;
         options.MinimumContrastRatio = 4.5;
         options.DrawBoldTextInBrightColors = false;
+        options.KittyNotificationsEnabled = true;
 
         // Assert
         Assert.Equal(100, options.Cols);
@@ -312,6 +314,7 @@ public class TerminalOptionsTests
         Assert.Equal(RendererType.WebGL, options.RendererType);
         Assert.Equal(4.5, options.MinimumContrastRatio);
         Assert.False(options.DrawBoldTextInBrightColors);
+        Assert.True(options.KittyNotificationsEnabled);
     }
 }
 

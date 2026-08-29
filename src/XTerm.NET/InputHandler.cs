@@ -18,6 +18,10 @@ public class InputHandler
     private Buffer.TerminalBuffer _buffer;
     private AttributeData _curAttr;
     private readonly Dictionary<CharsetMode, Dictionary<char, string>?> _charsets;
+    private readonly Dictionary<string, KittyNotification> _kittyNotifications = new();
+    private const int MaxPendingKittyNotifications = 16;
+    private const int MaxKittyNotificationBytes = 64 * 1024;
+    private static readonly TimeSpan KittyNotificationTimeout = TimeSpan.FromMinutes(1);
     private Dictionary<string, List<byte>>? _kittyClipboardData;
     private Dictionary<string, StringBuilder>? _kittyClipboardBase64;
     private List<(string Alias, string Target)>? _kittyClipboardAliases;
@@ -237,39 +241,11 @@ public class InputHandler
         }
 
 
-        // Handle autowrap
-        if (_buffer.X > WrapLimit())
-        {
-            if (_terminal.Options.Wraparound)
-            {
-                // Only a FULL-WIDTH wrap marks the next line as a continuation. IsWrapped is a
-                // per-line flag, and a wrap inside the margin box continues the box, not the line:
-                // content outside the margins on the next row was never part of this text, and a
-                // reflow that believed the flag would merge lines an application laid out
-                // separately. Decided before the cursor moves, because the answer depends on
-                // where the wrap happened.
-                var lineWrap = WrapLimit() == _terminal.Cols - 1 && WrapHome() == 0;
-                if (_buffer.Y == _buffer.ScrollBottom)
-                {
-                    _buffer.SetCursor(WrapHome(), _buffer.Y);
-                    _buffer.ScrollUp(1, true);
-                }
-                else
-                {
-                    _buffer.SetCursor(WrapHome(), _buffer.Y + 1);
-                }
-                if (lineWrap)
-                    _buffer.Lines[_buffer.Y + _buffer.YBase]!.IsWrapped = true;
-            }
-            else
-            {
-                return; // Don't print beyond line edge
-            }
-        }
-
-        var line = _buffer.Lines[_buffer.Y + _buffer.YBase]; 
-        if (line == null)
-            return;
+        // Handle autowrap. The wrap TEST stays inline: it runs once per printed character, and
+        // hiding it inside ResolveAutowrap cost alt-redraw 9% in method-call overhead -- the same
+        // lesson NoteLinkRun's guard learned. The method only runs when a wrap is actually due.
+        if (_buffer.X > WrapLimit() && !ResolveAutowrap())
+            return; // Don't print beyond line edge
 
         // Translate character through active charset
         var translatedData = data;
@@ -280,6 +256,17 @@ public class InputHandler
 
         // Get character width
         var width = GetStringCellWidth(translatedData);
+
+        // A cell belonging to a scaled block anchored on an earlier row is not written into: the
+        // cursor moves past the block's cells on this row and the text lands after them. Known
+        // before the line is fetched, because skipping can wrap onto another row. One field read for
+        // every session that has never seen an OSC 66 block, which is nearly all of them.
+        if (_buffer.HasMultiRowSizedRuns && !SkipCellsCoveredFromAbove(width))
+            return;
+
+        var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
+        if (line == null)
+            return;
 
         // Create cell
         var cell = new BufferCell
@@ -298,6 +285,11 @@ public class InputHandler
         // Insert mode handling
         if (_terminal.InsertMode)
         {
+            // The cells of a scaled block from here rightwards are about to move, and the run saying
+            // which columns hold which part of it would not move with them.
+            if (line is not null && line.HasSizedRuns)
+                line.EraseSizedRunsFrom(_buffer.X);
+
             // Shift cells right
             line?.CopyCellsFrom(line, _buffer.X, _buffer.X + width, _terminal.Cols - _buffer.X - width, false);
         }
@@ -336,10 +328,111 @@ public class InputHandler
         if (line is not null && (_linkUrl is not null || line.HasLinks))
             line.NoteLinkRun(_buffer.X, width, _linkUrl, _linkId);
 
+        // Ordinary text written over a scaled run destroys it, which the protocol requires: a
+        // multicell block cannot survive having part of itself overwritten. Guarded at the call for
+        // the same reason as the link bookkeeping above -- a line with no sized run pays one read.
+        if (line is not null && line.HasSizedRuns)
+            line.NoteSizedRun(_buffer.X, width, TextSizing.Default);
+
         // Use MoveCursor to allow X to be one past the last column (pending wrap)
         _buffer.SetCursorRaw(_buffer.X + width, _buffer.Y);
 
         RememberForRepeat(cell.CodePoint, cell.ClusterId);
+    }
+
+    /// <summary>
+    /// Resolves a cursor resting one past the last usable column, which is where printing leaves it.
+    /// </summary>
+    /// <returns>
+    /// False when there is nowhere to print: the cursor is past the edge and DECAWM is off, so the
+    /// character is discarded.
+    /// </returns>
+    private bool ResolveAutowrap()
+    {
+        if (_buffer.X <= WrapLimit())
+            return true;
+
+        if (!_terminal.Options.Wraparound)
+            return false;
+
+        // Only a FULL-WIDTH wrap marks the next line as a continuation. IsWrapped is a per-line
+        // flag, and a wrap inside the margin box continues the box, not the line: content outside
+        // the margins on the next row was never part of this text, and a reflow that believed the
+        // flag would merge lines an application laid out separately. Decided before the cursor
+        // moves, because the answer depends on where the wrap happened.
+        var lineWrap = WrapLimit() == _terminal.Cols - 1 && WrapHome() == 0;
+
+        if (_buffer.Y == _buffer.ScrollBottom)
+        {
+            _buffer.SetCursor(WrapHome(), _buffer.Y);
+            _buffer.ScrollUp(1, true);
+        }
+        else
+        {
+            _buffer.SetCursor(WrapHome(), _buffer.Y + 1);
+        }
+
+        if (lineWrap)
+            _buffer.Lines[_buffer.Y + _buffer.YBase]!.IsWrapped = true;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Moves the cursor past any OSC 66 block that covers it from an earlier row.
+    /// </summary>
+    /// <remarks>
+    /// <para>A block <c>s</c> cells tall occupies <c>s</c> rows. Its first row is ordinary content
+    /// and writing there destroys the block, but the rows BELOW belong to it while it lives, and the
+    /// protocol says what happens to text aimed at them: the cursor is moved past the block's cells
+    /// on that row and the text is written after them. That is the rule that lets a client keep
+    /// printing normally underneath a heading instead of having to count rows.</para>
+    /// <para>Skipping happens whatever DECAWM says, which the protocol states explicitly. Reaching
+    /// the end of the line while skipping is an ordinary end of line, so wrapping is resolved the
+    /// usual way and the search continues on the row it lands on -- a block on the next row down can
+    /// cover the column it wrapped to.</para>
+    /// </remarks>
+    /// <param name="width">
+    /// How many columns the caller is about to write. The rule is about the cells the text will
+    /// overwrite, so a double-width character or a block of its own must clear the whole span it
+    /// covers -- checking only the cursor cell would let its right half land inside a block.
+    /// </param>
+    /// <returns>False when there is nowhere left to write.</returns>
+    private bool SkipCellsCoveredFromAbove(int width)
+    {
+        // Bounded rather than "until clear": every pass moves the cursor strictly forwards, so the
+        // loop terminates on its own, but a bound cannot be the thing that hangs a terminal on
+        // hostile input. Generous enough that legal content cannot reach it -- a row holds at most
+        // Cols blocks and a skip can wrap onto a new row -- because giving up mid-skip would write
+        // into a covered cell.
+        var guard = (_terminal.Cols + 1) * TextSizing.MaxScale;
+        while (guard-- > 0)
+        {
+            if (!ResolveAutowrap())
+                return false;
+
+            var row = _buffer.Y + _buffer.YBase;
+            var end = Math.Min(_buffer.X + Math.Max(width, 1), _terminal.Cols);
+
+            LineSizedRun covering = default;
+            var found = false;
+            for (var column = _buffer.X; column < end; column++)
+            {
+                if (_buffer.TryGetSizedRunCovering(row, column, out var run, out _))
+                {
+                    covering = run;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+                return true;
+
+            _buffer.SetCursorRaw(Math.Min(covering.EndColumn, _terminal.Cols), _buffer.Y);
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -437,7 +530,10 @@ public class InputHandler
     /// </summary>
     internal void PrintAsciiRun(ReadOnlySpan<byte> data)
     {
-        if (!UseRunPrinting || _terminal.InsertMode || _activeCharset is not null)
+        // A multi-row block means cells that must be skipped rather than written, which a span write
+        // cannot express -- so the run goes character by character, as it already does for insert
+        // mode and for a designated charset.
+        if (!UseRunPrinting || _terminal.InsertMode || _activeCharset is not null || _buffer.HasMultiRowSizedRuns)
         {
             foreach (var b in data)
                 Print(CodePointText.Get((char)b));
@@ -485,6 +581,10 @@ public class InputHandler
             if (_linkUrl is not null || line.HasLinks)
                 line.NoteLinkRun(_buffer.X, take, _linkUrl, _linkId);
 
+            // As above: a run of plain text erases any scaled run it lands on.
+            if (line.HasSizedRuns)
+                line.NoteSizedRun(_buffer.X, take, TextSizing.Default);
+
             _buffer.SetCursorRaw(_buffer.X + take, _buffer.Y);
 
             // This path bypasses Print, so it has to keep REP's record itself -- otherwise the same
@@ -510,7 +610,8 @@ public class InputHandler
     /// </summary>
     internal void PrintAsciiRun(string data, int start, int count)
     {
-        if (!UseRunPrinting || _terminal.InsertMode || _activeCharset is not null)
+        // As above: a buffer holding a multi-row block takes the per-character path.
+        if (!UseRunPrinting || _terminal.InsertMode || _activeCharset is not null || _buffer.HasMultiRowSizedRuns)
         {
             for (var k = 0; k < count; k++)
                 Print(CodePointText.Get(data[start + k]));
@@ -557,6 +658,10 @@ public class InputHandler
             // As above: bypassing Print means keeping the link bookkeeping here as well.
             if (_linkUrl is not null || line.HasLinks)
                 line.NoteLinkRun(_buffer.X, take, _linkUrl, _linkId);
+
+            // As above: a run of plain text erases any scaled run it lands on.
+            if (line.HasSizedRuns)
+                line.NoteSizedRun(_buffer.X, take, TextSizing.Default);
 
             // SetCursorRaw, as Print uses, so X may land one past the last column pending a wrap.
             _buffer.SetCursorRaw(_buffer.X + take, _buffer.Y);
@@ -810,13 +915,11 @@ public class InputHandler
                 break;
 
             case CsiCommand.ScrollUp:
-                // "CSI ? ... S" is XTSMGRAPHICS, not SCROLL UP. They share a final character, and
-                // the identifier has its private marker stripped before the lookup, so without
-                // this guard a Sixel program's opening capability query scrolled the screen.
-                if (isPrivate)
-                    GraphicsAttributes(parameters);
-                else
-                    ScrollUp(parameters);
+                ScrollUp(parameters);
+                break;
+
+            case CsiCommand.GraphicsAttributes:
+                GraphicsAttributes(parameters);
                 break;
 
             case CsiCommand.ScrollDown:
@@ -877,14 +980,18 @@ public class InputHandler
                 break;
 
             case CsiCommand.SelectCursorStyle:
-                // "CSI > Ps q" is XTVERSION, not DECSCUSR. They share a final character, and the
-                // identifier has its private marker stripped before the lookup, so without this
-                // guard a terminal version query reshaped the cursor instead of being answered --
-                // a program that asks on startup left the user in a cursor they never chose.
+                // "CSI > Ps q" is XTVERSION, not DECSCUSR. They share a final character, so ">q"
+                // is listed alongside " q" in the command map and the two are told apart here --
+                // without that a terminal version query reshaped the cursor instead of being
+                // answered, and a program that asks on startup left the user in a cursor they
+                // never chose. It is the one place a CsiCommand is deliberately shared by two
+                // sequences: the map decides everything else on the exact identifier.
                 //
-                // The marker itself is read rather than isPrivate, which is also true for '?': a
-                // "CSI ? Ps q" is neither of these sequences, and answering it as XTVERSION would
-                // be a second wrong reading of the same character.
+                // The marker is read rather than isPrivate because isPrivate is true for '?' as
+                // well as '>', and "CSI ? Ps q" is neither of these sequences. The map is what
+                // keeps it out -- "?q" is not a key, so it resolves to Unknown and never reaches
+                // this case. The switch below is defence in depth, not a live guard: the only
+                // identifiers that arrive are " q" and ">q".
                 switch (identifier.PrivateMarker())
                 {
                     case '>':
@@ -893,8 +1000,9 @@ public class InputHandler
                     case '\0':
                         SelectCursorStyle(parameters);
                         break;
-                    // Any other marker is a sequence we do not implement. Ignored, since the
-                    // alternative is reshaping the cursor on some unrelated query's behalf.
+                    // Unreachable while the map lists only those two. Falling through rather than
+                    // defaulting to SelectCursorStyle means a marked form added to the map later
+                    // is ignored instead of reshaping the cursor on some unrelated query's behalf.
                 }
                 break;
 
@@ -2484,6 +2592,10 @@ public class InputHandler
                     HandleShellIntegration(arg);
                     break;
 
+                case OscCommand.ITerm2:
+                    recognized = HandleITerm2(arg);
+                    break;
+
                 case OscCommand.ForegroundColor:
                     HandleColorQuery(((int)command).ToString(), arg);
                     break;
@@ -2496,8 +2608,20 @@ public class InputHandler
                     HandleColorQuery(((int)command).ToString(), arg);
                     break;
 
+                case OscCommand.PointerShape:
+                    HandlePointerShape(arg);
+                    break;
+
                 case OscCommand.Clipboard:
                     HandleClipboard(arg);
+                    break;
+
+                case OscCommand.TextSizing:
+                    recognized = HandleTextSizing(arg);
+                    break;
+
+                case OscCommand.KittyNotification:
+                    HandleKittyNotification(arg);
                     break;
 
                 case OscCommand.KittyClipboard:
@@ -2584,6 +2708,155 @@ public class InputHandler
     }
 
     /// <summary>
+    /// Handles the useful iTerm2 OSC 1337 extensions. Unknown extension keys are intentionally
+    /// ignored, matching iTerm2's permissive extension namespace.
+    /// </summary>
+    private bool HandleITerm2(string data)
+    {
+        var separator = data.IndexOf('=');
+        if (separator == 0)
+            return false;
+
+        var key = separator < 0 ? data : data[..separator];
+        var value = separator < 0 ? string.Empty : data[(separator + 1)..];
+        switch (key)
+        {
+            case "File":
+                return HandleITerm2File(value);
+
+            case "SetUserVar":
+                return HandleITerm2UserVariable(value);
+
+            case "CurrentDir":
+                HandleITerm2CurrentDirectory(value);
+                return true;
+
+            case "ShellIntegrationVersion":
+                _terminal.ShellIntegrationVersion = value;
+                return true;
+
+            case "RemoteHost":
+                _terminal.RemoteHost = value;
+                return true;
+
+            case "StealFocus":
+                if (_terminal.Options.WindowOptions.RaiseWin)
+                    _terminal.RaiseWindowRaised();
+                return _terminal.Options.WindowOptions.RaiseWin;
+
+            case "RequestAttention":
+                if (_terminal.Options.WindowOptions.RequestAttention)
+                    _terminal.RaiseAttentionRequested(value);
+                return _terminal.Options.WindowOptions.RequestAttention;
+
+            case "ReportCellSize":
+                if (!_terminal.Options.WindowOptions.GetCellSizePixels)
+                    return false;
+                // iTerm2 defines the first two fields as floating-point sizes in POINTS with an
+                // optional pixels-per-point scale — reporting physical pixels as points reads
+                // double on a Retina display. The host supplies DisplayScale alongside the pixel
+                // metrics; at the default 1.0 the numbers are unchanged.
+                var cellScale = Math.Max(1.0, _terminal.Options.DisplayScale);
+                var cellHeightPoints = _terminal.Options.CellHeightPixels / cellScale;
+                var cellWidthPoints = _terminal.Options.CellWidthPixels / cellScale;
+                _terminal.RaiseDataReceived(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                    $"\u001b]1337;ReportCellSize={cellHeightPoints:0.0###};{cellWidthPoints:0.0###};{cellScale:0.0###}\u001b\\"));
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    private bool HandleITerm2File(string data)
+    {
+        // Only PNG at its natural size is supported. Sized and non-PNG File payloads remain
+        // unrecognized so a host can implement iTerm2's wider image-format and sizing surface.
+        if (!_terminal.Options.ITerm2ImagesEnabled)
+            return false;
+
+        var separator = data.IndexOf(':');
+        if (separator < 0)
+            return false;
+
+        var parameters = data[..separator].Split(';');
+        if (!parameters.Contains("inline=1") || parameters.Any(p => p.StartsWith("width=") || p.StartsWith("height=")))
+            return false;
+
+        var payload = data[(separator + 1)..];
+
+        // Bounded BEFORE decoding: FromBase64String materialises the whole decoded payload, so
+        // without this a very large valid-base64 blob forces the allocation first and gets
+        // rejected after. The registry budget is the natural ceiling — an image whose COMPRESSED
+        // form already exceeds what the registry would hold has no chance of being kept.
+        if (_terminal.Options.MaxImageRegistryBytes > 0
+            && (long)payload.Length > _terminal.Options.MaxImageRegistryBytes / 3 * 4 + 4)
+            return false;
+
+        byte[] encoded;
+        try
+        {
+            encoded = Convert.FromBase64String(payload);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+
+        if (!Graphics.PngDecoder.TryDecode(encoded, _terminal.Options.MaxSixelPixels,
+                                           out var pixels, out var width, out var height))
+            return false;
+        if (_terminal.Options.MaxImageRegistryBytes > 0
+            && pixels.LongLength > _terminal.Options.MaxImageRegistryBytes)
+            return false;
+
+        var image = new Graphics.TerminalImage(
+            pixels, width, height,
+            Math.Max(1, _terminal.Options.CellWidthPixels),
+            Math.Max(1, _terminal.Options.CellHeightPixels));
+        PlaceImage(Graphics.ImagePlacement.Natural(image), Graphics.PlacementKind.Sixel);
+        return true;
+    }
+
+    private bool HandleITerm2UserVariable(string data)
+    {
+        var separator = data.IndexOf('=');
+        if (separator < 1)
+            return false;
+
+        try
+        {
+            var encoded = Convert.FromBase64String(data[(separator + 1)..]);
+            if (encoded.Length > _terminal.Options.MaxUserVariableBytes)
+                return false;
+
+            return _terminal.TrySetUserVariable(
+                data[..separator],
+                new System.Text.UTF8Encoding(false, true).GetString(encoded));
+        }
+        catch (ArgumentException)
+        {
+            // Invalid base64 or UTF-8 is untrusted terminal output, so ignore it.
+            return false;
+        }
+    }
+
+    private void HandleITerm2CurrentDirectory(string data)
+    {
+        if (data.StartsWith("file://"))
+        {
+            HandleCurrentDirectory(data);
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(data))
+        {
+            _terminal.CurrentDirectory = data;
+            _terminal.RaiseDirectoryChanged(_terminal.CurrentDirectory);
+        }
+    }
+
+    /// <summary>
     /// OSC 9 - ConEmu-style extensions, dispatched on the FIRST parameter rather than the code.
     /// </summary>
     private void HandleConEmu(string data)
@@ -2630,6 +2903,159 @@ public class InputHandler
         if (!string.IsNullOrEmpty(data))
         {
             _terminal.RaiseNotificationReceived(data);
+        }
+    }
+
+    /// <summary>
+    /// Handles Kitty desktop notifications (OSC 99).
+    /// </summary>
+    private void HandleKittyNotification(string data)
+    {
+        if (!_terminal.Options.KittyNotificationsEnabled)
+            return;
+
+        RemoveExpiredKittyNotifications();
+        var parts = data.Split(new[] { ';' }, 2);
+        if (parts.Length != 2)
+            return;
+
+        string? identifier = null;
+        var payloadType = "title";
+        string? icon = null;
+        int? urgency = null;
+        var encoded = false;
+        var done = true;
+
+        foreach (var parameter in parts[0].Split(':'))
+        {
+            var keyValue = parameter.Split(new[] { '=' }, 2);
+            if (keyValue.Length != 2)
+                continue;
+
+            switch (keyValue[0])
+            {
+                case "i":
+                    identifier = SanitizeIdentifier(keyValue[1]);
+                    break;
+                case "p":
+                    payloadType = keyValue[1];
+                    break;
+                case "d":
+                    done = keyValue[1] != "0";
+                    break;
+                case "e":
+                    encoded = keyValue[1] == "1";
+                    break;
+                case "u":
+                    // The spec defines exactly 0 (low), 1 (normal) and 2 (critical); anything
+                    // else reads as unspecified, so a host can map the value onto its
+                    // notification API without range-checking a protocol it did not parse.
+                    if (int.TryParse(keyValue[1], out var parsedUrgency) && parsedUrgency is >= 0 and <= 2)
+                        urgency = parsedUrgency;
+                    break;
+                case "n":
+                    icon = DecodeBase64(keyValue[1]);
+                    break;
+            }
+        }
+
+        if (payloadType == "?")
+        {
+            _terminal.RaiseDataReceived($"\u001b]99;i={identifier ?? "0"}:p=?;p=title,body\u001b\\");
+            return;
+        }
+
+        if (payloadType is not ("title" or "body"))
+            return;
+
+        var key = identifier ?? string.Empty;
+        if (!_kittyNotifications.TryGetValue(key, out var notification))
+        {
+            if (!done && _kittyNotifications.Count >= MaxPendingKittyNotifications)
+                return;
+
+            notification = new KittyNotification(identifier);
+            if (!done)
+                _kittyNotifications[key] = notification;
+        }
+
+        var payload = encoded ? DecodeBase64(parts[1]) : SanitizeText(parts[1]);
+        if (payload is null || !notification.Append(payloadType, payload, urgency, icon))
+        {
+            _kittyNotifications.Remove(key);
+            return;
+        }
+
+        if (!done)
+            return;
+
+        _kittyNotifications.Remove(key);
+        if (notification.TryBuild(out var title, out var body))
+            // "If a notification has no title, the body will be used as title" — the spec's own
+            // sentence, honoured here so every host does not rediscover it, and so a host that
+            // hands Title to an OS API requiring one never gets null with content present.
+            if (title is null && body is not null)
+            {
+                title = body;
+                body = null;
+            }
+            _terminal.RaiseKittyNotificationReceived(notification.Identifier, title, body, notification.Urgency, notification.Icon);
+    }
+
+    private void RemoveExpiredKittyNotifications()
+    {
+        var cutoff = DateTime.UtcNow - KittyNotificationTimeout;
+        foreach (var key in _kittyNotifications.Where(entry => entry.Value.LastUpdated < cutoff).Select(entry => entry.Key).ToArray())
+            _kittyNotifications.Remove(key);
+    }
+
+    private static string? DecodeBase64(string value)
+    {
+        try
+        {
+            return SanitizeText(Encoding.UTF8.GetString(Convert.FromBase64String(value)));
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+    }
+
+    private static string SanitizeIdentifier(string value) =>
+        new(value.Where(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '+' or '.' or '-').Take(1024).ToArray());
+
+    private static string SanitizeText(string value) =>
+        new(value.Where(character => character is not (>= '\0' and <= '\x1f') and not (>= '\x7f' and <= '\x9f')).ToArray());
+
+    private sealed class KittyNotification
+    {
+        private readonly StringBuilder _title = new();
+        private readonly StringBuilder _body = new();
+
+        public KittyNotification(string? identifier) => Identifier = identifier;
+
+        public string? Identifier { get; }
+        public int? Urgency { get; private set; }
+        public string? Icon { get; private set; }
+        public DateTime LastUpdated { get; private set; } = DateTime.UtcNow;
+
+        public bool Append(string payloadType, string payload, int? urgency, string? icon)
+        {
+            if (_title.Length + _body.Length + payload.Length > MaxKittyNotificationBytes)
+                return false;
+
+            (payloadType == "title" ? _title : _body).Append(payload);
+            Urgency ??= urgency;
+            Icon ??= icon;
+            LastUpdated = DateTime.UtcNow;
+            return true;
+        }
+
+        public bool TryBuild(out string? title, out string? body)
+        {
+            title = _title.Length == 0 ? null : _title.ToString();
+            body = _body.Length == 0 ? null : _body.ToString();
+            return title is not null || body is not null;
         }
     }
 
@@ -2775,6 +3201,233 @@ public class InputHandler
         }
     }
 
+    /// <summary>
+    /// The most text one sized run keeps, in UTF-8 bytes — the protocol's own limit.
+    /// </summary>
+    /// <remarks>
+    /// Measured in bytes rather than UTF-16 units on purpose: a cap counted in units cuts text a
+    /// client legitimately sized its block for, since a heading in mathematical alphanumerics is two
+    /// units per character and none of that is visible from the column count. The bound exists at
+    /// all because the text is interned in the cluster table, which is process-wide and never
+    /// released, so what a client can put there has to have a limit; the protocol's own is the one
+    /// that cannot bite content that fits.
+    /// </remarks>
+    private const int MaxSizedRunBytes = 4096;
+
+    /// <summary>
+    /// Handles the Kitty text sizing protocol: <c>OSC 66 ; key=value : ... ; text ST</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>The text is written at the cursor as one or more multicell blocks. With <c>w=0</c> --
+    /// the default -- each grapheme is its own block, <c>s</c> times as wide as it would otherwise
+    /// be; with a non-zero <c>w</c> the whole payload is a single block of <c>s * w</c> columns,
+    /// which is how a client states a string's width rather than leaving the terminal to guess.</para>
+    /// <para>Returns whether the sequence was acted on, so a listener watching
+    /// <see cref="Terminal.OscReceived"/> can tell a malformed one from a handled one.</para>
+    /// </remarks>
+    private bool HandleTextSizing(string data)
+    {
+        var parts = data.Split(new[] { ';' }, 2);
+
+        // The text may itself contain semicolons, so only the FIRST separator divides metadata from
+        // payload -- which is why the split is limited to two.
+        if (!TextSizing.TryParse(parts[0], out var sizing))
+        {
+            if (parts.Length > 1 && parts[1].Length > 0)
+                PrintUnsized(parts[1]);
+
+            return false;
+        }
+
+        var text = parts.Length > 1 ? parts[1] : string.Empty;
+        if (text.Length == 0)
+            return true;   // well formed, and drawing nothing is what it asked for
+
+        PrintSized(text, sizing);
+        return true;
+    }
+
+    /// <summary>
+    /// Prints the payload of an OSC 66 whose metadata could not be parsed, as ordinary text.
+    /// </summary>
+    /// <remarks>
+    /// The text is what the user was meant to read. Dropping it because a value was out of range
+    /// makes a client's bug into a blank space on the screen, where printing it unscaled leaves a
+    /// heading that is the wrong size but still there -- and still says something is wrong.
+    /// </remarks>
+    private void PrintUnsized(string text)
+    {
+        var enumerator = System.Globalization.StringInfo.GetTextElementEnumerator(text);
+        while (enumerator.MoveNext())
+            Print((string)enumerator.Current);
+    }
+
+    /// <summary>
+    /// Writes the payload of an OSC 66 sequence at the cursor.
+    /// </summary>
+    private void PrintSized(string text, TextSizing sizing)
+    {
+        // The protocol's payload limit applies to the sequence, not to one of its two modes: with
+        // w=0 an oversized payload would otherwise be walked grapheme by grapheme, interning every
+        // one of them in the process-wide cluster table.
+        text = Truncate(text);
+
+        if (sizing.Width > 0)
+        {
+            PrintSizedBlock(text, sizing.Scale * sizing.Width, sizing);
+            return;
+        }
+
+        // w=0: the terminal splits the text up as it normally would, except that each piece now
+        // occupies its own s-by-s block. Grapheme clusters, so a base character keeps its combining
+        // marks inside one block instead of scattering them across several.
+        var enumerator = System.Globalization.StringInfo.GetTextElementEnumerator(text);
+        while (enumerator.MoveNext())
+        {
+            var element = (string)enumerator.Current;
+            var width = GetStringCellWidth(element);
+            if (width <= 0)
+                continue;   // a cluster with no width of its own has nowhere to go
+
+            PrintSizedBlock(element, width * sizing.Scale, sizing);
+        }
+    }
+
+    /// <summary>
+    /// Writes one multicell block of <paramref name="cols"/> columns holding
+    /// <paramref name="content"/>.
+    /// </summary>
+    private void PrintSizedBlock(string content, int cols, TextSizing sizing)
+    {
+        if (cols <= 0)
+            return;
+
+        // A block wider than the room it could ever have -- the margin box, which is the screen when
+        // no margins are set -- can never be drawn, and the protocol says to discard it rather than
+        // to clip it into something the client did not ask for.
+        if (cols > WrapLimit() - WrapHome() + 1)
+            return;
+
+        // A block is text like any other, so it is placed after any block already covering the
+        // cursor from an earlier row rather than into the middle of one -- and then it still has to
+        // fit on the row it landed on. The two settle each other, so they are asked together rather
+        // than once each: skipping can leave too little room, and making room can land under another
+        // block. Bounded, and a block that cannot be settled is dropped rather than written into
+        // cells that belong to something else.
+        var placed = false;
+        for (var attempt = 0; attempt < 3 && !placed; attempt++)
+        {
+            if (_buffer.HasMultiRowSizedRuns && !SkipCellsCoveredFromAbove(cols))
+                return;
+
+            if (_buffer.X + cols <= WrapLimit() + 1)
+            {
+                placed = true;
+                break;
+            }
+
+            // Too wide for what is left of the row. Wrapping the whole block is an ordinary end of
+            // line, so it goes through the same path a character does and gets the margin box, the
+            // scroll and the IsWrapped rule for free.
+            _buffer.SetCursorRaw(WrapLimit() + 1, _buffer.Y);
+
+            if (!ResolveAutowrap())
+            {
+                // With wrapping off the block is drawn where it fits, which the protocol states
+                // explicitly: the cursor moves back far enough for the whole block, then it is
+                // written over whatever was there.
+                _buffer.SetCursorRaw(WrapLimit() + 1 - cols, _buffer.Y);
+            }
+        }
+
+        if (!placed)
+            return;
+
+        var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
+        if (line == null)
+            return;
+
+        var column = _buffer.X;
+
+        if (_terminal.InsertMode)
+        {
+            if (line.HasSizedRuns)
+                line.EraseSizedRunsFrom(column);
+
+            // In reverse, which is the correct direction for a right shift on one array: copying
+            // forwards re-reads cells the same copy has already overwritten.
+            line.CopyCellsFrom(line, column, column + cols, _terminal.Cols - column - cols, true);
+        }
+
+        var cell = new BufferCell
+        {
+            Content = content,
+            Width = cols,
+            Attributes = _curAttr,
+        };
+
+        line.SetCell(column, ref cell);
+
+        // The remaining columns are zero-width continuations, exactly as the second half of a
+        // double-width character is -- so everything that already understands a wide cell (search,
+        // selection, reflow) understands a scaled one without being told about this protocol.
+        for (var i = 1; i < cols; i++)
+        {
+            var spacer = BufferCell.Empty;
+            spacer.Attributes = _curAttr;
+            line.SetCell(column + i, ref spacer);
+        }
+
+        if (_linkUrl is not null || line.HasLinks)
+            line.NoteLinkRun(column, cols, _linkUrl, _linkId);
+
+        line.NoteSizedRun(column, cols, sizing);
+
+        // A block taller than one row occupies the rows beneath it, which the print path has to know
+        // to look for. Set on the buffer rather than counted, since it only answers "is this worth
+        // looking for"; see TerminalBuffer.HasMultiRowSizedRuns.
+        if (sizing.Scale > 1)
+            _buffer.HasMultiRowSizedRuns = true;
+
+        _buffer.SetCursorRaw(column + cols, _buffer.Y);
+
+        // Deliberately NOT remembered for REP. The payload of an OSC is not a preceding graphic
+        // character in the data stream, and HandleOsc has already cancelled the record for exactly
+        // that reason -- restoring it here would let CSI b replay a scaled block as plain unscaled
+        // cells, which is neither what was printed nor what was asked for.
+    }
+
+    /// <summary>
+    /// Cuts a sized run's text down to <see cref="MaxSizedRunBytes"/>, at a grapheme boundary.
+    /// </summary>
+    private static string Truncate(string text)
+    {
+        // Cheapest sufficient test first: UTF-8 never uses more than three bytes per UTF-16 unit, so
+        // a string this short cannot exceed the cap and no encoding pass is needed. That is every
+        // real payload -- a block is at most 49 columns wide.
+        if (text.Length <= MaxSizedRunBytes / 3
+            || Encoding.UTF8.GetByteCount(text) <= MaxSizedRunBytes)
+        {
+            return text;
+        }
+
+        var kept = 0;
+        var bytes = 0;
+        var enumerator = System.Globalization.StringInfo.GetTextElementEnumerator(text);
+        while (enumerator.MoveNext())
+        {
+            var element = (string)enumerator.Current;
+            var next = bytes + Encoding.UTF8.GetByteCount(element);
+            if (next > MaxSizedRunBytes)
+                break;
+
+            bytes = next;
+            kept += element.Length;
+        }
+
+        return text.Substring(0, kept);
+    }
+
     private void HandleColorQuery(string colorType, string data)
     {
         // OSC 10/11/12 ; spec [ ; spec ]... ST  - set, or query when spec is "?"
@@ -2823,6 +3476,98 @@ public class InputHandler
         }
     }
 
+    private void HandlePointerShape(string data)
+    {
+        // OSC 22 ; [op] name[,name...] ST  - Kitty's mouse pointer shape protocol.
+        //
+        // The operation is the first character: '>' pushes, '<' pops, '?' queries, and '=' or no
+        // character at all sets. A bare OSC 22 clears, which is how an application says "I am done,
+        // use your own pointer" without knowing what that pointer is.
+
+        // Only the host can change a real pointer, so a host that will not is entitled to say so.
+        // Silently, including the query: telling an application the shapes work and then not
+        // changing the pointer is worse than telling it they do not, since it cannot tell the two
+        // apart from the other end.
+        if (!_terminal.Options.PointerShapesEnabled)
+            return;
+
+        if (data.Length == 0)
+        {
+            _terminal.ClearPointerShapes();
+            return;
+        }
+
+        var op = data[0];
+        var rest = op is '>' or '<' or '?' or '=' ? data.Substring(1) : data;
+
+        switch (op)
+        {
+            case '<':
+                // The name list is defined to be ignored here, and popping an empty stack is a
+                // no-op rather than an error: an application unwinding does not have to count.
+                _terminal.PopPointerShape();
+                break;
+
+            case '>':
+                // Pushed in order, so the last name is the one that ends up current -- and pushed
+                // as one operation, since only that last name is ever meant to be seen: a host told
+                // about each name in turn would swap the real pointer once per name. Unknown names
+                // are skipped rather than pushed, so a later pop does not restore a shape no host
+                // can draw.
+                _terminal.PushPointerShapes(rest.Split(',').Where(PointerShapes.IsKnown));
+                break;
+
+            case '?':
+                AnswerPointerShapeQuery(rest);
+                break;
+
+            default:
+                // Set. Empty after '=' clears, like the bare form.
+                if (rest.Length == 0)
+                {
+                    _terminal.ClearPointerShapes();
+                    break;
+                }
+
+                // One name, not a list: the protocol defines a comma-separated list for push only,
+                // so the whole payload is the name here and a list is simply not a known shape.
+                if (PointerShapes.IsKnown(rest))
+                    _terminal.SetPointerShape(rest);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Answers an OSC 22 query with an OSC 22 of its own.
+    /// </summary>
+    /// <remarks>
+    /// Each queried name is answered in place, comma separated in the order asked: the three
+    /// <c>__name__</c> specials with a shape name, everything else with 1 or 0 for whether this
+    /// terminal supports it. Nothing from the query is echoed back -- an unsupported name is
+    /// answered with 0, so an application cannot use a query to make the terminal write bytes of
+    /// the application's choosing back to itself.
+    /// </remarks>
+    private void AnswerPointerShapeQuery(string query)
+    {
+        if (query.Length == 0)
+            return;
+
+        var answers = new List<string>();
+        foreach (var name in query.Split(','))
+        {
+            answers.Add(name switch
+            {
+                // "0" rather than a name: the stack is empty, so no shape is set at all.
+                "__current__" => _terminal.PointerShape ?? "0",
+                "__default__" => PointerShapes.Default,
+                "__grabbed__" => PointerShapes.Grabbed,
+                _ => PointerShapes.IsKnown(name) ? "1" : "0",
+            });
+        }
+
+        _terminal.RaiseDataReceived($"\u001b]22;{string.Join(",", answers)}\u001b\\");
+    }
+
     private void HandleClipboard(string data)
     {
         var parts = data.Split(new[] { ';' }, 2);
@@ -2858,9 +3603,8 @@ public class InputHandler
                 _terminal.RaiseDataReceived($"\u001b]52;{target};{Convert.ToBase64String(bytes)}\u0007");
             });
             _terminal.RaiseClipboardReadRequested(args);
-            if (args.Data is { } sync)
+            if (args.Data is { } sync && args.Disarm())
             {
-                args.Disarm();
                 _terminal.RaiseDataReceived($"\u001b]52;{target};{Convert.ToBase64String(sync)}\u0007");
             }
             return;
@@ -2948,16 +3692,24 @@ public class InputHandler
                     return;
                 }
             }
+            // ONE event for the whole transfer. Platform clipboards replace their contents on
+            // each set, so per-format events could never be committed atomically: the host needs
+            // the complete map to build one data object and set it once.
+            var formats = new List<Events.TerminalEvents.ClipboardFormat>();
             foreach (var (completedMimeType, clipboardData) in _kittyClipboardData)
-                _terminal.RaiseClipboardWriteRequested(_kittyClipboardTarget!, completedMimeType, [.. clipboardData]);
+                formats.Add(new Events.TerminalEvents.ClipboardFormat(completedMimeType, [.. clipboardData]));
             foreach (var (alias, target) in _kittyClipboardAliases)
             {
                 if (_kittyClipboardData.TryGetValue(target, out var clipboardData))
                 {
-                    _terminal.RaiseClipboardWriteRequested(_kittyClipboardTarget!, alias, [.. clipboardData]);
+                    formats.Add(new Events.TerminalEvents.ClipboardFormat(alias, [.. clipboardData]));
                 }
             }
+            // State reset BEFORE the raise: a host handler that throws must surface (that is the
+            // contract), and it must not leave a half-committed transfer armed behind it.
+            var transferTarget = _kittyClipboardTarget!;
             ResetKittyClipboard();
+            _terminal.RaiseClipboardWriteRequested(transferTarget, formats);
             RaiseKittyClipboardResponse("write", "DONE", id);
             return;
         }
@@ -2988,7 +3740,7 @@ public class InputHandler
             {
                 var id = _kittyClipboardId;
                 ResetKittyClipboard();
-                RaiseKittyClipboardResponse("write", "EFBIG", id);
+                RaiseKittyClipboardResponse("write", "EIO", id);
                 return;
             }
             base64 = new StringBuilder();
@@ -3002,7 +3754,7 @@ public class InputHandler
             {
                 var id = _kittyClipboardId;
                 ResetKittyClipboard();
-                RaiseKittyClipboardResponse("write", "EFBIG", id);
+                RaiseKittyClipboardResponse("write", "EIO", id);
                 return;
             }
             _kittyClipboardData[mimeType].AddRange(chunk);
@@ -3012,7 +3764,7 @@ public class InputHandler
         {
             var id = _kittyClipboardId;
             ResetKittyClipboard();
-            RaiseKittyClipboardResponse("write", "EFBIG", id);
+            RaiseKittyClipboardResponse("write", "EIO", id);
             return;
         }
 
@@ -3096,6 +3848,11 @@ public class InputHandler
             RaiseKittyClipboardResponse("read", "DONE", id);
         }
 
+        // ONE completion path per mime: the armed callback. A synchronous answer is fed through
+        // it by the Respond below; a handler that already called Respond from inside the handler
+        // disarmed it, so that Respond is a no-op and the answer counts exactly once — the
+        // counter cannot go negative and the reply cannot be delivered twice or hang.
+        outstanding = requestedMimeTypes.Length;
         for (var i = 0; i < requestedMimeTypes.Length; i++)
         {
             var index = i;
@@ -3107,15 +3864,8 @@ public class InputHandler
                     Deliver();
             });
             _terminal.RaiseClipboardReadRequested(args);
-            if (args.Deferred)
-            {
-                outstanding++;
-            }
-            else
-            {
-                args.Disarm();
-                answers[index] = args.Data;
-            }
+            if (!args.Deferred)
+                args.Respond(args.Data);
         }
 
         dispatched = true;
@@ -3182,7 +3932,7 @@ public class InputHandler
         {
             var id = _kittyClipboardId;
             ResetKittyClipboard();
-            RaiseKittyClipboardResponse("write", "EFBIG", id);
+            RaiseKittyClipboardResponse("write", "EIO", id);
             return;
         }
 
@@ -3398,6 +4148,8 @@ public class InputHandler
         var emptyCell = BufferCell.Space;
         emptyCell.Attributes = _curAttr;
 
+        var hasBlocks = _buffer.HasMultiRowSizedRuns;
+
         switch (mode)
         {
             case 0: // Erase below
@@ -3405,12 +4157,16 @@ public class InputHandler
                 for (int i = _buffer.Y + 1; i < _terminal.Rows; i++)
                 {
                     _buffer.Lines[_buffer.YBase + i]?.Fill(emptyCell);
+                    if (hasBlocks)
+                        EraseBlocksHangingOver(_buffer.YBase + i, 0, _terminal.Cols);
                 }
                 break;
             case 1: // Erase above
                 for (int i = 0; i < _buffer.Y; i++)
                 {
                     _buffer.Lines[_buffer.YBase + i]?.Fill(emptyCell);
+                    if (hasBlocks)
+                        EraseBlocksHangingOver(_buffer.YBase + i, 0, _terminal.Cols);
                 }
                 EraseInLine(parameters); // Current line to cursor
                 break;
@@ -3418,6 +4174,8 @@ public class InputHandler
                 for (int i = 0; i < _terminal.Rows; i++)
                 {
                     _buffer.Lines[_buffer.YBase + i]?.Fill(emptyCell);
+                    if (hasBlocks)
+                        EraseBlocksHangingOver(_buffer.YBase + i, 0, _terminal.Cols);
                 }
                 break;
             case 3: // Erase scrollback (xterm extension) — the scrollback only; the screen is kept
@@ -3432,6 +4190,11 @@ public class InputHandler
                 _buffer.ClearScrollback();
                 break;
         }
+
+        // An erase is the likeliest way for the last tall block to leave the buffer, and a flag left
+        // set retires the print fast path for the rest of the session.
+        if (hasBlocks)
+            _buffer.RefreshMultiRowSizedRuns();
     }
 
     private void EraseInLine(Params parameters)
@@ -3448,15 +4211,42 @@ public class InputHandler
         {
             case 0: // Erase to right
                 line.Fill(emptyCell, _buffer.X, _terminal.Cols);
+                if (_buffer.HasMultiRowSizedRuns)
+                    EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, _buffer.X, _terminal.Cols - _buffer.X);
                 break;
             case 1: // Erase to left
                 line.Fill(emptyCell, 0, _buffer.X + 1);
+                if (_buffer.HasMultiRowSizedRuns)
+                    EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, 0, _buffer.X + 1);
                 break;
             case 2: // Erase entire line
                 line.Fill(emptyCell);
+                if (_buffer.HasMultiRowSizedRuns)
+                    EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, 0, _terminal.Cols);
                 break;
         }
     }
+
+    /// <summary>
+    /// Erases the OSC 66 blocks anchored on earlier rows whose cells hang over the region an erase
+    /// or a line splice is about to change.
+    /// </summary>
+    /// <remarks>
+    /// The protocol's rules for erasing and for inserting or deleting lines are stated over the
+    /// REGION affected rather than over a line, and a block <c>s</c> rows tall is inside every region
+    /// its lower rows touch. A block left alive over rows that have been cleared or moved would be
+    /// drawn across whatever is there now, and its columns would go on displacing text written to
+    /// rows that are no longer under it.
+    /// </remarks>
+    /// <summary>
+    /// Erases every block covering the given cells from an earlier row. Callers test
+    /// <see cref="TerminalBuffer.HasMultiRowSizedRuns"/> AT THE CALL — hoisted outside the loop
+    /// where there is one — for the reason NoteLinkRun's guard records: these sit on the
+    /// erase hot paths, a full-screen redraw erases every line, and a method call per line just
+    /// to read a false flag is the shape that has now cost alt-redraw twice.
+    /// </summary>
+    private void EraseBlocksHangingOver(int absoluteRow, int column, int count) =>
+        _buffer.EraseSizedRunsCovering(absoluteRow, column, count);
 
     /// <summary>
     /// REP (<c>CSI Pn b</c>) — repeat the preceding graphic character <c>Pn</c> times.
@@ -3574,12 +4364,18 @@ public class InputHandler
 
         // Narrowed margins move only their own columns, so the lines stay put and their cells are
         // copied between them. Splicing whole lines here would drag the columns OUTSIDE the region
-        // along with them, which is the side-by-side layout tearing itself apart.
+        // along with them, which is the side-by-side layout tearing itself apart. That path erases
+        // the blocks it disturbs itself, since it knows which columns it moved.
         if (!_buffer.MarginsAreFullWidth)
         {
             _buffer.ScrollMarginColumns(_buffer.Y, _buffer.ScrollBottom, count, up: false, BlankCell());
             return;
         }
+
+        // A block hanging over the cursor's row is split by the insertion -- its lower rows are
+        // pushed away from the line that describes them -- so the protocol has it erased.
+        if (_buffer.HasMultiRowSizedRuns)
+            EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, 0, _terminal.Cols);
 
         for (int i = 0; i < count; i++)
         {
@@ -3587,6 +4383,8 @@ public class InputHandler
             _buffer.Lines.Splice(_buffer.Y + _buffer.YBase, 0,
                 _buffer.GetBlankLine(_curAttr));
         }
+
+        _buffer.RefreshMultiRowSizedRuns();
     }
 
     private void DeleteLines(Params parameters)
@@ -3601,12 +4399,21 @@ public class InputHandler
             return;
         }
 
+        // Every deleted row is part of the region, so a block hanging over any of them goes too.
+        // The blocks anchored ON those rows leave with the lines that describe them.
+        var last = Math.Min(_buffer.Y + count - 1, _buffer.ScrollBottom);
+        for (int row = _buffer.Y; row <= last; row++)
+            if (_buffer.HasMultiRowSizedRuns)
+                EraseBlocksHangingOver(row + _buffer.YBase, 0, _terminal.Cols);
+
         for (int i = 0; i < count; i++)
         {
             _buffer.Lines.Splice(_buffer.Y + _buffer.YBase, 1);
             _buffer.Lines.Splice(_buffer.YBase + _buffer.ScrollBottom, 0,
                 _buffer.GetBlankLine(_curAttr));
         }
+
+        _buffer.RefreshMultiRowSizedRuns();
     }
 
     private void InsertChars(Params parameters)
@@ -3623,6 +4430,11 @@ public class InputHandler
         var right = _buffer.ScrollRight;
         if (_buffer.X > right || _buffer.X < _buffer.ScrollLeft)
             return;
+
+        // A scaled block from the cursor rightwards cannot survive the shift: the cells that make it
+        // up move, and the run describing them does not. The protocol says to erase them.
+        if (line.HasSizedRuns)
+            line.EraseSizedRunsFrom(_buffer.X);
 
         count = Math.Min(count, right - _buffer.X + 1);
 
@@ -3649,6 +4461,10 @@ public class InputHandler
 
         count = Math.Min(count, right - _buffer.X + 1);
 
+        // As for insertion: shifting cells destroys any block from the cursor rightwards.
+        if (line.HasSizedRuns)
+            line.EraseSizedRunsFrom(_buffer.X);
+
         line.CopyCellsFrom(line, _buffer.X + count, _buffer.X,
             right - _buffer.X - count + 1, false);
 
@@ -3664,6 +4480,9 @@ public class InputHandler
         emptyCell.Attributes = _curAttr;
 
         line?.Fill(emptyCell, _buffer.X, Math.Min(_buffer.X + count, _terminal.Cols));
+        if (_buffer.HasMultiRowSizedRuns)
+            EraseBlocksHangingOver(_buffer.Y + _buffer.YBase, _buffer.X,
+            Math.Min(_buffer.X + count, _terminal.Cols) - _buffer.X);
     }
 
     private void ScrollUp(Params parameters)
@@ -3797,11 +4616,11 @@ public class InputHandler
 
         // Any other prefix is left unanswered. "?c" is the one that used to go wrong: it is not the
         // secondary DA, but it sets isPrivate, so it was handed the secondary reply -- the answer to
-        // a question the program had not asked, while it was still waiting for the one it had. The
-        // tertiary DA, "=c", never reaches this method at all, because ToCsiCommand strips only "?"
-        // and ">" before the lookup and so resolves it to Unknown. Silence is the right outcome for
-        // it regardless: it asks for a unit ID this terminal does not have, and terminals without
-        // DECRPTUI say nothing.
+        // a question the program had not asked, while it was still waiting for the one it had.
+        // Neither it nor the tertiary DA, "=c", reaches this method any more: the lookup matches the
+        // whole identifier and only "c" and ">c" are listed, so both resolve to Unknown. Silence is
+        // the right outcome for the tertiary regardless: it asks for a unit ID this terminal does
+        // not have, and terminals without DECRPTUI say nothing.
     }
 
     /// <summary>
@@ -3822,10 +4641,10 @@ public class InputHandler
     /// XTSMGRAPHICS -- CSI ? Pi ; Pa ; Pv S. Reports the terminal's graphics limits.
     /// </summary>
     /// <remarks>
-    /// <para>This shares its final character with SCROLL UP, and <c>ToCsiCommand</c> strips the
-    /// private marker before looking the command up, so until this existed a graphics query
-    /// scrolled the screen instead of being answered. Every Sixel-capable program sends one during
-    /// startup, which made the damage routine rather than obscure.</para>
+    /// <para>This shares its final character with SCROLL UP, and <c>ToCsiCommand</c> used to strip
+    /// the private marker before looking the command up, so a graphics query scrolled the screen
+    /// instead of being answered. Every Sixel-capable program sends one during startup, which made
+    /// the damage routine rather than obscure. The lookup now matches "?S" on its own.</para>
     /// <para>Only the read operations are answered. The limits are fixed, so accepting a request
     /// to change them and quietly not doing it would be worse than refusing outright.</para>
     /// </remarks>
@@ -4508,30 +5327,29 @@ public class InputHandler
     }
 
     /// <summary>
-    /// DECRQM — reports whether a mode is recognised and what it is set to.
+    /// DECRQM — reports the current state of a mode this terminal tracks, and answers nothing for
+    /// the rest.
     /// </summary>
     /// <remarks>
-    /// <para>This is how an application finds out whether synchronized output is worth using: it
-    /// asks, and a terminal that says nothing is one that does not support the query. Emitting the
-    /// mode without answering for it would leave well-behaved applications never using it.</para>
-    /// <para>Deliberately answers only for the modes an application changes its behaviour on —
-    /// 2026 (synchronized output) and 69 (DECSLRM). The reply codes distinguish "set" and "reset"
-    /// from "not recognised", and this terminal keeps mode state as individual properties rather
-    /// than a registry — so answering for everything would mean a switch mapping every mode back to
-    /// its property, and getting one wrong tells an application a feature is missing when it is
-    /// not. Staying silent for the rest is exactly the behaviour before these modes were added, so
-    /// nothing regresses while the modes that need an answer get correct ones.</para>
+    /// <para>This is how an application finds out whether a feature is worth using: it asks, and a
+    /// terminal that says nothing is one that does not support the query. Emitting a mode without
+    /// answering for it would leave well-behaved applications never using it.</para>
+    /// <para>The reply only ever carries 1 (set) or 2 (reset). DEC's other two values — 0 for "not
+    /// recognised" and 4 for "permanently reset" — are never sent, so a mode this terminal keeps no
+    /// state for is answered by silence rather than by a report. That costs an application asking
+    /// about such a mode its read timeout, where xterm replies 0 straight away, and it is
+    /// deliberate: see issue #55. Reporting "reset" for a mode that was accepted and ignored would
+    /// be worse, because an application that had just set it would be told its request did not
+    /// take.</para>
+    /// <para>The private and ANSI forms are separate questions with separate answers — the private
+    /// report carries the '?' back, the ANSI one does not — so each has its own lookup.</para>
     /// </remarks>
     private void HandleRequestMode(Params parameters, bool isPrivate)
     {
-        if (!isPrivate)
-            return;
-
         var mode = parameters.GetParam(0, 0);
 
-        // DECRPM: 1 = set, 2 = reset.
-        int state;
-        switch ((TerminalMode)mode)
+        bool set;
+        if (isPrivate)
         {
             case TerminalMode.SynchronizedOutput:
                 state = _terminal.SynchronizedOutput ? 1 : 2;
@@ -4551,10 +5369,147 @@ public class InputHandler
                 break;
 
             default:
+            if (!TryGetPrivateModeState(mode, out set))
                 return;
         }
+        else if (!TryGetAnsiModeState(mode, out set))
+        {
+            return;
+        }
 
-        _terminal.RaiseDataReceived($"\u001b[?{mode};{state}$y");
+        // DECRPM: 1 = set, 2 = reset. The marker is echoed back so the reply answers the question
+        // that was asked -- CSI ? 4 ; 1 $ y is DECSCLM, CSI 4 ; 1 $ y is IRM.
+        var state = set ? 1 : 2;
+        var marker = isPrivate ? "?" : string.Empty;
+        _terminal.RaiseDataReceived($"\u001b[{marker}{mode};{state}$y");
+    }
+
+    /// <summary>
+    /// Reads back the current state of a DEC private mode, or reports that this terminal keeps no
+    /// state for it.
+    /// </summary>
+    /// <remarks>
+    /// The mouse modes are the entries worth reading twice. Tracking level and encoding are each a
+    /// single selection rather than a set of independent flags — setting 1003 replaces 1002, and
+    /// resetting any of them returns the selection to none — so a mouse mode is "set" exactly when
+    /// it is the one currently selected. The three alternate-buffer modes all read the same flag,
+    /// because they differ only in the cursor and erase work they do on the way in and out.
+    /// </remarks>
+    private bool TryGetPrivateModeState(int mode, out bool set)
+    {
+        var mouseTracker = _terminal.GetMouseTracker();
+        switch (mode)
+        {
+            case (int)TerminalMode.AppCursorKeys:
+                set = _terminal.ApplicationCursorKeys;
+                return true;
+            case (int)TerminalMode.ReverseVideo:
+                set = _terminal.ReverseVideo;
+                return true;
+            case (int)TerminalMode.Origin:
+                set = _terminal.OriginMode;
+                return true;
+            case (int)TerminalMode.Wraparound:
+                set = _terminal.Options.Wraparound;
+                return true;
+            case (int)TerminalMode.ShowCursor:
+                set = _terminal.CursorVisible;
+                return true;
+            case (int)TerminalMode.ReverseWraparound:
+                set = _terminal.ReverseWraparound;
+                return true;
+            case (int)TerminalMode.AppKeypad:
+                set = _terminal.ApplicationKeypad;
+                return true;
+            // The whole point of DECSLRM is a layout that behaves differently when margins are
+            // available, and a well-behaved application checks before relying on them.
+            case (int)TerminalMode.LeftRightMargin:
+                set = _terminal.LeftRightMarginMode;
+                return true;
+            case (int)TerminalMode.SixelDisplayMode:
+                set = _terminal.SixelDisplayMode;
+                return true;
+            case (int)TerminalMode.SixelPrivateColorRegisters:
+                set = _terminal.SixelPrivateColorRegisters;
+                return true;
+            case (int)TerminalMode.SixelCursorRight:
+                set = _terminal.SixelCursorRight;
+                return true;
+            case (int)TerminalMode.MouseReportClick:
+                set = mouseTracker.TrackingMode == MouseTrackingMode.X10;
+                return true;
+            case (int)TerminalMode.MouseReportNormal:
+                set = mouseTracker.TrackingMode == MouseTrackingMode.VT200;
+                return true;
+            case (int)TerminalMode.MouseReportButtonEvent:
+                set = mouseTracker.TrackingMode == MouseTrackingMode.ButtonEvent;
+                return true;
+            case (int)TerminalMode.MouseReportAnyEvent:
+                set = mouseTracker.TrackingMode == MouseTrackingMode.AnyEvent;
+                return true;
+            case (int)TerminalMode.MouseReportUtf8:
+                set = mouseTracker.Encoding == MouseEncoding.Utf8;
+                return true;
+            case (int)TerminalMode.MouseReportSgr:
+                set = mouseTracker.Encoding == MouseEncoding.SGR;
+                return true;
+            case (int)TerminalMode.MouseReportUrxvt:
+                set = mouseTracker.Encoding == MouseEncoding.URXVT;
+                return true;
+            case (int)TerminalMode.SendFocusEvents:
+                set = _terminal.SendFocusEvents;
+                return true;
+            case (int)TerminalMode.AltBuffer:
+            case (int)TerminalMode.AltBufferCursor:
+            case (int)TerminalMode.AltBufferFull:
+                set = _terminal.IsAlternateBufferActive;
+                return true;
+            case (int)TerminalMode.EightBitInput:
+                set = _terminal.EightBitInput;
+                return true;
+            case (int)TerminalMode.MetaSendsEscape:
+                set = _terminal.MetaSendsEscape;
+                return true;
+            case (int)TerminalMode.AltSendsEscape:
+                set = _terminal.AltSendsEscape;
+                return true;
+            case (int)TerminalMode.BracketedPasteMode:
+                set = _terminal.BracketedPasteMode;
+                return true;
+            case (int)TerminalMode.SynchronizedOutput:
+                set = _terminal.SynchronizedOutput;
+                return true;
+            case (int)TerminalMode.Win32InputMode:
+                set = _terminal.Win32InputMode;
+                return true;
+            default:
+                set = false;
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Reads back the current state of an ANSI mode, or reports that this terminal keeps no state
+    /// for it.
+    /// </summary>
+    /// <remarks>
+    /// IRM is the one ANSI mode this terminal implements: SM 4 sets <see cref="Terminal.InsertMode"/>
+    /// and printing shifts the rest of the line right on the strength of it, so an application can
+    /// usefully ask about it. KAM, SRM and LNM are neither stored nor acted on and get the same
+    /// silence as an untracked private mode. Note the numbers overlap the private ones and mean
+    /// something else — 4 here is IRM, not DECSCLM — which is why this is a separate lookup.
+    /// </remarks>
+    private bool TryGetAnsiModeState(int mode, out bool set)
+    {
+        switch (mode)
+        {
+            case (int)TerminalMode.InsertMode:
+                set = _terminal.InsertMode;
+                return true;
+            default:
+                set = false;
+                return false;
+        }
     }
 
     /// <summary>

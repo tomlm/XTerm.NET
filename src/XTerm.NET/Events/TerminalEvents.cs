@@ -23,19 +23,52 @@ public static class TerminalEvents
     /// <summary>
     /// Clipboard data supplied by an application.
     /// </summary>
+    /// <summary>One format of a clipboard transfer: a MIME type and its bytes.</summary>
+    public readonly record struct ClipboardFormat(string MimeType, byte[] Data);
+
+    /// <summary>
+    /// Clipboard data supplied by an application — raised ONCE per transfer, carrying every
+    /// format, because platform clipboards replace their contents on each set: a host must build
+    /// one data object from the whole list and commit it once, or a multi-format transfer would
+    /// survive only as whichever format happened to be set last. OSC 52 transfers carry a single
+    /// text/plain format; a Kitty OSC 5522 transfer carries each transmitted MIME type in the
+    /// order it first appeared, followed by its aliases sharing the same bytes.
+    /// </summary>
     public class ClipboardWriteEventArgs : EventArgs
     {
-        public ClipboardWriteEventArgs(string target, string mimeType, byte[] data)
+        public ClipboardWriteEventArgs(string target, IReadOnlyList<ClipboardFormat> formats)
         {
             Target = target;
-            MimeType = mimeType;
-            Data = data;
+            Formats = formats;
         }
 
         public string Target { get; }
-        public string MimeType { get; }
-        public byte[] Data { get; }
-        public string Text => System.Text.Encoding.UTF8.GetString(Data);
+
+        /// <summary>Every format in the transfer. Never empty.</summary>
+        public IReadOnlyList<ClipboardFormat> Formats { get; }
+
+        /// <summary>The first format's MIME type — the whole transfer, for single-format writes.</summary>
+        public string MimeType => Formats[0].MimeType;
+
+        /// <summary>The first format's bytes.</summary>
+        public byte[] Data => Formats[0].Data;
+
+        /// <summary>
+        /// The transfer's text: the first <c>text/*</c> format decoded as UTF-8, or the first
+        /// format when none is text. Empty text requests clearing the selection.
+        /// </summary>
+        public string Text
+        {
+            get
+            {
+                foreach (var format in Formats)
+                {
+                    if (format.MimeType.StartsWith("text/", StringComparison.Ordinal))
+                        return System.Text.Encoding.UTF8.GetString(format.Data);
+                }
+                return System.Text.Encoding.UTF8.GetString(Formats[0].Data);
+            }
+        }
     }
 
     /// <summary>
@@ -101,8 +134,18 @@ public static class TerminalEvents
         /// once the synchronous path has answered.</summary>
         internal void Arm(Action<byte[]?> respond) => _respond = respond;
 
-        /// <summary>The synchronous path answered, so a later Respond must not.</summary>
-        internal void Disarm() => _respond = null;
+        /// <summary>
+        /// Claims the response for the synchronous path. False when <see cref="Respond(byte[]?)"/>
+        /// already answered — a handler that responds from inside the handler AND sets
+        /// <see cref="Data"/> must still produce exactly one response, so the loser of this claim
+        /// stays silent.
+        /// </summary>
+        internal bool Disarm()
+        {
+            var wasArmed = _respond is not null;
+            _respond = null;
+            return wasArmed;
+        }
     }
 
     /// <summary>
@@ -285,21 +328,52 @@ public static class TerminalEvents
     }
 
     /// <summary>
-    /// Notification event - fired for OSC 9 desktop notifications.
+    /// Notification event - fired for OSC 9 and Kitty OSC 99 desktop notifications.
     /// </summary>
     public class NotificationEventArgs : EventArgs
     {
         public NotificationEventArgs(string text)
+            : this(null, null, text, null, null)
         {
-            Text = text;
         }
 
         /// <summary>
-        /// The notification body as sent by the application.
+        /// The notification body as sent by the application. Retained for OSC 9 compatibility.
         /// </summary>
         public string Text { get; }
+
+        public NotificationEventArgs(string? identifier, string? title, string? body, int? urgency, string? icon)
+        {
+            Identifier = identifier;
+            Title = title;
+            Body = body;
+            Urgency = urgency;
+            Icon = icon;
+            Text = body ?? title ?? string.Empty;
+        }
+
+        public string? Identifier { get; }
+
+        public string? Title { get; }
+
+        public string? Body { get; }
+
+        public int? Urgency { get; }
+
+        public string? Icon { get; }
     }
 
+    /// <summary>iTerm2's requested attention action.</summary>
+    public class AttentionRequestedEventArgs : EventArgs
+    {
+        public AttentionRequestedEventArgs(string action)
+        {
+            Action = action;
+        }
+
+        /// <summary>The requested action, such as yes, once, no, or fireworks.</summary>
+        public string Action { get; }
+    }
 
     /// <summary>
     /// Raw OSC event - fired for EVERY OSC sequence the parser completes, including ones this
@@ -376,6 +450,32 @@ public static class TerminalEvents
         {
             Url = url;
             IsCleared = isCleared;
+        }
+    }
+
+    /// <summary>
+    /// Pointer shape event - fired when the mouse pointer shape requested with OSC 22 changes.
+    /// </summary>
+    /// <remarks>
+    /// The emulator owns the shape stack; turning a name into a real pointer is the host's job,
+    /// since only the host knows what its toolkit calls the same shape.
+    /// </remarks>
+    public class PointerShapeEventArgs : EventArgs
+    {
+        /// <summary>
+        /// The requested shape, one of <see cref="PointerShapes.All"/>, or null when nothing is
+        /// requested any more and the host should go back to its own pointer.
+        /// </summary>
+        public string? Shape { get; }
+
+        /// <summary>
+        /// True when no shape is requested any more.
+        /// </summary>
+        public bool IsCleared => Shape is null;
+
+        public PointerShapeEventArgs(string? shape)
+        {
+            Shape = shape;
         }
     }
 
