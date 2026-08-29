@@ -398,17 +398,18 @@ public class MouseTrackingTests
     }
 
     [Fact]
-    public void MouseEvent_LargeCoordinates_ClampsCorrectly()
+    public void MouseEvent_LargeCoordinates_AreDroppedRatherThanMisreported()
     {
-        // Arrange
+        // This asserted only "generates something", which the clamp satisfied by reporting the
+        // last addressable column for every click beyond it. The single-byte encoding cannot
+        // carry these coordinates through a UTF-8 transport at all, so the report is dropped:
+        // a click that does nothing beats a click attributed to the wrong column.
         var terminal = CreateTerminal();
         terminal.Write("\x1B[?1000h");
 
-        // Act - Test with very large coordinates
         var sequence = terminal.GenerateMouseEvent(MouseButton.Left, 300, 300, MouseEventType.Down);
 
-        // Assert - Should not throw and should generate something
-        Assert.NotEmpty(sequence);
+        Assert.Empty(sequence);
     }
 
     [Fact]

@@ -1311,44 +1311,51 @@ public class InputHandler
     {
         CancelRepeat();
 
-        switch (finalChar)
+        // An intermediate changes which sequence this IS, so the bare finals cannot be matched
+        // before knowing there is none. Running both switches meant ESC # 8 (DECALN, which vttest
+        // sends) also took the "8" arm and restored the cursor, and ESC ( = designated G0 while
+        // enabling the application keypad on the way past.
+        if (collected.Length == 0)
         {
-            case "D": // IND - Index
-                IndexDown();
-                break;
-            case "E": // NEL - Next Line
-                NextLine();
-                break;
-            case "M": // RI - Reverse Index
-                ReverseIndex();
-                break;
-            case "H": // HTS - set a tab stop at the cursor column
-                _terminal.SetTabStop(_buffer.X);
-                break;
-            case "=": // DECKPAM - application keypad
-                // terminfo's smkx for xterm is ESC [ ? 1 h ESC =, so a program enabling
-                // application cursor keys enabled the keypad in the same breath -- and the second
-                // half was dropped. The keypad generators honoured a mode nothing could set
-                // except DECSET 66.
-                _terminal.ApplicationKeypad = true;
-                break;
-            case ">": // DECKPNM - numeric keypad
-                _terminal.ApplicationKeypad = false;
-                break;
-            case "c": // RIS - Reset to Initial State
-                ResetTerminal();
-                break;
-            case "7": // DECSC - Save Cursor
-                SaveCursor();
-                break;
-            case "8": // DECRC - Restore Cursor
-                RestoreCursor();
-                break;
+            switch (finalChar)
+            {
+                case "D": // IND - Index
+                    IndexDown();
+                    break;
+                case "E": // NEL - Next Line
+                    NextLine();
+                    break;
+                case "M": // RI - Reverse Index
+                    ReverseIndex();
+                    break;
+                case "H": // HTS - set a tab stop at the cursor column
+                    _terminal.SetTabStop(_buffer.X);
+                    break;
+                case "=": // DECKPAM - application keypad
+                    // terminfo's smkx for xterm is ESC [ ? 1 h ESC =, so a program enabling
+                    // application cursor keys enabled the keypad in the same breath -- and the second
+                    // half was dropped. The keypad generators honoured a mode nothing could set
+                    // except DECSET 66.
+                    _terminal.ApplicationKeypad = true;
+                    break;
+                case ">": // DECKPNM - numeric keypad
+                    _terminal.ApplicationKeypad = false;
+                    break;
+                case "c": // RIS - Reset to Initial State
+                    ResetTerminal();
+                    break;
+                case "7": // DECSC - Save Cursor
+                    SaveCursor();
+                    break;
+                case "8": // DECRC - Restore Cursor
+                    RestoreCursor();
+                    break;
+            }
         }
-
-        // Charset designation sequences
-        if (collected.Length > 0)
+        else
         {
+            // Charset designation and the DEC line attributes, which are the sequences an
+            // intermediate introduces.
             var intermediateChar = collected[0];
             switch (intermediateChar)
             {

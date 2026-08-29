@@ -19,13 +19,44 @@ public class InputEncodingTests
     {
         // The report is a byte sequence but the string is UTF-8 encoded on its way to the pty, so
         // anything above 127 becomes two bytes and the application reads a column it was never
-        // sent -- "the mouse stops working past column 95".
+        // sent -- "the mouse stops working past column 95". Assert the bytes, not the chars: a
+        // char-level bound passes on values UTF-8 still splits.
         var terminal = NewTerminal();
         terminal.Write($"{Esc}[?1000h");     // VT200 tracking, as a program enables it
 
-        var seq = terminal.GenerateMouseEvent(MouseButton.Left, 250, 250, MouseEventType.Down);
+        var seq = terminal.GenerateMouseEvent(MouseButton.Left, 80, 10, MouseEventType.Down);
 
-        Assert.All(seq, c => Assert.True(c <= 223, $"emitted U+{(int)c:X4}, which UTF-8 splits"));
+        Assert.NotEmpty(seq);
+        Assert.Equal(seq.Length, System.Text.Encoding.UTF8.GetByteCount(seq));
+        Assert.All(seq, c => Assert.True(c <= 127, $"emitted U+{(int)c:X4}, which UTF-8 splits"));
+    }
+
+    [Fact]
+    public void A_click_past_the_addressable_range_is_dropped_rather_than_reported_as_column_95()
+    {
+        // Clamping produced a confident lie: every click past the limit arrived as the last
+        // addressable column, so a TUI acted on whichever widget lives there. vte and konsole drop
+        // the report instead, and so does xterm.js at its own ceiling.
+        var terminal = NewTerminal();
+        terminal.Write($"{Esc}[?1000h");
+
+        Assert.Equal(string.Empty,
+            terminal.GenerateMouseEvent(MouseButton.Left, 250, 10, MouseEventType.Down));
+        Assert.Equal(string.Empty,
+            terminal.GenerateMouseEvent(MouseButton.Left, 10, 250, MouseEventType.Down));
+    }
+
+    [Fact]
+    public void Sgr_coordinates_still_carry_the_whole_screen()
+    {
+        // The X10 ceiling is a property of that encoding's transport, not of the terminal. An
+        // application that wants the full width asks for SGR, and must still get it.
+        var terminal = NewTerminal();
+        terminal.Write($"{Esc}[?1000h{Esc}[?1006h");
+
+        var seq = terminal.GenerateMouseEvent(MouseButton.Left, 250, 10, MouseEventType.Down);
+
+        Assert.Contains("251", seq);
     }
 
     [Fact]
@@ -106,5 +137,37 @@ public class InputEncodingTests
 
         terminal.Write($"{Esc}>");
         Assert.False(terminal.ApplicationKeypad);
+    }
+
+    [Fact]
+    public void An_intermediate_stops_a_bare_esc_final_from_matching()
+    {
+        // The two switches ran one after the other, so a sequence with an intermediate also took
+        // the bare arm for its final character: ESC ( = designated G0 and enabled the application
+        // keypad on the way past.
+        var terminal = NewTerminal();
+
+        terminal.Write($"{Esc}(=");
+
+        Assert.False(terminal.ApplicationKeypad);
+    }
+
+    [Fact]
+    public void Decaln_does_not_also_restore_the_saved_cursor_state()
+    {
+        // Same defect, and this one vttest actually sends: ESC # 8 took the "8" arm as DECRC on
+        // its way to DECALN. The cursor position hides it -- DECALN homes the cursor afterwards
+        // either way -- but DECRC also restores the saved GRAPHIC RENDITION, which DECALN does
+        // not touch, so the alignment test came back with whatever attributes were saved.
+        var terminal = NewTerminal();
+        terminal.Write($"{Esc}[1m");        // bold on
+        terminal.Write($"{Esc}7");          // DECSC saves the cursor AND the bold attribute
+        terminal.Write($"{Esc}[0m");        // back to normal
+
+        terminal.Write($"{Esc}#8");         // DECALN only: fill with E, home the cursor
+        terminal.Write("X");
+
+        var line = terminal.Buffer.Lines[terminal.Buffer.YBase]!;
+        Assert.False(line[0].Attributes.IsBold());
     }
 }

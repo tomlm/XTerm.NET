@@ -96,13 +96,20 @@ public class MouseTracker
         int cx = x + 1 + 32; // 1-based + 32 offset
         int cy = y + 1 + 32; // 1-based + 32 offset
 
-        // Clamped to 223, not 255. The report is a BYTE sequence, but this string is UTF-8 encoded
-        // on its way to the pty, so anything above 127 becomes two bytes and the application reads
-        // a coordinate it was never sent -- the classic "mouse stops working past column 95"
-        // report. 223 is the last column this encoding can carry (223 = 255 - 32), and xterm
-        // clamps there too rather than emitting something undecodable.
-        cx = Math.Clamp(cx, 32, 223);
-        cy = Math.Clamp(cy, 32, 223);
+        // This report is a BYTE sequence, but what leaves here is a string the host UTF-8 encodes
+        // on its way to the pty -- the same encoding that makes mode 1005 below come out right
+        // makes this one come out wrong. A coordinate above 127 leaves as two bytes, and the
+        // application reads a column nobody clicked.
+        //
+        // So the transport, not the encoding, sets the ceiling: 127 - 32 = 95 addressable columns
+        // and rows. Past that the report is suppressed rather than clamped, because a clamped
+        // report is a confident lie -- every click past column 95 arrives as column 95 and a TUI
+        // acts on the wrong widget, where a missing report is merely a click that did nothing.
+        // vte and konsole drop it too, and xterm.js suppresses at its own ceiling rather than
+        // clamping. An application that needs the whole screen asks for SGR (1006) or UTF-8
+        // (1005) coordinates, both of which survive this transport intact.
+        if (cb > 127 || cx > 127 || cy > 127)
+            return string.Empty;
 
         return $"\u001b[M{(char)cb}{(char)cx}{(char)cy}";
     }
