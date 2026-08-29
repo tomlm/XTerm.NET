@@ -234,10 +234,24 @@ public class InputHandler
     /// only astral codepoints (emoji machinery, already handled by the checks' cheap heads) run
     /// the predicates directly.
     /// </summary>
-    private static bool MayContinueCluster(int codePoint) =>
-        codePoint < 0x10000
-            ? (MayJoinBmp[codePoint >> 3] & (1 << (codePoint & 7))) != 0
-            : IsCombiningCharacter(codePoint) || IsSequenceJoinCandidate(codePoint);
+    private static bool MayContinueCluster(int codePoint)
+    {
+        if (codePoint < 0x10000)
+            return (MayJoinBmp[codePoint >> 3] & (1 << (codePoint & 7))) != 0;
+
+        // Astral: the sequence rules are BMP-only, and the joinable astral codepoints are the
+        // Variation Selectors Supplement, the skin tones, and plane-1 script marks (musical,
+        // SignWriting, Adlam...) — every one of which sits BELOW the emoji blocks. So emoji, the
+        // astral characters streams actually carry, resolve in these compares and never reach
+        // the category lookup they were paying ~4% of the unicode corpus for.
+        if (codePoint >= 0xE0100 && codePoint <= 0xE01EF)
+            return true;
+        if (IsSkinToneModifier(codePoint))
+            return true;
+        if (codePoint >= 0x1F000)
+            return false;
+        return IsCombiningCharacter(codePoint);
+    }
 
     /// <summary>The Fitzpatrick skin tone modifiers, U+1F3FB to U+1F3FF.</summary>
     private static bool IsSkinToneModifier(int codePoint)
