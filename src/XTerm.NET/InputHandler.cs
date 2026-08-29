@@ -512,10 +512,18 @@ public class InputHandler
 
         var width = GetStringCellWidth(translatedData);
 
-        if (width == 2 && _buffer.X == WrapLimit() && _terminal.Options.Wraparound)
-            _buffer.SetCursorRaw(WrapLimit() + 1, _buffer.Y);
+        // WrapLimit is not free -- it asks whether the cursor is inside the margin columns -- and
+        // the wide-character test made a second call to it for every printed character. Computed
+        // once and shared with the autowrap test below, which is the only other reader.
+        var wrapLimit = WrapLimit();
 
-        if (_buffer.X > WrapLimit() && !ResolveAutowrap())
+        // A wide character needs TWO columns, so the wrap test has to know its width: written at
+        // the last column it was stored there with no room for its spacer, leaving a width-2 cell
+        // in one column and the cursor one past the pending-wrap position.
+        if (width == 2 && _buffer.X == wrapLimit && _terminal.Options.Wraparound)
+            _buffer.SetCursorRaw(wrapLimit + 1, _buffer.Y);
+
+        if (_buffer.X > wrapLimit && !ResolveAutowrap())
         {
             // Wrapping is off and the cursor is past the last column. DECAWM off does not mean
             // "discard": the VT100, xterm and xterm.js all keep OVERWRITING the last column, so a
