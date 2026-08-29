@@ -2,7 +2,6 @@ using NeoSmart.Unicode;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
-using Wcwidth;
 using XTerm.Buffer;
 using XTerm.Common;
 using XTerm.Input;
