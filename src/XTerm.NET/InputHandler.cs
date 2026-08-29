@@ -986,9 +986,10 @@ public class InputHandler
             contribution = -1;
         else if (conjunctConsonantJoined)
             contribution = 1;
-        else if (codePoint >= 0x0903 && !IsConjunctLinker(codePoint)
+        else if (codePoint >= 0x0903 && codePoint < 0x1F000
                  && CharUnicodeInfo.GetUnicodeCategory(codePoint)
-                 == UnicodeCategory.SpacingCombiningMark)
+                 == UnicodeCategory.SpacingCombiningMark
+                 && !IsConjunctLinker(codePoint))
             // A linker is checked FIRST: Javanese pangkon and Grantha virama are category Mc,
             // but they are killers, not vowels -- a dead consonant stays one column.
             contribution = 1;
@@ -6468,9 +6469,10 @@ public class InputHandler
                     width--;
                     lastWidth = 1;
                 }
-                else if (!IsConjunctLinker(rune.Value)
+                else if (rune.Value < 0x1F000     // no Mc exists in or above the emoji blocks
                          && System.Globalization.CharUnicodeInfo.GetUnicodeCategory(rune.Value)
-                         == System.Globalization.UnicodeCategory.SpacingCombiningMark)
+                         == System.Globalization.UnicodeCategory.SpacingCombiningMark
+                         && !IsConjunctLinker(rune.Value))
                 {
                     // SPACING combining marks -- Indic matras -- occupy a column of their own:
                     // wcwidth has always said 1 for Mc, and every wcwidth-consuming application
