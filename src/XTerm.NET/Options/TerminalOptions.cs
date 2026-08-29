@@ -155,6 +155,36 @@ public class TerminalOptions : ICloneable
     public bool ITerm2ImagesEnabled { get; set; } = true;
 
     /// <summary>
+    /// Whether Kitty desktop notification requests (OSC 99) are honoured.
+    /// </summary>
+    /// <remarks>
+    /// Off by default, unlike the other Kitty gates: those draw inside the terminal surface,
+    /// whereas a notification hands pty-controlled text to an OS-level API on behalf of any
+    /// program that can write to the pty, including a remote host over ssh. A host that is
+    /// prepared to show notifications opts in. While off the terminal also refuses the p=?
+    /// capability query, so a well-behaved application stays quiet rather than notifying
+    /// into the void.
+    /// </remarks>
+    public bool KittyNotificationsEnabled { get; set; }
+    /// <summary>
+    /// Whether applications may write to the host clipboard using OSC 52 or Kitty OSC 5522.
+    /// </summary>
+    public bool ClipboardWriteEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Whether applications may read from the host clipboard using OSC 52 or Kitty OSC 5522.
+    /// </summary>
+    /// <remarks>
+    /// Disabled by default because terminal output can otherwise exfiltrate clipboard contents.
+    /// </remarks>
+    public bool ClipboardReadEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Maximum decoded clipboard bytes accepted in a Kitty OSC 5522 write.
+    /// </summary>
+    public int MaxClipboardBytes { get; set; } = 64 * 1024 * 1024;
+
+    /// <summary>
     /// Whether the Kitty keyboard protocol sequences (CSI u) are honoured.
     /// </summary>
     /// <remarks>
@@ -162,6 +192,19 @@ public class TerminalOptions : ICloneable
     /// probing with CSI ? u gets no answer and stays in legacy encoding.
     /// </remarks>
     public bool KittyKeyboardEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Whether mouse pointer shape requests (OSC 22) are honoured. Off by default.
+    /// </summary>
+    /// <remarks>
+    /// Opt-in, because the emulator cannot make this work on its own: only the host can change a
+    /// real pointer, and it does that by subscribing to
+    /// <see cref="Terminal.PointerShapeChanged"/>. Left on by default, a host that has not wired
+    /// that event would still answer the support query with a yes, and an application would go on
+    /// using shapes that never appear. Turning it on is the host saying it has wired the event, so
+    /// the yes is true when it is given.
+    /// </remarks>
+    public bool PointerShapesEnabled { get; set; }
 
     /// <summary>
     /// Budget for images held by client id but not currently on screen, in bytes.
@@ -283,7 +326,12 @@ public class TerminalOptions : ICloneable
         SixelEnabled = other.SixelEnabled;
         KittyGraphicsEnabled = other.KittyGraphicsEnabled;
         ITerm2ImagesEnabled = other.ITerm2ImagesEnabled;
+        KittyNotificationsEnabled = other.KittyNotificationsEnabled;
+        ClipboardWriteEnabled = other.ClipboardWriteEnabled;
+        ClipboardReadEnabled = other.ClipboardReadEnabled;
+        MaxClipboardBytes = other.MaxClipboardBytes;
         KittyKeyboardEnabled = other.KittyKeyboardEnabled;
+        PointerShapesEnabled = other.PointerShapesEnabled;
         MaxImageRegistryBytes = other.MaxImageRegistryBytes;
         MaxUserVariables = other.MaxUserVariables;
         MaxUserVariableBytes = other.MaxUserVariableBytes;

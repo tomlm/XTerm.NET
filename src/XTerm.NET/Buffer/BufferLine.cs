@@ -261,6 +261,15 @@ public class BufferLine : IEnumerable<BufferCell>
     /// </summary>
     public void CopyCellsFrom(BufferLine src, int srcCol, int destCol, int length, bool applyInReverse)
     {
+        // Memmove semantics, decided HERE rather than trusted to the caller: copying within one
+        // line with the destination ahead of the source re-reads cells it has already written
+        // when it walks forward, and the shifted region degenerates into the first cell repeated
+        // -- which is exactly what a mid-line insert looked like on screen (type into the middle
+        // of a bash command line and the tail becomes one letter, over and over). Every caller
+        // that shifts right within a line is safe now whatever it passes.
+        if (ReferenceEquals(src, this) && destCol > srcCol && destCol < srcCol + length)
+            applyInReverse = true;
+
         if (applyInReverse)
         {
             for (int i = length - 1; i >= 0; i--)

@@ -37,11 +37,17 @@ public class TerminalOptionsTests
         Assert.False(options.MacOptionIsMeta);
         Assert.True(options.RightClickSelectsWord);
         Assert.Equal(RendererType.Canvas, options.RendererType);
+        Assert.True(options.ClipboardWriteEnabled);
+        Assert.False(options.ClipboardReadEnabled);
         Assert.NotNull(options.WindowOptions);
         Assert.NotNull(options.Theme);
         Assert.Equal(1, options.MinimumContrastRatio);
         Assert.True(options.DrawBoldTextInBrightColors);
+        Assert.False(options.KittyNotificationsEnabled);
         Assert.Null(options.CustomKeyEventHandler);
+        Assert.True(options.ClipboardWriteEnabled);
+        Assert.False(options.ClipboardReadEnabled);
+        Assert.Equal(64 * 1024 * 1024, options.MaxClipboardBytes);
     }
 
     [Fact]
@@ -172,7 +178,9 @@ public class TerminalOptionsTests
             Scrollback = 2000,
             BellSound = true,
             CursorBlink = true,
-            FontFamily = "Test Font"
+            FontFamily = "Test Font",
+            ClipboardWriteEnabled = false,
+            ClipboardReadEnabled = true
         };
 
         // Act
@@ -185,6 +193,8 @@ public class TerminalOptionsTests
         Assert.Equal(options.BellSound, clone.BellSound);
         Assert.Equal(options.CursorBlink, clone.CursorBlink);
         Assert.Equal(options.FontFamily, clone.FontFamily);
+        Assert.Equal(options.ClipboardWriteEnabled, clone.ClipboardWriteEnabled);
+        Assert.Equal(options.ClipboardReadEnabled, clone.ClipboardReadEnabled);
 
         // Verify independence
         clone.Cols = 120;
@@ -274,6 +284,7 @@ public class TerminalOptionsTests
         options.RendererType = RendererType.WebGL;
         options.MinimumContrastRatio = 4.5;
         options.DrawBoldTextInBrightColors = false;
+        options.KittyNotificationsEnabled = true;
 
         // Assert
         Assert.Equal(100, options.Cols);
@@ -303,6 +314,7 @@ public class TerminalOptionsTests
         Assert.Equal(RendererType.WebGL, options.RendererType);
         Assert.Equal(4.5, options.MinimumContrastRatio);
         Assert.False(options.DrawBoldTextInBrightColors);
+        Assert.True(options.KittyNotificationsEnabled);
     }
 }
 
