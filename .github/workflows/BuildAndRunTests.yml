@@ -82,7 +82,11 @@ jobs:
       # PRs passes its own gate on the way. This is the budget for ALL drift since the
       # reference, so the PR that spends the last of it is the one that has to find the time
       # back -- or the reference moves deliberately, in a change that says why.
-      BASELINE_REF: "v2.0.0-rc001"
+      # A COMMIT, not a tag: this repository has no tag on the 2.0 line, and a ref that cannot
+      # resolve makes the gate below skip itself silently -- which is the failure mode a gate
+      # least wants. b83dcda is main as 2.0.0-rc001 was published from it (27 Aug). Move it when
+      # a release makes the drift since it uninteresting, in a change that says what was spent.
+      BASELINE_REF: "b83dcda"
       BASELINE_FLOOR: "0.05"
 
     steps:
