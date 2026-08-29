@@ -106,9 +106,13 @@ internal sealed class KittyTransmission
                 int read;
                 while ((read = zlib.Read(buffer, 0, buffer.Length)) > 0)
                 {
-                    output.Write(buffer, 0, read);
-                    if (output.Length > ceiling)
+                    // Before the write, for the reason PngDecoder.Inflate gives: a MemoryStream
+                    // grows by doubling, so checking afterwards means the allocation being
+                    // refused has already been made.
+                    if (output.Length + read > ceiling)
                         return false;
+
+                    output.Write(buffer, 0, read);
                 }
             }
             finally

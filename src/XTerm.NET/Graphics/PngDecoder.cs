@@ -297,9 +297,16 @@ internal static class PngDecoder
             int read;
             while ((read = zlib.Read(buffer, 0, buffer.Length)) > 0)
             {
-                output.Write(buffer, 0, read);
-                if (output.Length > expected)
+                // Checked BEFORE the write, not after it. The stream is created with capacity
+                // `expected`, so a write that crosses it grows the backing array -- MemoryStream
+                // doubles -- and the old check fired only once that allocation had already
+                // happened. On a large declared image that is a hundred megabytes handed out to
+                // refuse a payload, which is the exact "bounded after the fact" shape this whole
+                // guard exists to avoid.
+                if (output.Length + read > expected)
                     return [];
+
+                output.Write(buffer, 0, read);
             }
         }
         finally
