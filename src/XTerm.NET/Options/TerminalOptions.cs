@@ -406,11 +406,33 @@ public class TerminalOptions : ICloneable
     /// <summary>
     /// Minimum contrast ratio.
     /// </summary>
+    /// <remarks>
+    /// Honoured by the HOST, not by the emulator, and deliberately so: this is a rendering
+    /// decision about what a colour looks like against its background, and a headless library has
+    /// no colours on a screen to measure. xterm.js draws the same line — the option is declared in
+    /// its common OptionsService and read only in <c>src/browser/</c>, and its own headless build
+    /// does nothing with it either.
+    ///
+    /// A renderer implements it by lightening or darkening the resolved foreground until it
+    /// reaches this ratio against the resolved background, caching the result per colour pair.
+    /// The default of 1 asks for no adjustment at all.
+    /// </remarks>
     public double MinimumContrastRatio { get; set; } = 1;
 
     /// <summary>
     /// Whether to draw bold text in bright colors.
     /// </summary>
+    /// <remarks>
+    /// Honoured by the HOST, for the same reason as <see cref="MinimumContrastRatio"/>: it decides
+    /// what a colour looks like rather than what the cell holds. The buffer keeps the index the
+    /// application asked for, so nothing is lost either way and a host can change its mind without
+    /// the text being rewritten. xterm.js applies it in its DOM and WebGL renderers and its
+    /// headless build ignores it.
+    ///
+    /// The rule a renderer applies, from xterm.js: for a palette colour — not RGB — on a cell that
+    /// is bold, with an index below 8, add 8 to reach the bright half of the first sixteen. It
+    /// applies to an explicitly set underline colour on the same terms.
+    /// </remarks>
     public bool DrawBoldTextInBrightColors { get; set; } = true;
 
     /// <summary>
