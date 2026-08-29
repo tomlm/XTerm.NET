@@ -341,14 +341,14 @@ public class InputHandler
     /// leaves the other behind, and a renderer meeting a width-2 cell whose second column holds
     /// something else draws a two-column glyph into one column and shifts the rest of the row.
     /// </remarks>
-    private void RepairSplitWideCell(BufferLine line)
+    /// <param name="here">
+    /// The width already under the cursor, read by the caller. It decides both cases on its own --
+    /// 2 means a wide character whose spacer at X+1 is about to be orphaned, 0 means this IS a
+    /// spacer and the character at X-1 is -- and the caller needs it anyway to decide whether
+    /// there is a repair to make, so reading it twice would be reading it once too often.
+    /// </param>
+    private void RepairSplitWideCell(BufferLine line, int here)
     {
-        // ONE read decides both cases, because the cell being overwritten already says which half
-        // it is: width 2 means this is a wide character and its spacer at X+1 is about to be
-        // orphaned, width 0 means this IS the spacer and the character at X-1 is. Reading both
-        // neighbours instead cost the unicode corpus, where every CJK line takes this path.
-        var here = line.GetWidth(_buffer.X);
-
         if (here == 2)
         {
             if (_buffer.X + 1 < _terminal.Cols)
@@ -594,29 +594,46 @@ public class InputHandler
         // second column now holds something else, or a spacer with nothing in front of it. Both
         // make the renderer draw a two-column glyph into one column. The erase paths get this from
         // BufferLine.Fill; printing writes a single cell and has to say so itself.
-        // Guarded at the CALL, the lesson this file keeps teaching: the repair below is two array
-        // reads on EVERY printed character, and a line that has never held a wide character cannot
-        // have an orphan to fix. HasWideCells is one field read, and it is false for the ASCII
-        // that makes up most of every frame.
+        // The margin the spacer has to fit inside, for a wide character only -- ASCII never asks,
+        // so it never pays the call. Computed HERE rather than reused from before the wrap
+        // decision, because resolving a wrap moves the cursor and the answer belongs to the column
+        // the character actually landed on. Once, and read twice below.
+        var spacerLimit = width == 2 ? WrapLimit() : 0;
+        var writesSpacer = width == 2 && _buffer.X + 1 <= spacerLimit;
+
+        // Guarded at the CALL, the lesson this file keeps teaching: the repair is array reads on
+        // EVERY printed character, and a line that has never held a wide character cannot have an
+        // orphan to fix. HasWideCells is one field read, and it is false for the ASCII that makes
+        // up most of every frame.
+        //
+        // The width under the cursor is read here too, so the ordinary case reaches no call at
+        // all: on a line that HAS wide cells -- which is every line of CJK, where the latch is
+        // true from the first character on -- an unconditional call is one per printed character.
         if (line is not null && line.HasWideCells)
-            RepairSplitWideCell(line);
+        {
+            var here = line.GetWidth(_buffer.X);
+
+            // here == 2 means a wide character is being overwritten and its spacer at X+1 is
+            // orphaned; here == 0 means this IS a spacer and the character at X-1 is. But a wide
+            // character about to be written covers X+1 ITSELF, so blanking it first is a write the
+            // spacer below immediately repeats -- and CJK over CJK is what the unicode corpus is
+            // made of. Only the half the incoming character does not cover needs repairing.
+            if (here == 0 || (here == 2 && !writesSpacer))
+                RepairSplitWideCell(line, here);
+        }
 
         // Set the cell
         line?.SetCell(_buffer.X, ref cell);
 
-        // Handle wide characters
-        if (width == 2)
+        // Handle wide characters. The spacer is bounded by the right MARGIN rather than the screen
+        // -- otherwise a double-width character sitting on the last column of a region plants its
+        // spacer in the pane next door. Identical to the old test when no margins are set, since
+        // the limit is then the last column.
+        if (writesSpacer)
         {
-            // Set following cell as a spacer, bounded by the right MARGIN rather than the screen --
-            // otherwise a double-width character sitting on the last column of a region plants its
-            // spacer in the pane next door. Identical to the old test when no margins are set, since
-            // the limit is then the last column.
-            if (_buffer.X + 1 <= WrapLimit())
-            {
-                var spacer = BufferCell.Empty;
-                spacer.Attributes = _curAttr;
-                line?.SetCell(_buffer.X + 1, ref spacer);
-            }
+            var spacer = BufferCell.Empty;
+            spacer.Attributes = _curAttr;
+            line?.SetCell(_buffer.X + 1, ref spacer);
         }
 
         // A lone regional indicator may turn out to be the first half of a flag. Remember where it went and
