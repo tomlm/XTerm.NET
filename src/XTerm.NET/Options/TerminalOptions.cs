@@ -152,6 +152,36 @@ public class TerminalOptions : ICloneable
     public bool KittyGraphicsEnabled { get; set; } = true;
 
     /// <summary>
+    /// Whether Kitty desktop notification requests (OSC 99) are honoured.
+    /// </summary>
+    /// <remarks>
+    /// Off by default, unlike the other Kitty gates: those draw inside the terminal surface,
+    /// whereas a notification hands pty-controlled text to an OS-level API on behalf of any
+    /// program that can write to the pty, including a remote host over ssh. A host that is
+    /// prepared to show notifications opts in. While off the terminal also refuses the p=?
+    /// capability query, so a well-behaved application stays quiet rather than notifying
+    /// into the void.
+    /// </remarks>
+    public bool KittyNotificationsEnabled { get; set; }
+    /// <summary>
+    /// Whether applications may write to the host clipboard using OSC 52 or Kitty OSC 5522.
+    /// </summary>
+    public bool ClipboardWriteEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Whether applications may read from the host clipboard using OSC 52 or Kitty OSC 5522.
+    /// </summary>
+    /// <remarks>
+    /// Disabled by default because terminal output can otherwise exfiltrate clipboard contents.
+    /// </remarks>
+    public bool ClipboardReadEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Maximum decoded clipboard bytes accepted in a Kitty OSC 5522 write.
+    /// </summary>
+    public int MaxClipboardBytes { get; set; } = 64 * 1024 * 1024;
+
+    /// <summary>
     /// Whether the Kitty keyboard protocol sequences (CSI u) are honoured.
     /// </summary>
     /// <remarks>
@@ -273,6 +303,10 @@ public class TerminalOptions : ICloneable
         RendererType = other.RendererType;
         SixelEnabled = other.SixelEnabled;
         KittyGraphicsEnabled = other.KittyGraphicsEnabled;
+        KittyNotificationsEnabled = other.KittyNotificationsEnabled;
+        ClipboardWriteEnabled = other.ClipboardWriteEnabled;
+        ClipboardReadEnabled = other.ClipboardReadEnabled;
+        MaxClipboardBytes = other.MaxClipboardBytes;
         KittyKeyboardEnabled = other.KittyKeyboardEnabled;
         MaxImageRegistryBytes = other.MaxImageRegistryBytes;
         CellWidthPixels = other.CellWidthPixels;

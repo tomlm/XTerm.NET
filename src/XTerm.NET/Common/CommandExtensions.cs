@@ -5,7 +5,22 @@ namespace XTerm.Common;
 /// </summary>
 public static class CsiCommandExtensions
 {
-    private static readonly Dictionary<string, CsiCommand> _commandMap = new()
+    /// <summary>
+    /// CSI identifier to command. The key is the WHOLE identifier the parser built -- every byte it
+    /// collected before the final character, private marker and intermediate alike -- so "?h" and
+    /// "h" are separate keys, and so are "$p" and "?$p".
+    /// </summary>
+    /// <remarks>
+    /// The lookup used to strip a leading '?' or '>' and match on what was left, which quietly made
+    /// every private sequence an alias for its non-private namesake whether or not that was the same
+    /// command. "CSI ? Pi ; Pa ; Pv S" (XTSMGRAPHICS) scrolled the screen, "CSI > 4 ; 2 m"
+    /// (XTMODKEYS) turned on underline, "CSI > 1 u" (the Kitty keyboard protocol) restored the
+    /// cursor, and "CSI ? 1049 r" (XTRESTORE) reset the scroll region. Matching the identifier
+    /// exactly means a private sequence is dispatched only where one is listed here; anything else
+    /// falls out as <see cref="CsiCommand.Unknown"/> and is ignored, which is what an unimplemented
+    /// sequence should do.
+    /// </remarks>
+    private static readonly Dictionary<string, CsiCommand> _commandMap = new(StringComparer.Ordinal)
     {
         { "@", CsiCommand.InsertChars },
         { "A", CsiCommand.CursorUp },
@@ -18,55 +33,62 @@ public static class CsiCommandExtensions
         { "H", CsiCommand.CursorPosition },
         { "I", CsiCommand.CursorForwardTab },
         { "J", CsiCommand.EraseInDisplay },
+        { "?J", CsiCommand.EraseInDisplay }, // DECSED - selective erase, same erase for us
         { "K", CsiCommand.EraseInLine },
+        { "?K", CsiCommand.EraseInLine }, // DECSEL - selective erase, same erase for us
         { "L", CsiCommand.InsertLines },
         { "M", CsiCommand.DeleteLines },
         { "P", CsiCommand.DeleteChars },
         { "S", CsiCommand.ScrollUp },
+        { "?S", CsiCommand.GraphicsAttributes }, // XTSMGRAPHICS - a query, NOT a scroll
         { "T", CsiCommand.ScrollDown },
         { "X", CsiCommand.EraseChars },
         { "Z", CsiCommand.CursorBackwardTab },
         { "b", CsiCommand.RepeatPrecedingCharacter },
-        { "c", CsiCommand.DeviceAttributes },
+        { "c", CsiCommand.DeviceAttributes },   // DA1 - primary
+        { ">c", CsiCommand.DeviceAttributes },  // DA2 - secondary
         { "d", CsiCommand.LinePositionAbsolute },
         { "f", CsiCommand.CursorPosition }, // HVP - same as CUP
         { "g", CsiCommand.TabClear },
         { "h", CsiCommand.SetMode },
+        { "?h", CsiCommand.SetMode },   // DECSET
         { "l", CsiCommand.ResetMode },
+        { "?l", CsiCommand.ResetMode }, // DECRST
         { "m", CsiCommand.SelectGraphicRendition },
         { "n", CsiCommand.DeviceStatusReport },
+        { "?n", CsiCommand.DeviceStatusReport }, // DEC DSR
         { "r", CsiCommand.SetScrollRegion },
         { "s", CsiCommand.SaveCursorAnsi },
         { "t", CsiCommand.WindowManipulation },
         { "u", CsiCommand.RestoreCursorAnsi },
+        { "=u", CsiCommand.KittyKeyboardSet },    // Kitty keyboard protocol - set flags
+        { "?u", CsiCommand.KittyKeyboardQuery },  // Kitty keyboard protocol - query flags
+        { ">u", CsiCommand.KittyKeyboardPush },   // Kitty keyboard protocol - push flags
+        { "<u", CsiCommand.KittyKeyboardPop },    // Kitty keyboard protocol - pop flags
         { " q", CsiCommand.SelectCursorStyle },
-        { "$p", CsiCommand.RequestMode },
-        { "q", CsiCommand.SelectCursorStyle },
-        { "=u", CsiCommand.KittyKeyboardSet },
-        { "?u", CsiCommand.KittyKeyboardQuery },
-        { ">u", CsiCommand.KittyKeyboardPush },
-        { "<u", CsiCommand.KittyKeyboardPop }
+        { "$p", CsiCommand.RequestMode },   // DECRQM - ANSI mode
+        { "?$p", CsiCommand.RequestMode },  // DECRQM - DEC private mode
+        // The bare final character is DECLL (Load LEDs, "CSI Ps q"), which we do not implement, so
+        // it is deliberately absent: mapping it to DECSCUSR meant "CSI 0 q" to clear the LEDs gave
+        // the user a blinking cursor. DECSCUSR carries the SP intermediate and is " q" above.
+        { ">q", CsiCommand.SelectCursorStyle }  // XTVERSION - told apart by its marker in the handler
     };
 
     /// <summary>
     /// Converts a CSI identifier string to a CsiCommand enum value.
     /// </summary>
-    /// <param name="identifier">The CSI identifier (final character, possibly with prefix)</param>
+    /// <param name="identifier">The CSI identifier (final character, with any collected prefix)</param>
     /// <returns>The corresponding CsiCommand enum value, or Unknown if not recognized</returns>
+    /// <remarks>
+    /// The match is exact: a private identifier is recognised only if it is listed in its private
+    /// form. It is never folded onto the non-private command that happens to share its final
+    /// character.
+    /// </remarks>
     public static CsiCommand ToCsiCommand(this string identifier)
     {
-        // An exact match wins before any prefix is stripped. This is what routes "?u" to the
-        // Kitty keyboard query rather than to Restore Cursor — which is where the stripping used
-        // to send it, so an application probing for Kitty support MOVED THE CURSOR instead of
-        // being answered.
-        if (_commandMap.TryGetValue(identifier, out var command))
-            return command;
-
-        // Handle DEC private mode sequences (e.g., "?h", "?l", ">c")
-        var cleaned = identifier.TrimStart('?', '>');
-        return _commandMap.GetValueOrDefault(cleaned, CsiCommand.Unknown);
+        return _commandMap.GetValueOrDefault(identifier, CsiCommand.Unknown);
     }
-    
+
     /// <summary>
     /// Checks if a CSI identifier represents a DEC private mode sequence.
     /// </summary>

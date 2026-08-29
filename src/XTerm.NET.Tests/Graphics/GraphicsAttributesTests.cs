@@ -5,11 +5,11 @@ namespace XTerm.Tests.Graphics;
 /// <summary>
 /// XTSMGRAPHICS -- "CSI ? Pi ; Pa ; Pv S" -- and the bug it used to trigger.
 ///
-/// <para>It shares its final character with SCROLL UP, and the CSI identifier has its private
-/// marker stripped before the command is looked up, so the query was routed to the scroll handler.
-/// Every Sixel-capable program sends one while working out what the terminal can do, which made
-/// "the screen jumps when I run img2sixel" the visible symptom of a capability query going
-/// unanswered.</para>
+/// <para>It shares its final character with SCROLL UP, and the CSI identifier used to have its
+/// private marker stripped before the command was looked up, so the query was routed to the scroll
+/// handler. Every Sixel-capable program sends one while working out what the terminal can do, which
+/// made "the screen jumps when I run img2sixel" the visible symptom of a capability query going
+/// unanswered. "?S" is now its own entry in the command table.</para>
 /// </summary>
 public class GraphicsAttributesTests
 {
