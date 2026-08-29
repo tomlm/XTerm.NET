@@ -264,6 +264,7 @@ public class InputHandler
     /// falls through to <see cref="TryAppendToPreviousCell"/>, whose own context checks remain
     /// the authority.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool RefusesSequenceCheaply(int codePoint)
     {
         // The caller already applied the candidate-hull bracket inline, so everything here is
