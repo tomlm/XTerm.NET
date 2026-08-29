@@ -1,5 +1,6 @@
 using NeoSmart.Unicode;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text;
 using Wcwidth;
 using XTerm.Buffer;
@@ -234,11 +235,14 @@ public class InputHandler
     /// only astral codepoints (emoji machinery, already handled by the checks' cheap heads) run
     /// the predicates directly.
     /// </summary>
-    private static bool MayContinueCluster(int codePoint)
-    {
-        if (codePoint < 0x10000)
-            return (MayJoinBmp[codePoint >> 3] & (1 << (codePoint & 7))) != 0;
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool MayContinueCluster(int codePoint) =>
+        (uint)codePoint < 0x10000
+            ? (MayJoinBmp[codePoint >> 3] & (1 << (codePoint & 7))) != 0
+            : MayContinueClusterAstral(codePoint);
 
+    private static bool MayContinueClusterAstral(int codePoint)
+    {
         // Astral: the sequence rules are BMP-only, and the joinable astral codepoints are the
         // Variation Selectors Supplement, the skin tones, and plane-1 script marks (musical,
         // SignWriting, Adlam...) — every one of which sits BELOW the emoji blocks. So emoji, the
