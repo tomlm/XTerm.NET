@@ -107,6 +107,15 @@ public class TerminalBuffer
         public AttributeData Attr { get; set; }
         public CharsetMode Charset { get; set; }
 
+        /// <summary>Origin mode travels with the cursor: DECRC restores the frame it was saved in.</summary>
+        public bool OriginMode { get; set; }
+
+        /// <summary>
+        /// Whether the saved position was the one-past-the-end spot a filled line leaves behind.
+        /// Without it, restoring onto a full line printed the next character over the last one.
+        /// </summary>
+        public bool PendingWrap { get; set; }
+
         public SavedCursor()
         {
             X = 0;
@@ -1192,6 +1201,13 @@ public class TerminalBuffer
     /// margins the flag is meaningless and harmlessly stale; only the boundary column reads it.
     /// </remarks>
     public bool PendingWrap { get; private set; }
+
+    /// <summary>
+    /// Restores the pending-wrap flag, for DECRC. Nothing else may set it: it is otherwise a
+    /// consequence of printing, and a caller inventing one would put the cursor in a state no
+    /// write produced.
+    /// </summary>
+    internal void SetPendingWrap(bool pending) => PendingWrap = pending;
 
     /// <summary>
     /// Moves the cursor to the line’s start as CR defines it: the LEFT MARGIN when the cursor is

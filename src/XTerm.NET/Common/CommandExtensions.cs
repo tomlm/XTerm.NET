@@ -30,6 +30,12 @@ public static class CsiCommandExtensions
         { "E", CsiCommand.CursorNextLine },
         { "F", CsiCommand.CursorPreviousLine },
         { "G", CsiCommand.CursorCharAbsolute },
+        // HPA and HPR are the ECMA-48 spellings of the same two motions CUP/CUF provide, and
+        // programs built against a terminfo that lists them (hpa is in xterm's) emitted them into
+        // silence. VPR likewise mirrors CUD.
+        { "`", CsiCommand.CursorCharAbsolute },   // HPA
+        { "a", CsiCommand.CursorForward },        // HPR
+        { "e", CsiCommand.CursorDown },           // VPR
         { "H", CsiCommand.CursorPosition },
         { "I", CsiCommand.CursorForwardTab },
         { "J", CsiCommand.EraseInDisplay },

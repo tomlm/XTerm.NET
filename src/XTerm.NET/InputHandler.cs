@@ -40,6 +40,9 @@ public class InputHandler
     private Dictionary<char, string>? _activeCharset;
     private CharsetMode _currentCharset;
 
+    /// <summary>What each G-slot pointed at when DECSC last ran. See <see cref="SaveCursor"/>.</summary>
+    private Dictionary<CharsetMode, Dictionary<char, string>?>? _savedCharsetDesignations;
+
     // Variation selector and combining character constants
     private const int VariationSelectorEmojiSymbol = 0xFE0F;  // Emoji presentation selector
     private const int VariationSelectorTextSymbol = 0xFE0E;   // Text presentation selector
@@ -431,7 +434,18 @@ public class InputHandler
         // hiding it inside ResolveAutowrap cost alt-redraw 9% in method-call overhead -- the same
         // lesson NoteLinkRun's guard learned. The method only runs when a wrap is actually due.
         if (_buffer.X > WrapLimit() && !ResolveAutowrap())
-            return; // Don't print beyond line edge
+        {
+            // Wrapping is off and the cursor is past the last column. DECAWM off does not mean
+            // "discard": the VT100, xterm and xterm.js all keep OVERWRITING the last column, so a
+            // program drawing a full-width status bar with wrapping disabled sees its final
+            // character land rather than vanish. Backing onto that column is what makes the write
+            // below overwrite it.
+            //
+            // Done here rather than inside ResolveAutowrap because that helper answers "was the
+            // wrap resolved", and the OSC 66 sized-block path depends on its false to move a whole
+            // block back by its own width instead of one column.
+            _buffer.SetCursorRaw(WrapLimit(), _buffer.Y);
+        }
 
         // Translate character through active charset
         var translatedData = data;
@@ -725,7 +739,12 @@ public class InputHandler
         // A multi-row block means cells that must be skipped rather than written, which a span write
         // cannot express -- so the run goes character by character, as it already does for insert
         // mode and for a designated charset.
-        if (!UseRunPrinting || _terminal.InsertMode || _activeCharset is not null || _buffer.HasMultiRowSizedRuns)
+        // Wraparound off joins the list of states the run path does not model: with DECAWM off a
+        // character past the last column OVERWRITES it rather than being discarded, and the run
+        // path can only stop. Rare enough to hand to Print rather than teach twice -- the default
+        // is on, so nothing in normal output takes this branch.
+        if (!UseRunPrinting || _terminal.InsertMode || _activeCharset is not null
+            || _buffer.HasMultiRowSizedRuns || !_terminal.Options.Wraparound)
         {
             foreach (var b in data)
                 Print(CodePointText.Get((char)b));
@@ -803,7 +822,12 @@ public class InputHandler
     internal void PrintAsciiRun(string data, int start, int count)
     {
         // As above: a buffer holding a multi-row block takes the per-character path.
-        if (!UseRunPrinting || _terminal.InsertMode || _activeCharset is not null || _buffer.HasMultiRowSizedRuns)
+        // Wraparound off joins the list of states the run path does not model: with DECAWM off a
+        // character past the last column OVERWRITES it rather than being discarded, and the run
+        // path can only stop. Rare enough to hand to Print rather than teach twice -- the default
+        // is on, so nothing in normal output takes this branch.
+        if (!UseRunPrinting || _terminal.InsertMode || _activeCharset is not null
+            || _buffer.HasMultiRowSizedRuns || !_terminal.Options.Wraparound)
         {
             for (var k = 0; k < count; k++)
                 Print(CodePointText.Get(data[start + k]));
@@ -1300,6 +1324,9 @@ public class InputHandler
                 break;
             case "M": // RI - Reverse Index
                 ReverseIndex();
+                break;
+            case "H": // HTS - set a tab stop at the cursor column
+                _terminal.SetTabStop(_buffer.X);
                 break;
             case "c": // RIS - Reset to Initial State
                 ResetTerminal();
@@ -4427,14 +4454,24 @@ public class InputHandler
     private void CursorUp(Params parameters)
     {
         var count = Math.Max(parameters.GetParam(0, 1), 1);
-        _buffer.SetCursor(_buffer.X, Math.Max(_buffer.Y - count, 0));
+        // The row mirror of CursorForward's rule, which this had all along and this did not: a
+        // cursor that starts inside the scrolling region stops at its margin, one that starts
+        // outside stops at the screen edge. Without it, CSI 10 A from inside a region walked out
+        // of the pane and a full-screen editor's status line scrolled with the text.
+        _buffer.SetCursor(_buffer.X, Math.Max(_buffer.Y - count, TopLimit()));
     }
 
     private void CursorDown(Params parameters)
     {
         var count = Math.Max(parameters.GetParam(0, 1), 1);
-        _buffer.SetCursor(_buffer.X, Math.Min(_buffer.Y + count, _terminal.Rows - 1));
+        _buffer.SetCursor(_buffer.X, Math.Min(_buffer.Y + count, BottomLimit()));
     }
+
+    /// <summary>The row a cursor moving UP stops at: the region's top when it starts inside.</summary>
+    private int TopLimit() => InsideScrollRegion() ? _buffer.ScrollTop : 0;
+
+    /// <summary>The row a cursor moving DOWN stops at: the region's bottom when it starts inside.</summary>
+    private int BottomLimit() => InsideScrollRegion() ? _buffer.ScrollBottom : _terminal.Rows - 1;
 
     private void CursorForward(Params parameters)
     {
@@ -4452,7 +4489,13 @@ public class InputHandler
         var count = Math.Max(parameters.GetParam(0, 1), 1);
         // The mirror of CursorForward: the left margin stops a cursor that starts inside.
         var home = CursorInMarginColumns() ? _buffer.ScrollLeft : 0;
-        _buffer.SetCursor(Math.Max(_buffer.X - count, home), _buffer.Y);
+
+        // Printing to the end of a line leaves X one PAST the last column with PendingWrap set --
+        // a position no character occupies. Counting back from there put the cursor one column
+        // right of where every other terminal puts it, so a shell redrawing its line overwrote
+        // the wrong character.
+        var from = _buffer.PendingWrap ? _buffer.X - 1 : _buffer.X;
+        _buffer.SetCursor(Math.Max(from - count, home), _buffer.Y);
     }
 
     private void CursorNextLine(Params parameters)
@@ -4461,7 +4504,7 @@ public class InputHandler
         // cursor is at or right of it, column 0 when it is left of it — origin mode is not
         // consulted. The row move cannot change X, so the CR sees the starting column.
         var count = Math.Max(parameters.GetParam(0, 1), 1);
-        _buffer.SetCursor(_buffer.X, Math.Min(_buffer.Y + count, _terminal.Rows - 1));
+        _buffer.SetCursor(_buffer.X, Math.Min(_buffer.Y + count, BottomLimit()));
         _buffer.CarriageReturn();
     }
 
@@ -4469,7 +4512,7 @@ public class InputHandler
     {
         // CPL is CUU then CR, mirroring CursorNextLine.
         var count = Math.Max(parameters.GetParam(0, 1), 1);
-        _buffer.SetCursor(_buffer.X, Math.Max(_buffer.Y - count, 0));
+        _buffer.SetCursor(_buffer.X, Math.Max(_buffer.Y - count, TopLimit()));
         _buffer.CarriageReturn();
     }
 
@@ -4712,6 +4755,11 @@ public class InputHandler
         if (!InsideScrollRegion())
             return;
 
+        // Both move the cursor to the left margin, which every reference terminal does and none
+        // of the paths below did: an editor inserting a line then writing to it started from
+        // wherever the cursor happened to sit.
+        _buffer.SetCursor(CursorInMarginColumns() ? _buffer.ScrollLeft : 0, _buffer.Y);
+
         // Narrowed margins move only their own columns, so the lines stay put and their cells are
         // copied between them. Splicing whole lines here would drag the columns OUTSIDE the region
         // along with them, which is the side-by-side layout tearing itself apart. That path erases
@@ -4747,6 +4795,11 @@ public class InputHandler
         if (!InsideScrollRegion())
             return;
 
+        // Both move the cursor to the left margin, which every reference terminal does and none
+        // of the paths below did: an editor inserting a line then writing to it started from
+        // wherever the cursor happened to sit.
+        _buffer.SetCursor(CursorInMarginColumns() ? _buffer.ScrollLeft : 0, _buffer.Y);
+
         if (!_buffer.MarginsAreFullWidth)
         {
             _buffer.ScrollMarginColumns(_buffer.Y, _buffer.ScrollBottom, count, up: true, BlankCell());
@@ -4770,8 +4823,24 @@ public class InputHandler
         _buffer.RefreshMultiRowSizedRuns();
     }
 
+    /// <summary>
+    /// Brings a cursor resting one past the last column back onto it, for the editing operations.
+    /// </summary>
+    /// <remarks>
+    /// Printing to the end of a line leaves the cursor at ScrollRight + 1 with PendingWrap set --
+    /// a position no character occupies. ICH, DCH and ECH tested that phantom column against
+    /// their right-margin guard and returned without doing anything, so an editor that filled a
+    /// line and then inserted a character saw nothing happen. xterm acts on the last column.
+    /// </remarks>
+    private void SettleForEditing()
+    {
+        if (_buffer.PendingWrap)
+            _buffer.SetCursorRaw(Math.Max(_buffer.X - 1, 0), _buffer.Y);
+    }
+
     private void InsertChars(Params parameters)
     {
+        SettleForEditing();
         var count = Math.Max(parameters.GetParam(0, 1), 1);
         var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
         if (line == null)
@@ -4800,6 +4869,7 @@ public class InputHandler
 
     private void DeleteChars(Params parameters)
     {
+        SettleForEditing();
         var count = Math.Max(parameters.GetParam(0, 1), 1);
         var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
         if (line == null)
@@ -4827,6 +4897,7 @@ public class InputHandler
 
     private void EraseChars(Params parameters)
     {
+        SettleForEditing();
         var count = Math.Max(parameters.GetParam(0, 1), 1);
         var line = _buffer.Lines[_buffer.Y + _buffer.YBase];
 
@@ -4881,13 +4952,9 @@ public class InputHandler
     {
         // CHT - Cursor Forward Tabulation (CSI I)
         var count = Math.Max(parameters.GetParam(0, 1), 1);
-        var tabWidth = _terminal.Options.TabStopWidth;
 
-        for (int i = 0; i < count; i++)
-        {
-            var nextTabStop = ((_buffer.X / tabWidth) + 1) * tabWidth;
-            _buffer.SetCursor(Math.Min(nextTabStop, _terminal.Cols - 1), _buffer.Y);
-        }
+        for (var i = 0; i < count; i++)
+            _buffer.SetCursor(_terminal.NextTabStop(_buffer.X), _buffer.Y);
     }
 
     private void CursorBackwardTab(Params parameters)
@@ -5427,8 +5494,14 @@ public class InputHandler
 
     private void SetScrollRegion(Params parameters)
     {
-        var top = Math.Max(parameters.GetParam(0, 1), 1) - 1;
-        var bottom = Math.Max(parameters.GetParam(1, _terminal.Rows), 1) - 1;
+        // An explicit 0 means the default, exactly as a missing parameter does -- GetParam only
+        // substitutes for ABSENT values, and the parser seeds parameters with 0, so both CSI 0;0r
+        // and the bare CSI ;r arrived as zeros and clamped the region to a single row. A shell
+        // resetting its scroll region with CSI 0;0r ended up with a one-row screen.
+        var topParam = parameters.GetParam(0, 1);
+        var bottomParam = parameters.GetParam(1, _terminal.Rows);
+        var top = Math.Max(topParam <= 0 ? 1 : topParam, 1) - 1;
+        var bottom = Math.Max(bottomParam <= 0 ? _terminal.Rows : bottomParam, 1) - 1;
         _buffer.SetScrollRegion(top, bottom);
         MoveCursorToHome();
     }
@@ -6437,17 +6510,45 @@ public class InputHandler
         _terminal.SetCursorStyle(style, blink);
     }
 
+    /// <summary>
+    /// DECSC. The cursor's whole context, not just where it is: the charset a program selected,
+    /// origin mode, and the pending-wrap flag travel with the position because DECRC is supposed
+    /// to put the terminal back the way it was.
+    /// </summary>
+    /// <remarks>
+    /// SavedCursor.Charset had existed unassigned, which is the tell. A program doing
+    /// ESC ( 0, DECSC, ESC ( B, DECRC expects line-drawing back and got ASCII, so a TUI that saves
+    /// the cursor mid-border finished the box in letters.
+    /// </remarks>
     private void SaveCursor()
     {
         _buffer.SavedCursorState.X = _buffer.X;
         _buffer.SavedCursorState.Y = _buffer.Y;
         _buffer.SavedCursorState.Attr = _curAttr;
+        _buffer.SavedCursorState.Charset = _currentCharset;
+        // The DESIGNATIONS as well as which G-set is active. ESC ( 0 changes what G0 means, not
+        // which set is selected, so saving _currentCharset alone restored a pointer to a table
+        // the program had since replaced: a TUI that saved the cursor mid-border finished the box
+        // in letters.
+        _savedCharsetDesignations = new Dictionary<CharsetMode, Dictionary<char, string>?>(_charsets);
+        _buffer.SavedCursorState.OriginMode = _terminal.OriginMode;
+        _buffer.SavedCursorState.PendingWrap = _buffer.PendingWrap;
     }
 
     private void RestoreCursor()
     {
         _buffer.SetCursor(_buffer.SavedCursorState.X, _buffer.SavedCursorState.Y);
         _curAttr = _buffer.SavedCursorState.Attr;
+        if (_savedCharsetDesignations is not null)
+        {
+            foreach (var (slot, table) in _savedCharsetDesignations)
+                _charsets[slot] = table;
+        }
+
+        _currentCharset = _buffer.SavedCursorState.Charset;
+        RefreshActiveCharset();
+        _terminal.OriginMode = _buffer.SavedCursorState.OriginMode;
+        _buffer.SetPendingWrap(_buffer.SavedCursorState.PendingWrap);
     }
 
     // Utility Methods

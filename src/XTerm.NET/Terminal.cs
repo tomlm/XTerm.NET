@@ -442,6 +442,7 @@ public class Terminal
         Options = options ?? new TerminalOptions();
         Cols = Options.Cols;
         Rows = Options.Rows;
+        ResetTabStops();
         Title = string.Empty;
         Colors = new ColorPalette(Options.Theme);
 
@@ -600,6 +601,68 @@ public class Terminal
     }
 
     /// <summary>
+    /// The columns a tab lands on. Real stops rather than arithmetic, because HTS (ESC H) and TBC
+    /// (CSI g) exist to change them: `tabs 4` writes its stops with HTS, and a terminal deriving
+    /// them from a width could only ever ignore it. TBC used to acknowledge the request and do
+    /// nothing, which its own comment admitted.
+    /// </summary>
+    private readonly HashSet<int> _tabStops = [];
+
+    /// <summary>Puts the stops back to every <see cref="TerminalOptions.TabStopWidth"/> columns.</summary>
+    internal void ResetTabStops()
+    {
+        _tabStops.Clear();
+        var width = Math.Max(Options.TabStopWidth, 1);
+        for (var column = width; column < Cols; column += width)
+            _tabStops.Add(column);
+    }
+
+    /// <summary>Sets a stop at <paramref name="column"/>. HTS.</summary>
+    internal void SetTabStop(int column)
+    {
+        if (column > 0 && column < Cols)
+            _tabStops.Add(column);
+    }
+
+    /// <summary>Clears the stop at <paramref name="column"/>, or every stop. TBC.</summary>
+    internal void ClearTabStop(int column, bool all)
+    {
+        if (all)
+            _tabStops.Clear();
+        else
+            _tabStops.Remove(column);
+    }
+
+    /// <summary>The column a tab from <paramref name="from"/> lands on: the next stop, else the edge.</summary>
+    internal int NextTabStop(int from)
+    {
+        if (_tabStops.Count == 0)
+            return Cols - 1;
+
+        var next = Cols - 1;
+        foreach (var stop in _tabStops)
+        {
+            if (stop > from && stop < next)
+                next = stop;
+        }
+
+        return next;
+    }
+
+    /// <summary>The column a backward tab from <paramref name="from"/> lands on.</summary>
+    internal int PreviousTabStop(int from)
+    {
+        var previous = 0;
+        foreach (var stop in _tabStops)
+        {
+            if (stop < from && stop > previous)
+                previous = stop;
+        }
+
+        return previous;
+    }
+
+    /// <summary>
     /// Resizes the terminal.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">
@@ -626,6 +689,10 @@ public class Terminal
 
         Cols = cols;
         Rows = rows;
+
+        // A wider screen gains the stops it did not have room for; a program's custom stops do
+        // not survive a resize, which is what xterm does too.
+        ResetTabStops();
 
         // Resize buffers
         _normalBuffer?.Resize(cols, rows);
@@ -693,6 +760,10 @@ public class Terminal
     /// </summary>
     public void Reset()
     {
+        // RIS puts the tab stops back to their defaults along with everything else; a program's
+        // custom stops are part of the state being reset.
+        ResetTabStops();
+
         var shapeBefore = PointerShape;
 
         // Reset to normal buffer
@@ -1421,10 +1492,9 @@ public class Terminal
                 break;
 
             case 0x09: // HT - Tab
-                {
-                    var nextTabStop = ((_buffer.X + 8) / 8) * 8;
-                    _buffer.SetCursor(Math.Min(nextTabStop, Cols - 1), _buffer.Y);
-                }
+                // Was hardcoded to 8 while CHT and CBT honoured Options.TabStopWidth, so the two
+                // tab motions disagreed on the same screen. Both go through the stop set now.
+                _buffer.SetCursor(NextTabStop(_buffer.X), _buffer.Y);
                 break;
 
             case 0x0A: // LF - Line Feed
