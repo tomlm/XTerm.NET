@@ -172,8 +172,31 @@ public class InputHandler
     /// TryAppendToPreviousCell, which can see the previous cell and refuses mismatches, sending
     /// the character back to an ordinary cell of its own.
     /// </summary>
-    private static bool IsSequenceJoinCandidate(int codePoint) =>
-        HangulClassOf(codePoint) != 0 || IsConjunctConsonantCandidate(codePoint);
+    private static bool IsSequenceJoinCandidate(int codePoint)
+    {
+        // Ordered BANDS, cheapest rejection first, because this runs once per printed character
+        // on the non-ASCII path and the bench charged the naive pair of class tests 5% on the
+        // unicode corpus: CJK text — the bulk of that corpus — paid every Hangul range and the
+        // Indic bracket to learn it was neither. The bands send Latin through one compare and
+        // CJK through four.
+        if (codePoint < 0x0900)
+            return false;                                        // Latin through Hebrew and Arabic
+        if (codePoint <= 0x0D7F)
+            return IsConjunctConsonantCandidate(codePoint);      // the eight linker scripts
+        if (codePoint < 0x1100)
+            return false;                                        // Sinhala through Tibetan
+        if (codePoint <= 0x11FF)
+            return true;                                         // jamo L, V, T
+        if (codePoint < 0xA960)
+            return false;                                        // CJK exits here
+        if (codePoint <= 0xA97C)
+            return true;                                         // jamo extended-A
+        if (codePoint < 0xAC00)
+            return false;
+        if (codePoint <= 0xD7A3)
+            return true;                                         // precomposed syllables
+        return codePoint is >= 0xD7B0 and <= 0xD7C6 or >= 0xD7CB and <= 0xD7FB;
+    }
 
     /// <summary>The Fitzpatrick skin tone modifiers, U+1F3FB to U+1F3FF.</summary>
     private static bool IsSkinToneModifier(int codePoint)
