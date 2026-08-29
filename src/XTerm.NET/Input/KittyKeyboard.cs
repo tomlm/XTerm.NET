@@ -398,7 +398,8 @@ public static class KittyKeyboard
     /// <returns>
     /// The bytes to send, or null when the event is suppressed or has a mode-dependent legacy
     /// encoding. <see cref="Terminal.GenerateKittyKeyInput"/> performs that legacy hand-off;
-    /// direct callers must do the same when <see cref="TryGetLegacyKey"/> succeeds.
+    /// a caller using this method on its own must do the same, asking
+    /// <see cref="TryGetLegacyKey"/> which of the two a null means.
     /// </returns>
     public static string? Evaluate(
         KeyEvent ev,
@@ -493,8 +494,21 @@ public static class KittyKeyboard
         return null;
     }
 
-    /// <summary>Maps the functional keys whose bytes come from the legacy terminal modes.</summary>
-    internal static bool TryGetLegacyKey(KeyEvent ev, out Key key)
+    /// <summary>
+    /// Maps the functional keys whose bytes come from the legacy terminal modes.
+    /// </summary>
+    /// <remarks>
+    /// Public because it is half of <see cref="Evaluate"/>'s contract, not an implementation
+    /// detail: a null from <see cref="Evaluate"/> means either "send nothing" or "this key is
+    /// encoded by the legacy modes", and this predicate is the only way to tell the two apart.
+    /// Hosts driving a <see cref="Terminal"/> do not need it -- <see
+    /// cref="Terminal.GenerateKittyKeyInput"/> makes the hand-off for them -- but a caller using
+    /// <see cref="Evaluate"/> on its own cannot implement the protocol without it.
+    /// </remarks>
+    /// <param name="ev">The keyboard event to classify.</param>
+    /// <param name="key">The legacy key to encode, when this returns true.</param>
+    /// <returns>True when the event must be encoded by the legacy keyboard generator.</returns>
+    public static bool TryGetLegacyKey(KeyEvent ev, out Key key)
     {
         if (ev.Key == "Escape")
         {

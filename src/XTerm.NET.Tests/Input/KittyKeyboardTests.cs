@@ -486,6 +486,37 @@ public class KittyKeyboardTests
         Assert.Equal($"\u001b[{codepoint}u", KittyKeyboard.Evaluate(Ev(key), Text));
     }
 
+    /// <summary>
+    /// A null from <see cref="KittyKeyboard.Evaluate"/> means one of two opposite things -- send
+    /// nothing, or encode this key the legacy way -- and a caller outside this assembly has to be
+    /// able to tell them apart. That makes the predicate public API, so it is pinned here: were it
+    /// to go back to internal, this suite would still compile (InternalsVisibleTo) and the break
+    /// would surface only in someone else's build.
+    /// </summary>
+    [Fact]
+    public void The_legacy_predicate_is_reachable_from_outside_the_assembly()
+    {
+        var method = typeof(KittyKeyboard).GetMethod(nameof(KittyKeyboard.TryGetLegacyKey));
+        Assert.NotNull(method);
+        Assert.True(method!.IsPublic, "Evaluate's contract cannot be implemented without it");
+    }
+
+    /// <summary>
+    /// The two halves of that contract partition the functional keys with no gap and no overlap:
+    /// Evaluate answers for exactly the keys the predicate disclaims.
+    /// </summary>
+    [Theory]
+    [InlineData("Escape", true)]
+    [InlineData("F13", true)]
+    [InlineData("F20", true)]
+    [InlineData("F21", false)]
+    [InlineData("MediaPlayPause", false)]
+    public void Evaluate_returns_null_exactly_for_the_keys_the_predicate_claims(string key, bool legacy)
+    {
+        Assert.Equal(legacy, KittyKeyboard.TryGetLegacyKey(Ev(key), out _));
+        Assert.Equal(legacy, KittyKeyboard.Evaluate(Ev(key), Alternates) is null);
+    }
+
     // ----- Releases without ReportEventTypes -----------------------------------------------
 
     [Fact]
