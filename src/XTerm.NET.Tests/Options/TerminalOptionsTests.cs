@@ -347,7 +347,21 @@ public class TerminalOptionsTests
                 var type when type.IsEnum => Enum.GetValues(type).Cast<object>()
                     .First(value => !Equals(value, current)),
                 var type when type == typeof(Func<KeyEvent, bool>) => (Func<KeyEvent, bool>)(_ => true),
-                _ => current
+
+                // The nested option objects are varied by the recursion below, not here: replacing
+                // the reference would defeat the NotSame checks the caller makes on them.
+                var type when type == typeof(WindowOptions) || type == typeof(ThemeOptions) => current,
+
+                // Anything else stops the test rather than passing it. A type this cannot vary gets
+                // set to the value it already had, so the clone would be compared default against
+                // default and agree whether or not the copy constructor ever touched it -- the
+                // guard reporting success at exactly the moment it stopped guarding. The property
+                // most likely to be forgotten is the one added next, which is also when a new type
+                // is most likely to appear, so the two failures would arrive together and cancel.
+                _ => throw new NotSupportedException(
+                    $"{target.GetType().Name}.{property.Name} is a {property.PropertyType.Name}; "
+                    + "teach SetDistinctValues how to vary it, or this guard silently stops "
+                    + "checking that property.")
             };
 
             property.SetValue(target, value);
