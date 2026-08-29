@@ -156,57 +156,56 @@ public class InputHandler
     };
 
     /// <summary>
-    /// The conjunct linkers of UAX #29's GB9c — Unicode's InCB=Linker set, the eight viramas of
-    /// the scripts whose conjuncts must not break: Devanagari through Malayalam.
+    /// The conjunct linkers: Indic Syllabic Category Virama plus Invisible Stacker — the 41
+    /// codepoints that fuse a following consonant into their cluster. This is wcwidth 0.8's
+    /// exact set, a superset of UAX #29's InCB Linker eight: the InCB property stops at the
+    /// scripts whose conjuncts UAX #29 refuses to break, but Khmer's coeng, Tai Tham's sakot,
+    /// Javanese's pangkon, Myanmar's stacker and the SMP Brahmic scripts stack consonants the
+    /// same way, and terminals are measured on all of them.
     /// </summary>
-    private static bool IsConjunctLinker(int codePoint) =>
-        codePoint is 0x094D or 0x09CD or 0x0A4D or 0x0ACD or 0x0B4D or 0x0C4D or 0x0CCD or 0x0D4D;
+    private static bool IsConjunctLinker(int codePoint) => codePoint is
+        0x094D or 0x09CD or 0x0A4D or 0x0ACD or 0x0B4D or 0x0BCD or 0x0C4D or 0x0CCD
+        or 0x0D4D or 0x0DCA or 0x1039 or 0x17D2 or 0x1A60 or 0x1B44 or 0x1BAB or 0xA806
+        or 0xA8C4 or 0xA9C0 or 0xAAF6 or 0x10A3F or 0x11046 or 0x110B9 or 0x11133 or 0x111C0
+        or 0x11235 or 0x1134D or 0x113D0 or 0x11442 or 0x114C2 or 0x115BF or 0x1163F or 0x116B6
+        or 0x11839 or 0x1193E or 0x119E0 or 0x11A47 or 0x11A99 or 0x11C3F or 0x11D45 or 0x11D97
+        or 0x11F42;
 
     /// <summary>
-    /// A letter that can be the consonant on GB9c's right-hand side: an Lo in the blocks the
-    /// linker set serves. An approximation of InCB=Consonant — exactness needs the property
-    /// data — that over-accepts only sequences (virama then independent vowel) which are
-    /// malformed in the scripts themselves.
+    /// A letter that can be a conjunct's right-hand side: an Lo in a block whose script has a
+    /// linker. The blocks are exactly the homes of the 41 linkers above. An approximation of
+    /// per-script consonant data that over-accepts only sequences (linker then independent
+    /// vowel) which are malformed in the scripts themselves.
     /// </summary>
     private static bool IsConjunctConsonantCandidate(int codePoint) =>
-        codePoint >= 0x0900 && codePoint <= 0x0D7F
+        IsConjunctScriptBlock(codePoint)
         && System.Globalization.CharUnicodeInfo.GetUnicodeCategory(codePoint)
             == System.Globalization.UnicodeCategory.OtherLetter;
 
+    /// <summary>The blocks housing the linker scripts, BMP and SMP.</summary>
+    private static bool IsConjunctScriptBlock(int codePoint) => codePoint switch
+    {
+        >= 0x0900 and <= 0x0DFF => true,     // Devanagari through Sinhala
+        >= 0x1000 and <= 0x109F => true,     // Myanmar
+        >= 0x1780 and <= 0x17FF => true,     // Khmer
+        >= 0x1A20 and <= 0x1AAF => true,     // Tai Tham
+        >= 0x1B00 and <= 0x1BBF => true,     // Balinese, Sundanese
+        >= 0xA800 and <= 0xA82F => true,     // Syloti Nagri
+        >= 0xA880 and <= 0xA8DF => true,     // Saurashtra
+        >= 0xA980 and <= 0xA9DF => true,     // Javanese
+        >= 0xAA60 and <= 0xAA7F => true,     // Myanmar Extended-A
+        >= 0xAAE0 and <= 0xABFF => true,     // Meetei Mayek
+        >= 0x10A00 and <= 0x11FFF => true,   // the SMP Brahmic scripts, Kharoshthi through Kawi
+        _ => false,
+    };
+
     /// <summary>
     /// Whether this codepoint might continue the previous cell's cluster under the SEQUENCE
-    /// rules — the ones a per-codepoint category cannot express. Cheap by design: two range
-    /// tests on the current codepoint; the contextual half of the decision lives in
-    /// TryAppendToPreviousCell, which can see the previous cell and refuses mismatches, sending
-    /// the character back to an ordinary cell of its own.
+    /// rules. Runs at BITMAP BUILD TIME only — MayContinueCluster answers the BMP from the
+    /// table and the astral arm never calls this — so it is written for correctness, not speed.
     /// </summary>
-    private static bool IsSequenceJoinCandidate(int codePoint)
-    {
-        // Ordered BANDS, cheapest rejection first, because this runs once per printed character
-        // on the non-ASCII path and the bench charged the naive pair of class tests 5% on the
-        // unicode corpus: CJK text — the bulk of that corpus — paid every Hangul range and the
-        // Indic bracket to learn it was neither. The bands send Latin through one compare and
-        // CJK through four.
-        // One unsigned bracket ejects BOTH ends — Latin below, CJK-adjacent astral emoji above.
-        // Every candidate lives in [U+0900, U+D7FB]; emoji walked the whole ladder without this.
-        if ((uint)(codePoint - 0x0900) > 0xD7FB - 0x0900)
-            return false;
-        if (codePoint <= 0x0D7F)
-            return IsConjunctConsonantCandidate(codePoint);      // the eight linker scripts
-        if (codePoint < 0x1100)
-            return false;                                        // Sinhala through Tibetan
-        if (codePoint <= 0x11FF)
-            return true;                                         // jamo L, V, T
-        if (codePoint < 0xA960)
-            return false;                                        // CJK exits here
-        if (codePoint <= 0xA97C)
-            return true;                                         // jamo extended-A
-        if (codePoint < 0xAC00)
-            return false;
-        if (codePoint <= 0xD7A3)
-            return true;                                         // precomposed syllables
-        return codePoint is >= 0xD7B0 and <= 0xD7C6 or >= 0xD7CB and <= 0xD7FB;
-    }
+    private static bool IsSequenceJoinCandidate(int codePoint) =>
+        HangulClassOf(codePoint) != 0 || IsConjunctConsonantCandidate(codePoint);
 
     /// <summary>
     /// One bit per BMP codepoint: might it join the previous cell's cluster — the category rules
@@ -252,6 +251,12 @@ public class InputHandler
             return true;
         if (codePoint >= 0xE0020 && codePoint <= 0xE007F)
             return true;   // TAG characters: they spell out an emoji tag sequence (🏴 gbsct...)
+        if (codePoint >= 0x10A00 && codePoint <= 0x11FFF)
+        {
+            // SMP Brahmic scripts: their marks join like any mark, and their consonants are
+            // conjunct candidates whose context TryAppendToPreviousCell vets.
+            return IsCombiningCharacter(codePoint) || IsConjunctConsonantCandidate(codePoint);
+        }
         if (IsSkinToneModifier(codePoint))
             return true;
         if (codePoint >= 0x1F000)
@@ -943,7 +948,8 @@ public class InputHandler
         // ordinary combining marks — most of what ever joins — skip both class tests in one
         // compare, which the profiler charged this method 3.6 points of the unicode corpus for.
         var conjunctConsonantJoined = false;
-        if ((uint)(codePoint - 0x0900) <= 0xD7FB - 0x0900 && codePoint != ZeroWidthJoiner)
+        if (((uint)(codePoint - 0x0900) <= 0xD7FB - 0x0900 || codePoint >= 0x10A00 && codePoint <= 0x11FFF)
+            && codePoint != ZeroWidthJoiner)
         {
             var hangulClass = HangulClassOf(codePoint);
             if (hangulClass != 0)
@@ -980,8 +986,11 @@ public class InputHandler
             contribution = -1;
         else if (conjunctConsonantJoined)
             contribution = 1;
-        else if (codePoint >= 0x0903 && CharUnicodeInfo.GetUnicodeCategory(codePoint)
+        else if (codePoint >= 0x0903 && !IsConjunctLinker(codePoint)
+                 && CharUnicodeInfo.GetUnicodeCategory(codePoint)
                  == UnicodeCategory.SpacingCombiningMark)
+            // A linker is checked FIRST: Javanese pangkon and Grantha virama are category Mc,
+            // but they are killers, not vowels -- a dead consonant stays one column.
             contribution = 1;
         int newWidth = Math.Clamp(prevCell.Width + contribution, 1, 2);
 
@@ -6459,7 +6468,8 @@ public class InputHandler
                     width--;
                     lastWidth = 1;
                 }
-                else if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(rune.Value)
+                else if (!IsConjunctLinker(rune.Value)
+                         && System.Globalization.CharUnicodeInfo.GetUnicodeCategory(rune.Value)
                          == System.Globalization.UnicodeCategory.SpacingCombiningMark)
                 {
                     // SPACING combining marks -- Indic matras -- occupy a column of their own:
