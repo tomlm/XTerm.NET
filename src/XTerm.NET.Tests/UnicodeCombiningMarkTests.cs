@@ -6,13 +6,17 @@ namespace XTerm.Tests;
 public class UnicodeCombiningMarkTests
 {
     [Theory]
-    [InlineData("\u0628\u064E", "Arabic non-spacing mark")]
-    [InlineData("\u05E9\u05B8", "Hebrew non-spacing mark")]
-    [InlineData("\u0915\u093E", "Devanagari spacing combining mark")]
-    [InlineData("\u0E01\u0E48", "Thai non-spacing mark")]
-    [InlineData("\U0001E922\U0001E944", "astral Adlam non-spacing mark")]
-    public void A_mark_stays_with_its_base_character(string cluster, string _)
+    [InlineData("\u0628\u064E", 1, "Arabic non-spacing mark")]
+    [InlineData("\u05E9\u05B8", 1, "Hebrew non-spacing mark")]
+    [InlineData("\u0915\u093E", 2, "Devanagari spacing combining mark: a matra takes its column")]
+    [InlineData("\u0E01\u0E48", 1, "Thai non-spacing mark")]
+    [InlineData("\U0001E922\U0001E944", 1, "astral Adlam non-spacing mark")]
+    public void A_mark_stays_with_its_base_character(string cluster, int width, string _)
     {
+        // One cell either way; the WIDTH depends on the mark's kind. Non-spacing marks add no
+        // column. SPACING combining marks add one, as wcwidth has always said -- every
+        // wcwidth-consuming application lays out on that arithmetic, so the cluster's cell
+        // widens rather than the cursor standing still.
         var terminal = new Terminal(new TerminalOptions { Cols = 10, Rows = 2 });
 
         terminal.Write(cluster + "X");
@@ -20,8 +24,9 @@ public class UnicodeCombiningMarkTests
         var line = terminal.Buffer.Lines[0];
         Assert.NotNull(line);
         Assert.Equal(cluster, line[0].Content);
-        Assert.Equal("X", line[1].Content);
-        Assert.Equal(2, terminal.Buffer.X);
+        Assert.Equal(width, line[0].Width);
+        Assert.Equal("X", line[width].Content);
+        Assert.Equal(width + 1, terminal.Buffer.X);
     }
 
     // ---- the sequence rules: GB6-GB8 and GB9c, which no per-codepoint category can express ----
@@ -92,10 +97,13 @@ public class UnicodeCombiningMarkTests
 
         terminal.Write("\u0915\u094D\u0937X");
 
+        // One cluster, one cell -- TWO columns, because wcwidth arithmetic for the sequence is
+        // 1+0+1 and legacy applications lay out on exactly that sum.
         var line = terminal.Buffer.Lines[0]!;
         Assert.Equal("\u0915\u094D\u0937", line[0].Content);
-        Assert.Equal("X", line[1].Content);
-        Assert.Equal(2, terminal.Buffer.X);
+        Assert.Equal(2, line[0].Width);
+        Assert.Equal("X", line[2].Content);
+        Assert.Equal(3, terminal.Buffer.X);
     }
 
     [Fact]
@@ -108,7 +116,10 @@ public class UnicodeCombiningMarkTests
 
         var line = terminal.Buffer.Lines[0]!;
         Assert.Equal("\u0915\u094D\u200D\u0937", line[0].Content);
-        Assert.Equal("X", line[1].Content);
+        // Two columns like the implicit form: the ZWJ requests the conjunct GLYPH, not a
+        // different width -- wcwidth arithmetic gives every letter its column either way.
+        Assert.Equal(2, line[0].Width);
+        Assert.Equal("X", line[2].Content);
     }
 
     [Fact]

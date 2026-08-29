@@ -964,20 +964,13 @@ public class InputHandler
         // Append the combining character to the previous cell's content
         var newContent = prevCell.Content + data;
 
-        // Determine if we need to adjust the width
-        int newWidth = prevCell.Width;
-
-        // Handle variation selectors that change presentation
-        if (codePoint == VariationSelectorEmojiSymbol && prevCell.Width == 1)
-        {
-            // Emoji presentation selector: character becomes width 2
-            newWidth = 2;
-        }
-        else if (codePoint == VariationSelectorTextSymbol && prevCell.Width == 2)
-        {
-            // Text presentation selector: character becomes width 1
-            newWidth = 1;
-        }
+        // The width loop is the ONE authority on what a cluster occupies -- it already speaks
+        // VS15/VS16, skin tones, ZWJ emoji, tags, and spacing marks. Recomputing here is what
+        // makes a matra or a conjunct consonant widen the cell it joins: wcwidth arithmetic
+        // says base+matra is two columns, and every wcwidth-consuming application lays out on
+        // that. Capped at the grid's two columns -- a longer conjunct chain still ligates into
+        // its cluster's cell rather than inventing widths the cell machinery has never met.
+        int newWidth = Math.Clamp(GetStringCellWidth(newContent), 1, 2);
 
         // Create the updated cell
         var updatedCell = new BufferCell
@@ -6425,7 +6418,11 @@ public class InputHandler
                         // we return the first emoji as the result because terminal doesn't support chaining them
                         break;
 
-                    if (lastWidth > 0)
+                    // Only a WIDE glyph's join un-counts what came before: an emoji family is one
+                    // two-column image however many members it has. A ZWJ between one-column
+                    // letters is an Indic explicit conjunct (ta+virama+ZWJ+pa), where wcwidth
+                    // arithmetic keeps every letter's column -- subtracting made those measure 1.
+                    if (lastWidth == 2)
                         // It joins the glyph before it, which has already been counted.
                         width -= lastWidth;
                     else
@@ -6448,6 +6445,16 @@ public class InputHandler
                     // adjust for the text presentation, which is width 1
                     width--;
                     lastWidth = 1;
+                }
+                else if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(rune.Value)
+                         == System.Globalization.UnicodeCategory.SpacingCombiningMark)
+                {
+                    // SPACING combining marks -- Indic matras -- occupy a column of their own:
+                    // wcwidth has always said 1 for Mc, and every wcwidth-consuming application
+                    // lays text out on that arithmetic. The cluster stays one cell; the cell
+                    // grows. This knowingly diverges from Terminal Unicode Core's "extending a
+                    // cluster will not move the cursor" -- as does kitty, for the same reason.
+                    width += 1;
                 }
                 else if (rune.Value >= 0xE0020 && rune.Value <= 0xE007F)
                 {
