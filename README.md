@@ -55,6 +55,10 @@ it came from and cannot answer for a run anchored to both. Ask the line instead:
 
 **Changed elsewhere.**
 
+- `Terminal` now snapshots constructor-supplied `TerminalOptions`. Mutating the original options
+  object after construction no longer reconfigures that terminal or another terminal created from
+  the same object. Change live settings through `terminal.Options`; dimensions use `Resize`, while
+  scrollback and the initial theme remain construction-time settings.
 - `TerminalImage.ByteCount` is a `long`. An animation's frames are counted against the image budget
   alongside the root picture, and the two together can exceed what an `int` holds.
 - `Params.GetSubParams` returns `IReadOnlyList<int>` rather than `List<int>`. It used to be a stub

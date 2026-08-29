@@ -316,6 +316,63 @@ public class TerminalOptionsTests
         Assert.False(options.DrawBoldTextInBrightColors);
         Assert.True(options.KittyNotificationsEnabled);
     }
+
+    [Fact]
+    public void Clone_CopiesEverySettableProperty()
+    {
+        var options = new TerminalOptions();
+        SetDistinctValues(options);
+
+        var clone = options.Clone();
+
+        AssertPropertiesEqual(options, clone);
+        Assert.NotSame(options.WindowOptions, clone.WindowOptions);
+        Assert.NotSame(options.Theme, clone.Theme);
+        AssertPropertiesEqual(options.WindowOptions, clone.WindowOptions);
+        AssertPropertiesEqual(options.Theme, clone.Theme);
+    }
+
+    private static void SetDistinctValues(object target)
+    {
+        foreach (var property in target.GetType().GetProperties().Where(p => p.CanRead && p.CanWrite))
+        {
+            var current = property.GetValue(target);
+            object? value = property.PropertyType switch
+            {
+                var type when type == typeof(bool) => !(bool)current!,
+                var type when type == typeof(int) => (int)current! + 1,
+                var type when type == typeof(long) => (long)current! + 1,
+                var type when type == typeof(double) => (double)current! + 0.5,
+                var type when type == typeof(string) => (current as string ?? string.Empty) + "-clone",
+                var type when type.IsEnum => Enum.GetValues(type).Cast<object>()
+                    .First(value => !Equals(value, current)),
+                var type when type == typeof(Func<KeyEvent, bool>) => (Func<KeyEvent, bool>)(_ => true),
+                _ => current
+            };
+
+            property.SetValue(target, value);
+        }
+
+        if (target is TerminalOptions options)
+        {
+            SetDistinctValues(options.WindowOptions);
+            SetDistinctValues(options.Theme);
+        }
+    }
+
+    private static void AssertPropertiesEqual(object expected, object actual)
+    {
+        foreach (var property in expected.GetType().GetProperties().Where(p => p.CanRead && p.CanWrite))
+        {
+            if (property.PropertyType is { } type
+                && (type == typeof(WindowOptions) || type == typeof(ThemeOptions)))
+            {
+                continue;
+            }
+
+            Assert.Equal(property.GetValue(expected), property.GetValue(actual));
+        }
+    }
 }
 
 public class WindowOptionsTests

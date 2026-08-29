@@ -370,8 +370,12 @@ public class TerminalOptions : ICloneable
         DisplayScale = other.DisplayScale;
         MaxSixelPixels = other.MaxSixelPixels;
         MaxImageBytes = other.MaxImageBytes;
-        WindowOptions = new WindowOptions(other.WindowOptions);
-        Theme = new ThemeOptions(other.Theme);
+        // Public setters make null possible at runtime even though nullable annotations discourage
+        // it. Preserve the constructor's former tolerance rather than throwing from inside Clone.
+        WindowOptions = other.WindowOptions is null
+            ? new WindowOptions()
+            : new WindowOptions(other.WindowOptions);
+        Theme = other.Theme is null ? new ThemeOptions() : new ThemeOptions(other.Theme);
         MinimumContrastRatio = other.MinimumContrastRatio;
         DrawBoldTextInBrightColors = other.DrawBoldTextInBrightColors;
         CustomKeyEventHandler = other.CustomKeyEventHandler;

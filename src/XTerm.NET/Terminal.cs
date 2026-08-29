@@ -27,7 +27,9 @@ public class Terminal : IDisposable
 
     /// <summary>
     /// This terminal's mutable runtime options. Construction snapshots the caller's options, so
-    /// hosts should make later changes through this instance.
+    /// later changes to the caller's object are never observed. Options consulted during operation
+    /// may be changed here; construction-time settings such as dimensions, scrollback and the
+    /// initial theme require their dedicated runtime APIs or a new terminal.
     /// </summary>
     public TerminalOptions Options { get; }
     public Buffer.TerminalBuffer Buffer => _buffer;

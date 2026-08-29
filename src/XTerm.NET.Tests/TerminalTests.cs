@@ -53,7 +53,7 @@ public class TerminalTests
     }
 
     [Fact]
-    public void Mutating_constructor_options_later_does_not_reconfigure_the_terminal()
+    public void Mutating_ConstructorOptions_Later_DoesNotReconfigureTheTerminal()
     {
         var options = new TerminalOptions { CursorStyle = CursorStyle.Block };
         var terminal = new Terminal(options);
@@ -64,13 +64,24 @@ public class TerminalTests
     }
 
     [Fact]
-    public void Constructor_snapshot_includes_nested_options()
+    public void Constructor_Snapshot_IncludesNestedOptions()
     {
         var options = new TerminalOptions();
         var terminal = new Terminal(options);
 
         Assert.NotSame(options.Theme, terminal.Options.Theme);
         Assert.NotSame(options.WindowOptions, terminal.Options.WindowOptions);
+    }
+
+    [Fact]
+    public void Constructor_ToleratesNullNestedOptions()
+    {
+        var options = new TerminalOptions { Theme = null!, WindowOptions = null! };
+
+        var terminal = new Terminal(options);
+
+        Assert.NotNull(terminal.Options.Theme);
+        Assert.NotNull(terminal.Options.WindowOptions);
     }
 
     [Fact]
