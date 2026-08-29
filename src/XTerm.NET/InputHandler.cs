@@ -2604,6 +2604,10 @@ public class InputHandler
                     HandleColorQuery(((int)command).ToString(), arg);
                     break;
 
+                case OscCommand.PointerShape:
+                    HandlePointerShape(arg);
+                    break;
+
                 case OscCommand.Clipboard:
                     HandleClipboard(arg);
                     break;
@@ -3317,6 +3321,98 @@ public class InputHandler
 
             resource++;
         }
+    }
+
+    private void HandlePointerShape(string data)
+    {
+        // OSC 22 ; [op] name[,name...] ST  - Kitty's mouse pointer shape protocol.
+        //
+        // The operation is the first character: '>' pushes, '<' pops, '?' queries, and '=' or no
+        // character at all sets. A bare OSC 22 clears, which is how an application says "I am done,
+        // use your own pointer" without knowing what that pointer is.
+
+        // Only the host can change a real pointer, so a host that will not is entitled to say so.
+        // Silently, including the query: telling an application the shapes work and then not
+        // changing the pointer is worse than telling it they do not, since it cannot tell the two
+        // apart from the other end.
+        if (!_terminal.Options.PointerShapesEnabled)
+            return;
+
+        if (data.Length == 0)
+        {
+            _terminal.ClearPointerShapes();
+            return;
+        }
+
+        var op = data[0];
+        var rest = op is '>' or '<' or '?' or '=' ? data.Substring(1) : data;
+
+        switch (op)
+        {
+            case '<':
+                // The name list is defined to be ignored here, and popping an empty stack is a
+                // no-op rather than an error: an application unwinding does not have to count.
+                _terminal.PopPointerShape();
+                break;
+
+            case '>':
+                // Pushed in order, so the last name is the one that ends up current -- and pushed
+                // as one operation, since only that last name is ever meant to be seen: a host told
+                // about each name in turn would swap the real pointer once per name. Unknown names
+                // are skipped rather than pushed, so a later pop does not restore a shape no host
+                // can draw.
+                _terminal.PushPointerShapes(rest.Split(',').Where(PointerShapes.IsKnown));
+                break;
+
+            case '?':
+                AnswerPointerShapeQuery(rest);
+                break;
+
+            default:
+                // Set. Empty after '=' clears, like the bare form.
+                if (rest.Length == 0)
+                {
+                    _terminal.ClearPointerShapes();
+                    break;
+                }
+
+                // One name, not a list: the protocol defines a comma-separated list for push only,
+                // so the whole payload is the name here and a list is simply not a known shape.
+                if (PointerShapes.IsKnown(rest))
+                    _terminal.SetPointerShape(rest);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Answers an OSC 22 query with an OSC 22 of its own.
+    /// </summary>
+    /// <remarks>
+    /// Each queried name is answered in place, comma separated in the order asked: the three
+    /// <c>__name__</c> specials with a shape name, everything else with 1 or 0 for whether this
+    /// terminal supports it. Nothing from the query is echoed back -- an unsupported name is
+    /// answered with 0, so an application cannot use a query to make the terminal write bytes of
+    /// the application's choosing back to itself.
+    /// </remarks>
+    private void AnswerPointerShapeQuery(string query)
+    {
+        if (query.Length == 0)
+            return;
+
+        var answers = new List<string>();
+        foreach (var name in query.Split(','))
+        {
+            answers.Add(name switch
+            {
+                // "0" rather than a name: the stack is empty, so no shape is set at all.
+                "__current__" => _terminal.PointerShape ?? "0",
+                "__default__" => PointerShapes.Default,
+                "__grabbed__" => PointerShapes.Grabbed,
+                _ => PointerShapes.IsKnown(name) ? "1" : "0",
+            });
+        }
+
+        _terminal.RaiseDataReceived($"\u001b]22;{string.Join(",", answers)}\u001b\\");
     }
 
     private void HandleClipboard(string data)

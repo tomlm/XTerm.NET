@@ -191,6 +191,19 @@ public class TerminalOptions : ICloneable
     public bool KittyKeyboardEnabled { get; set; } = true;
 
     /// <summary>
+    /// Whether mouse pointer shape requests (OSC 22) are honoured. Off by default.
+    /// </summary>
+    /// <remarks>
+    /// Opt-in, because the emulator cannot make this work on its own: only the host can change a
+    /// real pointer, and it does that by subscribing to
+    /// <see cref="Terminal.PointerShapeChanged"/>. Left on by default, a host that has not wired
+    /// that event would still answer the support query with a yes, and an application would go on
+    /// using shapes that never appear. Turning it on is the host saying it has wired the event, so
+    /// the yes is true when it is given.
+    /// </remarks>
+    public bool PointerShapesEnabled { get; set; }
+
+    /// <summary>
     /// Budget for images held by client id but not currently on screen, in bytes.
     /// </summary>
     /// <remarks>
@@ -308,6 +321,7 @@ public class TerminalOptions : ICloneable
         ClipboardReadEnabled = other.ClipboardReadEnabled;
         MaxClipboardBytes = other.MaxClipboardBytes;
         KittyKeyboardEnabled = other.KittyKeyboardEnabled;
+        PointerShapesEnabled = other.PointerShapesEnabled;
         MaxImageRegistryBytes = other.MaxImageRegistryBytes;
         CellWidthPixels = other.CellWidthPixels;
         CellHeightPixels = other.CellHeightPixels;

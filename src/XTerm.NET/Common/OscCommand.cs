@@ -68,7 +68,16 @@ public enum OscCommand
     /// Set cursor color (OSC 12).
     /// </summary>
     CursorColor = 12,
-    
+
+    /// <summary>
+    /// Mouse pointer shape, Kitty's protocol (OSC 22).
+    /// Format: OSC 22 ; [=] shape ST      - set the current shape, or reset it when bare
+    ///         OSC 22 ; &gt; shape,... ST    - push shapes, the last one becoming current
+    ///         OSC 22 ; &lt; ST             - pop the current shape
+    ///         OSC 22 ; ? name,... ST     - query support, answered with an OSC 22
+    /// </summary>
+    PointerShape = 22,
+
     /// <summary>
     /// Clipboard operations (OSC 52).
     /// Format: OSC 52 ; c ; data ST
