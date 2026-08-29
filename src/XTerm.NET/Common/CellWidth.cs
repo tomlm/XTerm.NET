@@ -56,6 +56,11 @@ internal static class CellWidth
             return computed;
         }
 
+        // The two astral prepended marks (Kaithi's number sign and section mark) need the same
+        // pin as the BMP ones in Compute; this path skips the memo table entirely.
+        if (codePoint is 0x110BD or 0x110CD)
+            return 1;
+
         return UnicodeCalculator.GetWidth(new Rune(codePoint));
     }
 
@@ -67,6 +72,28 @@ internal static class CellWidth
         if (char.IsSurrogate((char)codePoint))
             return -1;
 
+        if (IsPrependedConcatenationMark(codePoint))
+            return 1;
+
+        // Wcwidth 4.0.1's zero table runs one codepoint past the trailing jamo (U+11FF) and
+        // swallows U+1200 ETHIOPIC SYLLABLE HA — a fencepost in the package's data, not a
+        // property of the character. Every other Ethiopic syllable answers 1; so must this one.
+        if (codePoint == 0x1200)
+            return 1;
+
         return (sbyte)UnicodeCalculator.GetWidth(new Rune(codePoint));
     }
+
+    /// <summary>
+    /// Unicode's Prepended_Concatenation_Mark set: the Arabic number signs, end of ayah, Syriac
+    /// abbreviation mark, and their kin — VISIBLE format characters that occupy a column.
+    /// Pinned here because the underlying table packages disagree about them across major
+    /// versions (3.0.0 says 1, 4.0.1 says 0) while python wcwidth — the referee ucs-detect
+    /// measures every terminal against — says 1. Whatever Wcwidth version dependency
+    /// unification resolves, these must not silently become invisible: a width-0 standalone
+    /// character never moves the cursor, so the next character prints over the top of it.
+    /// </summary>
+    private static bool IsPrependedConcatenationMark(int codePoint) => codePoint is
+        (>= 0x0600 and <= 0x0605) or 0x06DD or 0x070F or (>= 0x0890 and <= 0x0891)
+        or 0x08E2 or 0x110BD or 0x110CD;
 }
