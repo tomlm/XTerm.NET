@@ -237,6 +237,20 @@ public enum TerminalMode
     SynchronizedOutput = 2026,
 
     /// <summary>
+    /// In-band window resize notifications: report the text area size on every resize.
+    /// </summary>
+    /// <remarks>
+    /// <para>Set means the application wants <c>CSI 48 ; rows ; cols ; height_px ; width_px t</c>
+    /// whenever the terminal resizes, instead of learning about it out of band. It exists because
+    /// the usual channel is SIGWINCH, which the kernel delivers on its own schedule on some other
+    /// thread -- an application racing to read the new size can read a stale one. An escape sequence
+    /// arrives in order, on the stream it was already reading.</para>
+    /// <para>That reasoning applies doubly here: a hosted terminal has no SIGWINCH to fall back on,
+    /// so this is how an application inside XTerm.NET finds out it was resized at all.</para>
+    /// </remarks>
+    InBandResize = 2048,
+
+    /// <summary>
     /// Win32 Input Mode.
     /// </summary>
     Win32InputMode = 9001,
