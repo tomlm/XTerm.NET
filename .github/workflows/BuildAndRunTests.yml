@@ -16,12 +16,53 @@ on:
       - main
     paths:
     - src/**
+  # Deliberately NOT filtered by path. `build` is a required status check, and a required check
+  # that never starts is not pending -- it never exists, so branch protection blocks the pull
+  # request for ever. A documentation-only change could not be merged at all. The job is half a
+  # minute; the paths filter was buying that back at the cost of making one class of PR unmergeable.
   pull_request:
     branches: [ "main" ]
-    paths:
-    - src/**
 
 jobs:
+  # Which parts of the tree this pull request touches. Only `perf` asks, because only `perf` has
+  # anything to measure -- `build` runs regardless, since it is the check that must report.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      src: ${{ steps.detect.outputs.src }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        # The base commit has to be in the clone for the diff below to resolve.
+        fetch-depth: 0
+
+    - id: detect
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        # Anything other than a pull request measures: there is no diff to reason about, and the
+        # perf job's own `if` decides whether it wanted to run at all.
+        if [ "${{ github.event_name }}" != "pull_request" ]; then
+          echo "src=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # Fail OPEN. If the base commit is not reachable -- a force-push, a shallow clone, a
+        # rewritten base -- measure rather than skip. The same rule the gate itself follows: not
+        # running is indistinguishable from running and passing, so it must not be the quiet default.
+        if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+          echo "::notice::Base commit ${BASE_SHA} unreachable, so the library is assumed changed."
+          echo "src=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        if git diff --name-only "${BASE_SHA}" HEAD | grep -q '^src/'; then
+          echo "src=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "::notice::Nothing under src/ changed, so there is nothing to measure."
+          echo "src=false" >> "$GITHUB_OUTPUT"
+        fi
+
   build:
     runs-on: ubuntu-latest
 
@@ -54,10 +95,14 @@ jobs:
   # workflow_run.pull_requests[] is empty for FORK pull requests -- which is most of them -- so
   # the base sha and PR number this job depends on would both be missing exactly when needed.
   perf:
-    needs: build
+    needs: [build, changes]
     # Nothing to compare a push against: base.sha is empty outside a pull request, and the
     # HEAD~1 fallback below would measure main against its own previous commit on every merge.
-    if: github.event_name != 'push'
+    #
+    # And nothing to measure when the library did not change, now that a documentation-only pull
+    # request reaches this workflow at all. Written as `!= 'false'` rather than `== 'true'` so an
+    # unset or unexpected value measures: see the detection job for why that direction.
+    if: github.event_name != 'push' && needs.changes.outputs.src != 'false'
     runs-on: ubuntu-latest
 
     # Only this job needs to write; the build job keeps the repository default.
