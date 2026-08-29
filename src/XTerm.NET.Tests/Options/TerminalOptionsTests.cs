@@ -668,3 +668,166 @@ public class KeyEventTests
         Assert.Equal(13, keyEvent.KeyCode);
     }
 }
+
+/// <summary>
+/// Options that a host changes while the terminal is running, rather than at construction.
+/// A settable property that quietly does nothing is worse than one that is not there.
+/// </summary>
+public class LiveOptionsTests
+{
+    private static Terminal WithHistory(int rows, int scrollback, int linesWritten)
+    {
+        var terminal = new Terminal(new TerminalOptions { Cols = 20, Rows = rows, Scrollback = scrollback });
+        for (var i = 0; i < linesWritten; i++)
+            terminal.WriteLine($"line{i}");
+        return terminal;
+    }
+    private static bool Holds(Terminal t, string text)
+    {
+        for (var y = 0; y < t.Buffer.Lines.Length; y++)
+            if (t.Buffer.Lines[y]?.TranslateToString(true).Trim() == text)
+                return true;
+        return false;
+    }
+    [Fact]
+    public void Lowering_the_scrollback_after_construction_shrinks_the_history()
+    {
+        // Scrollback was read once, when the buffer was built, and never again -- so a host
+        // reclaiming memory set a property that reported the new value and changed nothing.
+        var terminal = WithHistory(rows: 4, scrollback: 50, linesWritten: 40);
+        Assert.Equal(54, terminal.Buffer.Lines.MaxLength);
+        terminal.Options.Scrollback = 5;
+        Assert.Equal(9, terminal.Buffer.Lines.MaxLength);
+    }
+    [Fact]
+    public void Shrinking_the_scrollback_drops_the_oldest_lines_and_keeps_the_screen()
+    {
+        // CircularList.Resize keeps the FRONT of the list, which for a scrollback is backwards:
+        // it would discard the screen the user is looking at and keep the history nobody asked to
+        // keep. The oldest go.
+        var terminal = WithHistory(rows: 4, scrollback: 50, linesWritten: 40);
+        Assert.True(Holds(terminal, "line0"), "the oldest line should still be here before shrinking");
+        terminal.Options.Scrollback = 5;
+        Assert.False(Holds(terminal, "line0"), "the oldest line should have been dropped");
+        Assert.True(Holds(terminal, "line39"), "the newest line must survive -- it is on screen");
+    }
+    [Fact]
+    public void Shrinking_the_scrollback_leaves_the_viewport_on_the_live_bottom()
+    {
+        // The viewport is recomputed against what is left rather than shifted by the trim amount,
+        // or it ends up a fixed distance from rows that no longer exist and everything written
+        // afterwards lands outside the visible area.
+        var terminal = WithHistory(rows: 4, scrollback: 50, linesWritten: 40);
+        terminal.Options.Scrollback = 5;
+        Assert.Equal(terminal.Buffer.YBase, terminal.Buffer.YDisp);
+        terminal.WriteLine("after");
+        Assert.True(Holds(terminal, "after"));
+    }
+    [Fact]
+    public void Raising_the_scrollback_after_construction_grows_the_history()
+    {
+        var terminal = WithHistory(rows: 4, scrollback: 5, linesWritten: 20);
+        Assert.Equal(9, terminal.Buffer.Lines.MaxLength);
+        terminal.Options.Scrollback = 100;
+        Assert.Equal(104, terminal.Buffer.Lines.MaxLength);
+        Assert.True(Holds(terminal, "line19"), "growing must not disturb what is already held");
+    }
+    [Fact]
+    public void The_alternate_screen_keeps_no_history_whatever_the_scrollback_says()
+    {
+        // The alternate buffer is constructed with none by definition, and a later write to the
+        // option must not give it any -- a full-screen program's scrollback is the shell's.
+        var terminal = WithHistory(rows: 4, scrollback: 50, linesWritten: 20);
+        terminal.Write($"{((char)0x1B)}[?1049h");
+        var altCapacity = terminal.Buffer.Lines.MaxLength;
+        terminal.Options.Scrollback = 500;
+        Assert.Equal(altCapacity, terminal.Buffer.Lines.MaxLength);
+    }
+    [Fact]
+    public void Setting_the_scrollback_to_what_it_already_is_changes_nothing()
+    {
+        var terminal = WithHistory(rows: 4, scrollback: 50, linesWritten: 40);
+        var before = terminal.Buffer.Lines.MaxLength;
+        terminal.Options.Scrollback = 50;
+        Assert.Equal(before, terminal.Buffer.Lines.MaxLength);
+        Assert.True(Holds(terminal, "line0"), "a no-op write must not trim anything");
+    }
+    [Fact]
+    public void Assigning_a_theme_after_construction_reseeds_the_palette()
+    {
+        // ColorPalette.ApplyTheme documents itself as the runtime path for an embedder following
+        // the OS light/dark setting -- but the option that names the theme was read once, to build
+        // the palette, and never again. An embedder assigning a new theme watched nothing happen.
+        var terminal = new Terminal(new TerminalOptions
+        {
+            Cols = 20,
+            Rows = 4,
+            Theme = new ThemeOptions { Background = "#000000", Foreground = "#ffffff" },
+        });
+
+        terminal.Options.Theme = new ThemeOptions { Background = "#ffffff", Foreground = "#000000" };
+
+        Assert.Equal(0xFFFFFF, terminal.Colors.Background);
+        Assert.Equal(0x000000, terminal.Colors.Foreground);
+    }
+
+    [Fact]
+    public void A_new_theme_reseeds_colours_an_application_had_changed()
+    {
+        // Half in the old theme and half in the new one is not a theme, so OSC 10/11 changes are
+        // re-seeded away rather than preserved across a theme switch.
+        var terminal = new Terminal(new TerminalOptions
+        {
+            Cols = 20,
+            Rows = 4,
+            Theme = new ThemeOptions { Background = "#000000" },
+        });
+        terminal.Write($"{((char)0x1B)}]11;#123456{((char)0x1B)}\\");   // OSC 11: application sets it
+
+        terminal.Options.Theme = new ThemeOptions { Background = "#ffffff" };
+
+        Assert.Equal(0xFFFFFF, terminal.Colors.Background);
+    }
+
+    [Fact]
+    public void Changing_the_tab_stop_width_lays_the_stops_out_again()
+    {
+        // ResetTabStops read this, but only ran at construction, on a resize and on RIS -- so the
+        // change looked ignored, and then took effect later when something unrelated resized the
+        // window.
+        var terminal = new Terminal(new TerminalOptions { Cols = 40, Rows = 4, TabStopWidth = 8 });
+        terminal.Write("\t");
+        Assert.Equal(8, terminal.Buffer.X);
+
+        terminal.Options.TabStopWidth = 4;
+
+        terminal.Write($"{((char)0x1B)}[1;1H\t");
+        Assert.Equal(4, terminal.Buffer.X);
+    }
+
+    [Fact]
+    public void A_resize_keeps_the_options_size_in_step_with_the_terminal()
+    {
+        // Options.Cols went on reporting the number the terminal was BUILT with while Terminal.Cols
+        // reported the number it is. Two public properties of the same name, disagreeing.
+        var terminal = new Terminal(new TerminalOptions { Cols = 80, Rows = 24 });
+
+        terminal.Resize(120, 40);
+
+        Assert.Equal(120, terminal.Options.Cols);
+        Assert.Equal(40, terminal.Options.Rows);
+        Assert.Equal(terminal.Cols, terminal.Options.Cols);
+        Assert.Equal(terminal.Rows, terminal.Options.Rows);
+    }
+
+    [Fact]
+    public void The_options_object_a_caller_kept_does_not_reach_the_terminal()
+    {
+        // The snapshot contract from #101, restated here because the live hook is installed on the
+        // terminal's own copy: making Scrollback live must not quietly re-alias the two.
+        var mine = new TerminalOptions { Cols = 20, Rows = 4, Scrollback = 50 };
+        var terminal = new Terminal(mine);
+        mine.Scrollback = 5;
+        Assert.Equal(54, terminal.Buffer.Lines.MaxLength);
+    }
+}
