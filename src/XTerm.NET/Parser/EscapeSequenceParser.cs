@@ -996,7 +996,19 @@ public class EscapeSequenceParser
 
     private void DispatchEsc(int code)
     {
-        OnEsc(CodePointText.Get((char)code), _collect.ToString());
+        // _collect.ToString() is free when the builder is empty -- it hands back string.Empty --
+        // but a single intermediate allocated 24 bytes on every dispatch, and one intermediate is
+        // the overwhelmingly common case: ESC ( 0 and ESC ( B are what a TUI emits around every
+        // run of line-drawing characters. Intermediates are single BMP characters, so the same
+        // intern table that already supplies the final character supplies these for nothing.
+        var collected = _collect.Length switch
+        {
+            0 => string.Empty,
+            1 => CodePointText.Get(_collect[0]),
+            _ => _collect.ToString(),
+        };
+
+        OnEsc(CodePointText.Get((char)code), collected);
     }
 
     /// <summary>
