@@ -123,6 +123,58 @@ public class InputHandler
             or UnicodeCategory.EnclosingMark;
     }
 
+    /// <summary>
+    /// Hangul jamo class for UAX #29's GB6-GB8: 0 none, 1 L, 2 V, 3 T, 4 LV, 5 LVT. Decomposed
+    /// jamo are ORDINARY text on macOS, whose filesystems store names in NFD — a Korean
+    /// directory listing arrives as L V T sequences, and without these rules each jamo takes a
+    /// cell of its own.
+    /// </summary>
+    private static int HangulClassOf(int codePoint) => codePoint switch
+    {
+        >= 0x1100 and <= 0x115F or >= 0xA960 and <= 0xA97C => 1,             // L
+        >= 0x1160 and <= 0x11A7 or >= 0xD7B0 and <= 0xD7C6 => 2,             // V
+        >= 0x11A8 and <= 0x11FF or >= 0xD7CB and <= 0xD7FB => 3,             // T
+        >= 0xAC00 and <= 0xD7A3 => (codePoint - 0xAC00) % 28 == 0 ? 4 : 5,   // LV / LVT
+        _ => 0,
+    };
+
+    /// <summary>GB6, GB7 and GB8: which jamo classes continue the cluster ending in which.</summary>
+    private static bool HangulJoins(int previousClass, int currentClass) => currentClass switch
+    {
+        1 or 4 or 5 => previousClass is 1,                 // GB6: L x (L | V | LV | LVT)
+        2 => previousClass is 1 or 2 or 4,                 // GB6/GB7: (L | V | LV) x V
+        3 => previousClass is 2 or 3 or 4 or 5,            // GB7/GB8: (V | LV | T | LVT) x T
+        _ => false,
+    };
+
+    /// <summary>
+    /// The conjunct linkers of UAX #29's GB9c — Unicode's InCB=Linker set, the eight viramas of
+    /// the scripts whose conjuncts must not break: Devanagari through Malayalam.
+    /// </summary>
+    private static bool IsConjunctLinker(int codePoint) =>
+        codePoint is 0x094D or 0x09CD or 0x0A4D or 0x0ACD or 0x0B4D or 0x0C4D or 0x0CCD or 0x0D4D;
+
+    /// <summary>
+    /// A letter that can be the consonant on GB9c's right-hand side: an Lo in the blocks the
+    /// linker set serves. An approximation of InCB=Consonant — exactness needs the property
+    /// data — that over-accepts only sequences (virama then independent vowel) which are
+    /// malformed in the scripts themselves.
+    /// </summary>
+    private static bool IsConjunctConsonantCandidate(int codePoint) =>
+        codePoint >= 0x0900 && codePoint <= 0x0D7F
+        && System.Globalization.CharUnicodeInfo.GetUnicodeCategory(codePoint)
+            == System.Globalization.UnicodeCategory.OtherLetter;
+
+    /// <summary>
+    /// Whether this codepoint might continue the previous cell's cluster under the SEQUENCE
+    /// rules — the ones a per-codepoint category cannot express. Cheap by design: two range
+    /// tests on the current codepoint; the contextual half of the decision lives in
+    /// TryAppendToPreviousCell, which can see the previous cell and refuses mismatches, sending
+    /// the character back to an ordinary cell of its own.
+    /// </summary>
+    private static bool IsSequenceJoinCandidate(int codePoint) =>
+        HangulClassOf(codePoint) != 0 || IsConjunctConsonantCandidate(codePoint);
+
     /// <summary>The Fitzpatrick skin tone modifiers, U+1F3FB to U+1F3FF.</summary>
     private static bool IsSkinToneModifier(int codePoint)
         => codePoint >= 0x1F3FB && codePoint <= 0x1F3FF;
@@ -141,6 +193,22 @@ public class InputHandler
             last = rune.Value;
 
         return last;
+    }
+
+    /// <summary>The rune before the last, for GB9c's linker-then-ZWJ-then-consonant form.</summary>
+    private static int RuneBeforeLastOf(string? content)
+    {
+        if (string.IsNullOrEmpty(content))
+            return 0;
+
+        int beforeLast = 0, last = 0;
+        foreach (var rune in content.EnumerateRunes())
+        {
+            beforeLast = last;
+            last = rune.Value;
+        }
+
+        return beforeLast;
     }
 
     /// <summary>
@@ -207,7 +275,7 @@ public class InputHandler
             // renders as a letter in a box — so it simply stops being the first half of anything.
             _regionalPending = null;
 
-            if (continuesCluster || IsCombiningCharacter(codePoint))
+            if (continuesCluster || IsCombiningCharacter(codePoint) || IsSequenceJoinCandidate(codePoint))
             {
                 // Find the previous cell to combine with
                 if (TryAppendToPreviousCell(data, codePoint))
@@ -737,6 +805,26 @@ public class InputHandler
         if (IsSkinToneModifier(codePoint) && !CanTakeSkinTone(LastRuneOf(prevCell.Content)))
         {
             return false;
+        }
+
+        // The sequence rules (GB6-GB8, GB9c): the current codepoint alone cannot decide these —
+        // whether it continues the cluster depends on what the cluster ENDS with. A refusal here
+        // is not an error; Print gives the character an ordinary cell, exactly as a syllable
+        // following a complete syllable should get.
+        var hangulClass = HangulClassOf(codePoint);
+        if (hangulClass != 0)
+        {
+            if (!HangulJoins(HangulClassOf(LastRuneOf(prevCell.Content)), hangulClass))
+                return false;
+        }
+        else if (IsConjunctConsonantCandidate(codePoint) && !IsCombiningCharacter(codePoint))
+        {
+            // GB9c: the consonant joins when the cluster ends with a linker — or with a ZWJ the
+            // linker precedes, the explicit-conjunct form. Anything else is a new cluster.
+            var last = LastRuneOf(prevCell.Content);
+            if (!IsConjunctLinker(last)
+                && !(last == ZeroWidthJoiner && IsConjunctLinker(RuneBeforeLastOf(prevCell.Content))))
+                return false;
         }
 
         // Append the combining character to the previous cell's content
