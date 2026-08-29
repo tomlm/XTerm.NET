@@ -91,7 +91,47 @@ public class KittyNotificationTests
 
         terminal.Write($"{Esc}]99;i=query:p=?;{St}");
 
-        Assert.Equal($"{Esc}]99;i=query:p=?;p=title,body{St}", response);
+        Assert.Equal($"{Esc}]99;i=query:p=?;a=notify:o=always:u=0,1,2:p=title,body{St}", response);
+    }
+
+    [Fact]
+    public void Osc99_AnswersCapabilityQuery_WithoutPayloadSeparator()
+    {
+        // The form every real detector sends (blessed, and ucs-detect through it): metadata only,
+        // no ';' before the terminator. Requiring the separator made support undetectable.
+        var terminal = CreateTerminal();
+        string? response = null;
+        terminal.DataReceived += (_, e) => response = e.Data;
+
+        terminal.Write($"{Esc}]99;i=blessed:p=?{St}");
+
+        Assert.Equal($"{Esc}]99;i=blessed:p=?;a=notify:o=always:u=0,1,2:p=title,body{St}", response);
+    }
+
+    [Fact]
+    public void Osc99_MetadataOnly_WithoutQuery_ShowsNothing()
+    {
+        var terminal = CreateTerminal();
+        var notifications = new List<TerminalEvents.NotificationEventArgs>();
+        terminal.NotificationReceived += (_, e) => notifications.Add(e);
+
+        terminal.Write($"{Esc}]99;i=x:d=1{St}");
+
+        Assert.Empty(notifications);
+    }
+
+    [Fact]
+    public void Osc99_Query_StaysSilent_WhenDisabled()
+    {
+        // Deliberate: refusing the query while the gate is off keeps well-behaved applications
+        // from notifying into the void.
+        var terminal = new Terminal(new TerminalOptions { KittyNotificationsEnabled = false });
+        string? response = null;
+        terminal.DataReceived += (_, e) => response = e.Data;
+
+        terminal.Write($"{Esc}]99;i=blessed:p=?{St}");
+
+        Assert.Null(response);
     }
 
     [Fact]

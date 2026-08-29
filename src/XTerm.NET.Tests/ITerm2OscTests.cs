@@ -218,4 +218,16 @@ public class ITerm2OscTests
 
         Assert.Equal("\u001b]1337;ReportCellSize=18.0;9.0;2.0\u001b\\", response);
     }
+
+    [Fact]
+    public void Capabilities_ReportsTheImplementedSet()
+    {
+        var terminal = CreateTerminal();
+        string? response = null;
+        terminal.DataReceived += (_, e) => response = e.Data;
+
+        terminal.Write(Osc("Capabilities"));
+
+        Assert.Equal("\u001b]1337;Capabilities=T24CwLrMUBFGsGoSyHNoSx\u001b\\", response);
+    }
 }
