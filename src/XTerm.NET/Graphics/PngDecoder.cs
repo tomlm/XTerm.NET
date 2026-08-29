@@ -289,13 +289,22 @@ internal static class PngDecoder
         using var zlib = new ZLibStream(compressed, CompressionMode.Decompress);
         using var output = new MemoryStream((int)expected);
 
-        var buffer = new byte[16 * 1024];
-        int read;
-        while ((read = zlib.Read(buffer, 0, buffer.Length)) > 0)
+        // Pooled: a 16 KB array per decode is pure garbage on a stream carrying many images, and
+        // an animation is exactly that -- one decode per frame.
+        var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(16 * 1024);
+        try
         {
-            output.Write(buffer, 0, read);
-            if (output.Length > expected)
-                return [];
+            int read;
+            while ((read = zlib.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                output.Write(buffer, 0, read);
+                if (output.Length > expected)
+                    return [];
+            }
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
         }
 
         return output.ToArray();

@@ -98,13 +98,22 @@ internal sealed class KittyTransmission
             // Bounded on the way out, not after the fact: a small payload can inflate to something
             // enormous, and refusing it afterwards means having already allocated it.
             var ceiling = (long)maxPixels * TerminalImage.BytesPerPixel + 1024;
-            var buffer = new byte[16 * 1024];
-            int read;
-            while ((read = zlib.Read(buffer, 0, buffer.Length)) > 0)
+            // Pooled for the same reason PngDecoder.Inflate is: one 16 KB array per transmission,
+            // and an animation is one transmission per frame.
+            var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(16 * 1024);
+            try
             {
-                output.Write(buffer, 0, read);
-                if (output.Length > ceiling)
-                    return false;
+                int read;
+                while ((read = zlib.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    output.Write(buffer, 0, read);
+                    if (output.Length > ceiling)
+                        return false;
+                }
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
             }
 
             inflated = output.ToArray();
