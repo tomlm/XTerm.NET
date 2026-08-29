@@ -250,6 +250,8 @@ public class InputHandler
         // the category lookup they were paying ~4% of the unicode corpus for.
         if (codePoint >= 0xE0100 && codePoint <= 0xE01EF)
             return true;
+        if (codePoint >= 0xE0020 && codePoint <= 0xE007F)
+            return true;   // TAG characters: they spell out an emoji tag sequence (🏴 gbsct...)
         if (IsSkinToneModifier(codePoint))
             return true;
         if (codePoint >= 0x1F000)
@@ -6446,6 +6448,14 @@ public class InputHandler
                     // adjust for the text presentation, which is width 1
                     width--;
                     lastWidth = 1;
+                }
+                else if (rune.Value >= 0xE0020 && rune.Value <= 0xE007F)
+                {
+                    // TAG characters (and CANCEL TAG): format characters that spell out an emoji
+                    // tag sequence — the subdivision flags. They occupy no columns whether or not
+                    // anything precedes them; the flag they decorate has already been counted.
+                    // Counting them at their table width made 🏴gbsct eight columns wide, and the
+                    // answer must not depend on which Wcwidth version a host resolves.
                 }
                 else if (lastWidth > 0 &&
                          (rune.Value >= Emoji.SkinTones.Light && rune.Value <= Emoji.SkinTones.Dark ||
