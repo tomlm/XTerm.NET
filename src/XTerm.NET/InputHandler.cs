@@ -6378,10 +6378,13 @@ public class InputHandler
         //     unit cannot be either;
         //   - the keycap and variation-selector branches are guarded on lastWidth being 1 or 2, and
         //     lastWidth is still 0 on the first rune, so they fall through to the plain case;
-        //   - ZWJ and the object replacement character subtract lastWidth, which is 0, yielding 0.
+        //   - ZWJ is zero-width in its own right, so the loop yields 0 for it either way;
+        //   - U+FFFC alone joins nothing, and the loop adds its own width rather than subtracting a
+        //     lastWidth of 0. Returning 0 here left it measuring 0 again -- it never moved the cursor,
+        //     so the next character printed over the top of it, which is the bug the loop already fixed.
         //
-        // Which leaves: plain width for everything except those last two, and the control-character
-        // handling for negative widths.
+        // Which leaves: plain width for everything except ZWJ, and the control-character handling
+        // for negative widths.
         if (text.Length == 1)
         {
             var c = text[0];
@@ -6391,7 +6394,7 @@ public class InputHandler
 
             if (!char.IsSurrogate(c))
             {
-                if (c == Emoji.ZeroWidthJoiner || c == Emoji.ObjectReplacementCharacter)
+                if (c == Emoji.ZeroWidthJoiner)
                     return 0;
 
                 var w = CellWidth.Get(c);
