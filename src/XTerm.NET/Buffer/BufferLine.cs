@@ -126,6 +126,24 @@ public class BufferLine : IEnumerable<BufferCell>
     /// </summary>
     public bool HasWideCells { get; private set; }
 
+    /// <summary>Blanks either half of a wide character that the range [start, end) would orphan.</summary>
+    private void RepairAround(int start, int end)
+    {
+        if (start > 0 && start < _length && GetWidth(start - 1) == 2)
+        {
+            var orphan = BufferCell.Space;
+            orphan.Attributes = _cells[start - 1].Attributes;
+            _cells[start - 1] = orphan;
+        }
+
+        if (end < _length && end > 0 && _cells[end - 1].Width == 2)
+        {
+            var orphan = BufferCell.Space;
+            orphan.Attributes = _cells[end].Attributes;
+            _cells[end] = orphan;
+        }
+    }
+
     public void SetCell(int index, ref BufferCell cell)
     {
         if (index >= 0 && index < _length)
@@ -161,22 +179,10 @@ public class BufferLine : IEnumerable<BufferCell>
 
         // Same invariant Fill keeps, for the same reason: a run landing on either half of a wide
         // character must take the other half with it, or the renderer draws a two-column glyph
-        // into one column. This path writes cells directly rather than through SetCell, so like
-        // the bookkeeping below it has to say so itself.
-        if (index > 0 && GetWidth(index - 1) == 2)
-        {
-            var orphan = BufferCell.Space;
-            orphan.Attributes = _cells[index - 1].Attributes;
-            _cells[index - 1] = orphan;
-        }
-
-        var end = index + text.Length;
-        if (end < _length && _cells[end - 1].Width == 2)
-        {
-            var orphan = BufferCell.Space;
-            orphan.Attributes = _cells[end].Attributes;
-            _cells[end] = orphan;
-        }
+        // into one column. Behind the latch, because this is the ASCII path -- a line that never
+        // held a wide cell cannot orphan one, and two array reads per run were measurable on it.
+        if (HasWideCells)
+            RepairAround(index, index + text.Length);
 
         var cells = _cells.AsSpan(index, text.Length);
         for (var i = 0; i < text.Length; i++)
@@ -287,11 +293,14 @@ public class BufferLine : IEnumerable<BufferCell>
         // the rest of the row shifts. ReplaceCells has carried this repair all along and only
         // reflow ever reached it; erasing needs it just as much, and widening the range here also
         // gives the link, image and sized-run bookkeeping below the true span that was cleared.
-        if (startCol > 0 && startCol < _length && GetWidth(startCol - 1) == 2)
-            startCol--;
+        if (HasWideCells)
+        {
+            if (startCol > 0 && startCol < _length && GetWidth(startCol - 1) == 2)
+                startCol--;
 
-        if (endCol < _length && endCol > 0 && GetWidth(endCol - 1) == 2)
-            endCol++;
+            if (endCol < _length && endCol > 0 && GetWidth(endCol - 1) == 2)
+                endCol++;
+        }
 
         for (int i = startCol; i < endCol && i < _length; i++)
         {
