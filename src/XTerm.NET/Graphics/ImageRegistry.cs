@@ -65,6 +65,27 @@ internal sealed class ImageRegistry
         Trim(budget);
     }
 
+    /// <summary>
+    /// Charges <paramref name="delta"/> bytes to an image already stored, and trims to budget.
+    /// </summary>
+    /// <returns>False if the addition would not fit, in which case nothing was charged.</returns>
+    /// <remarks>
+    /// An animation frame is the one thing that grows an image AFTER it was stored, so it is the
+    /// one thing Store's accounting never saw: _bytes stayed at the size the image was registered
+    /// at. Two consequences, both real -- several animations could each grow to the whole budget,
+    /// and removing a grown image later subtracted its CURRENT size from a counter that had never
+    /// been credited it, driving the total negative and disabling trimming entirely.
+    /// </remarks>
+    public bool TryCharge(long delta, long budget)
+    {
+        if (budget > 0 && _bytes + delta > budget)
+            return false;
+
+        _bytes += delta;
+        Trim(budget);
+        return true;
+    }
+
     public bool TryGet(uint id, out TerminalImage image) => _byId.TryGetValue(id, out image!);
 
     /// <summary>Resolves a client image number to the newest image stored under it.</summary>

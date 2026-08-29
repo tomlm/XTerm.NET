@@ -42,13 +42,18 @@ public class HostileInputBoundsTests
             $"cluster grew to {line[0].Content.Length} chars under REP");
     }
 
-    [Theory]
+    // Timeout, because the failure mode this pins is a HANG: without it a regression stalls the
+    // whole run instead of failing this one test, and the Stopwatch assertion below is only
+    // reached if Write returns at all.
+    [Theory(Timeout = 30_000)]   // async because xUnit only honours Timeout on async tests
     [InlineData("S")]   // SU
     [InlineData("T")]   // SD
     [InlineData("L")]   // IL
     [InlineData("M")]   // DL
-    public void A_huge_scroll_count_does_not_loop_a_billion_times(string final)
+    public async Task A_huge_scroll_count_does_not_loop_a_billion_times(string final)
     {
+        await Task.Yield();
+
         // Each of these scrolls a line at a time, so an unclamped count is minutes of work for a
         // picture identical to scrolling the region once over.
         var terminal = NewTerminal();
@@ -60,6 +65,57 @@ public class HostileInputBoundsTests
 
         Assert.True(sw.ElapsedMilliseconds < 2000,
             $"CSI 2000000000 {final} took {sw.ElapsedMilliseconds} ms");
+    }
+
+    [Fact]
+    public void A_chunked_kitty_transmission_is_refused_once_it_exceeds_the_cap()
+    {
+        // The accumulator spans escape sequences, each of them individually legal, so the
+        // single-sequence cap never saw it. 300 chunks reached 292 MB with the transmission still
+        // open. EFBIG is the protocol's answer, and the state must be dropped so the NEXT command
+        // starts clean rather than continuing an abandoned image.
+        // A small image budget so the cap is REACHED rather than approximated: it is derived from
+        // MaxSixelPixels, whose default puts the ceiling around 21 million characters.
+        var terminal = new Terminal(new TerminalOptions
+        {
+            Cols = 30, Rows = 10, CellWidthPixels = 2, CellHeightPixels = 3,
+            MaxSixelPixels = 1_000, KittyGraphicsEnabled = true,
+        });
+        var replies = new List<string>();
+        terminal.DataReceived += (_, e) => replies.Add(e.Data);
+
+        var chunk = new string('A', 4_000);
+        terminal.Write($"{Esc}_Ga=t,i=1,f=32,s=1,v=1,m=1;{chunk}{Esc}\\");
+        for (var i = 0; i < 20; i++)
+            terminal.Write($"{Esc}_Gm=1;{chunk}{Esc}\\");
+
+        Assert.Contains(replies, r => r.Contains("EFBIG"));
+
+        // And the terminal is still usable: a fresh sequence is not swallowed by the abandoned one.
+        terminal.Write("after");
+        Assert.Equal("after", string.Concat(
+            Enumerable.Range(0, 5).Select(i => terminal.Buffer.Lines[0]![i].Content)));
+    }
+
+    [Fact]
+    public void An_oversized_osc_is_not_dispatched_truncated()
+    {
+        // Refusing to append is not enough: dispatching the prefix that fit would turn an
+        // oversized OSC 52 into a perfectly valid clipboard write of attacker-chosen length.
+        var terminal = NewTerminal();
+        var titles = new List<string>();
+        terminal.TitleChanged += (_, e) => titles.Add(e.Title);
+
+        terminal.Write($"{Esc}]0;");
+        for (var i = 0; i < 20; i++)
+            terminal.Write(new string('x', 100_000));
+        terminal.Write("\u0007");
+
+        Assert.Empty(titles);
+
+        // A well-formed one after it still works -- the flag cleared with the sequence.
+        terminal.Write($"{Esc}]0;fine\u0007");
+        Assert.Equal(["fine"], titles);
     }
 
     [Fact]

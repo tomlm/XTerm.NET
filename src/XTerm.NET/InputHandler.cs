@@ -986,7 +986,10 @@ public class InputHandler
         // permanently: REP of a self-joining cluster did this quadratically inside one CSI
         // sequence. Refusing the join sends the mark to a cell of its own, which is what a
         // terminal that cannot stack any more marks should show anyway.
-        if (prevCell.Content.Length >= MaxClusterChars)
+        // The RESULT is what the ceiling applies to: a supplementary combining character or a
+        // variation selector is two UTF-16 units, so appending one to a 63-unit cluster produced
+        // 65 despite the documented 64.
+        if (prevCell.Content.Length + data.Length > MaxClusterChars)
             return false;
 
         var newContent = prevCell.Content + data;
@@ -2250,8 +2253,10 @@ public class InputHandler
             // count never moved and no trim could ever see it. An animation is the one place in
             // this protocol where a client adds full canvases to an object that already exists,
             // which is exactly how the accounting was slipped.
-            var budget = _terminal.Options.MaxImageRegistryBytes;
-            if (budget > 0 && animation.ByteCount + frameBytes > budget)
+            // Charged to the REGISTRY, not measured against this animation alone: several
+            // animations could otherwise each grow to the whole budget, and the registry's counter
+            // would still hold the size each image was first stored at.
+            if (!_kittyImages.TryCharge(frameBytes, _terminal.Options.MaxImageRegistryBytes))
             {
                 ReplyToKitty(command, Graphics.KittyError.TooLarge);
                 return;
@@ -4699,10 +4704,11 @@ public class InputHandler
 
     private void InsertLines(Params parameters)
     {
-        // Clamped to the region for the same reason SU/SD are: inserting or deleting more lines
-        // than the region holds leaves it blank either way, and every path below moves a line at
-        // a time.
-        var count = Math.Min(Math.Max(parameters.GetParam(0, 1), 1), _terminal.Rows);
+        // Clamped to what the operation can actually reach: from the cursor's row to the bottom of
+        // the region. Clamping to the screen height still allowed iterations over rows outside the
+        // region, which the splice loop below cannot touch.
+        var count = Math.Min(Math.Max(parameters.GetParam(0, 1), 1),
+                             Math.Max(_buffer.ScrollBottom - _buffer.Y + 1, 1));
         if (!InsideScrollRegion())
             return;
 
@@ -4733,10 +4739,11 @@ public class InputHandler
 
     private void DeleteLines(Params parameters)
     {
-        // Clamped to the region for the same reason SU/SD are: inserting or deleting more lines
-        // than the region holds leaves it blank either way, and every path below moves a line at
-        // a time.
-        var count = Math.Min(Math.Max(parameters.GetParam(0, 1), 1), _terminal.Rows);
+        // Clamped to what the operation can actually reach: from the cursor's row to the bottom of
+        // the region. Clamping to the screen height still allowed iterations over rows outside the
+        // region, which the splice loop below cannot touch.
+        var count = Math.Min(Math.Max(parameters.GetParam(0, 1), 1),
+                             Math.Max(_buffer.ScrollBottom - _buffer.Y + 1, 1));
         if (!InsideScrollRegion())
             return;
 

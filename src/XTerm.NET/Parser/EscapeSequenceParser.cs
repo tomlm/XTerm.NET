@@ -766,6 +766,7 @@ public class EscapeSequenceParser
 
             case ParserState.OscString:
                 _osc.Clear();
+                _oscOverflowed = false;
                 break;
         }
     }
@@ -973,12 +974,23 @@ public class EscapeSequenceParser
     /// </summary>
     private const int MaxOscPayloadChars = 1 << 20;
 
+    /// <summary>Whether the OSC in flight exceeded the cap and must not be dispatched at all.</summary>
+    private bool _oscOverflowed;
+
     private void OscPut(int code)
     {
         // Past the cap the payload is dropped on the floor rather than truncated and dispatched:
         // half a URL or half a base64 clipboard write is not something a handler should act on.
+        //
+        // Refusing to APPEND is not enough on its own -- the terminator would still dispatch the
+        // prefix that did fit, which is precisely the partial action this is here to prevent: an
+        // oversized OSC 52 would arrive as a perfectly valid clipboard write of attacker-chosen
+        // length. The flag makes the whole sequence unusable, and DispatchOsc drops it.
         if (_osc.Length >= MaxOscPayloadChars)
+        {
+            _oscOverflowed = true;
             return;
+        }
 
         // Append the char, not a string built from it. ConvertFromUtf32 allocated once per character
         // of every OSC payload -- window titles, OSC 7 working directories, OSC 8 URLs, and every
@@ -1188,6 +1200,15 @@ public class EscapeSequenceParser
 
     private void DispatchOsc()
     {
+        // A sequence that overflowed the cap is not dispatched at all. Dispatching what fit would
+        // hand a handler attacker-chosen data that merely LOOKS complete -- a truncated OSC 52 is
+        // a valid clipboard write, a truncated OSC 8 a valid link to somewhere else.
+        if (_oscOverflowed)
+        {
+            _oscOverflowed = false;
+            return;
+        }
+
         OnOsc(_osc.ToString());
     }
 
@@ -1218,6 +1239,7 @@ public class EscapeSequenceParser
         _state = ParserState.Ground;
         _params.Reset();
         _collect.Clear();
+        _oscOverflowed = false;
 
         // Cleared here too, so an application can recover in-band: a partial write followed by RIS
         // would otherwise leave the terminal misreading the first sequence after the reset.

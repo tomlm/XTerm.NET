@@ -53,14 +53,17 @@ internal static class ClusterTable
         if (Ids.TryGetValue(text, out var existing))
             return existing;
 
-        // Checked against the id counter, NOT Ids.Count: ConcurrentDictionary.Count takes every
-        // bucket lock and walks them, and this runs on the print path for every cluster -- it cost
-        // the unicode corpus more than the cap protects against. _next only ever grows, and it
-        // overcounts only by the rare id lost to a GetOrAdd race, which is the safe direction.
-        if (Volatile.Read(ref _next) >= MaxEntries)
-            return None;
-
+        // The id is RESERVED before the ceiling is tested, so the test is atomic: checking a count
+        // and then inserting is not, and concurrent writers could each see room and each add an
+        // entry, carrying the table past a cap it promises to hold.
+        //
+        // Reserving via the counter rather than asking Ids.Count also keeps this cheap.
+        // ConcurrentDictionary.Count takes every bucket lock and walks them, and this sits on the
+        // print path for every cluster -- a trace put it at 1.5% of the unicode corpus, more than
+        // the cap it guards ever protects against.
         var id = Interlocked.Increment(ref _next);
+        if (id > MaxEntries)
+            return None;
         ById[id] = text;
 
         // Two threads interning the same new text each allocate an id; only one can win GetOrAdd.
