@@ -635,6 +635,16 @@ public class Terminal
     }
 
     /// <summary>
+    /// Tells an application that asked for in-band resize reports (mode 2048) that the text
+    /// area's PIXEL dimensions changed while the grid did not — a font-size change, a zoom, a
+    /// display-scale switch. The spec requires a report for exactly this case, and
+    /// <see cref="Resize(int, int)"/> cannot see it: the pixel metrics live in the host, so the
+    /// host calls this after updating them. A no-op unless the mode is set, so it is safe to call
+    /// unconditionally from wherever font metrics are recomputed.
+    /// </summary>
+    public void NotifyTextAreaPixelsChanged() => SendInBandResizeReport();
+
+    /// <summary>
     /// Asks the host how large the text area is in pixels, or (0, 0) if it cannot say.
     /// </summary>
     /// <remarks>

@@ -310,4 +310,37 @@ public class InBandResizeTests
 
         Assert.Equal(new[] { $"{Esc}[?2048;2$y" }, replies);
     }
+
+    [Fact]
+    public void A_pixel_only_change_reports_through_the_public_notify()
+    {
+        // Font-size and zoom changes alter the text area's pixels with the grid unchanged; the
+        // spec requires a report for exactly that, and the host delivers it via the public
+        // notify after updating its metrics.
+        var t = new Terminal(new TerminalOptions { Cols = 20, Rows = 5 });
+        var reports = new List<string>();
+        t.DataReceived += (_, e) => { if (e.Data.Contains("[48;")) reports.Add(e.Data); };
+        var px = (Height: 200, Width: 400);
+        t.WindowInfoRequested += (_, e) =>
+        {
+            if (e.Request != WindowInfoRequest.SizePixels)
+                return;
+            e.HeightPixels = px.Height;
+            e.WidthPixels = px.Width;
+            e.Handled = true;
+        };
+
+        t.Write("\u001b[?2048h");
+        Assert.Single(reports);                    // enabling reports once, per the spec
+        reports.Clear();
+
+        px = (Height: 240, Width: 480);            // zoom: same grid, new pixels
+        t.NotifyTextAreaPixelsChanged();
+        Assert.Equal("\u001b[48;5;20;240;480t", reports.Single());
+
+        t.Write("\u001b[?2048l");
+        reports.Clear();
+        t.NotifyTextAreaPixelsChanged();           // mode off: safe no-op
+        Assert.Empty(reports);
+    }
 }
