@@ -86,16 +86,76 @@ public class BufferAndSelectionTests
         Assert.Equal("d", list[1]);
     }
 
+    private static string[] Contents<T>(XTerm.Buffer.CircularList<T> list) where T : class =>
+        Enumerable.Range(0, list.Length).Select(i => list[i]!.ToString()!).ToArray();
+
+    private static XTerm.Buffer.CircularList<string> Abcd()
+    {
+        var list = new XTerm.Buffer.CircularList<string>(4);
+        list.Push("a"); list.Push("b"); list.Push("c"); list.Push("d");
+        return list;
+    }
+
     [Fact]
     public void Splicing_into_a_full_list_inserts_where_it_was_asked_to()
     {
         // At capacity the insert became an append, so a reflowed line landed at the bottom of the
         // scrollback instead of where its text was.
-        var list = new XTerm.Buffer.CircularList<string>(4);
-        list.Push("a"); list.Push("b"); list.Push("c"); list.Push("d");
+        var list = Abcd();
 
         list.Splice(1, 0, "X");
 
-        Assert.Equal(["b", "X", "c", "d"], Enumerable.Range(0, list.Length).Select(i => list[i]).ToArray());
+        // The same splice with room to grow gives a,X,b,c,d. At capacity the oldest falls off the
+        // front, which is 'a' -- X still lands immediately before the 'b' it was inserted ahead of.
+        Assert.Equal(["X", "b", "c", "d"], Contents(list));
+    }
+
+    [Fact]
+    public void Splicing_a_full_list_agrees_with_the_same_splice_that_had_room()
+    {
+        // The eviction is the ONLY difference capacity is allowed to make. Anything else means
+        // the at-capacity path has drifted from the semantics of the branch beside it.
+        var roomy = new XTerm.Buffer.CircularList<string>(5);
+        roomy.Push("a"); roomy.Push("b"); roomy.Push("c"); roomy.Push("d");
+        roomy.Splice(1, 0, "X");
+
+        var full = Abcd();
+        full.Splice(1, 0, "X");
+
+        Assert.Equal(Contents(roomy).Skip(1).ToArray(), Contents(full));
+    }
+
+    [Fact]
+    public void Splicing_several_items_into_a_full_list_keeps_them_together_and_in_order()
+    {
+        // Advancing `start` per item while each insert also evicted one moved the target twice
+        // per item, interleaving the inserted run with the rows it was supposed to precede.
+        var list = Abcd();
+
+        list.Splice(2, 0, "X", "Y");
+
+        Assert.Equal(["X", "Y", "c", "d"], Contents(list));
+    }
+
+    [Fact]
+    public void Splicing_at_the_front_of_a_full_list_drops_the_item_that_scrolls_off()
+    {
+        // Inserted at index 0 of a full list, the new item is itself the oldest, so it falls off
+        // in the same breath. Pushing it displaced a live row instead.
+        var list = Abcd();
+
+        list.Splice(0, 0, "X");
+
+        Assert.Equal(["a", "b", "c", "d"], Contents(list));
+    }
+
+    [Fact]
+    public void Splicing_at_the_end_of_a_full_list_appends_and_drops_the_oldest()
+    {
+        var list = Abcd();
+
+        list.Splice(4, 0, "X");
+
+        Assert.Equal(["b", "c", "d", "X"], Contents(list));
     }
 }

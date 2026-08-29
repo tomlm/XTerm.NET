@@ -129,27 +129,32 @@ public class CircularList<T> where T : class
             }
             else
             {
-                // At capacity the oldest element goes, but the new one still belongs at `start`.
-                // Push alone appended it to the TAIL, so a splice into the middle of a full list
-                // silently became an append -- inserting a reflowed line put it at the bottom of
-                // the scrollback instead of where the text was.
+                // At capacity an insert evicts the oldest element, so the result is the last
+                // MaxLength entries of the list this splice would have produced with room to
+                // grow. Push alone appended to the TAIL, so a splice into the middle of a full
+                // list silently became an append -- a reflowed line landed at the bottom of the
+                // scrollback instead of where the text was.
+
+                // Insert at the front and the new item IS the element that falls off the end,
+                // so it never becomes visible and nothing else moves.
+                if (start == 0)
+                    continue;
+
                 Push(item);
 
-                // Push put it at the tail and dropped the oldest, so every surviving index shifted
-                // down by one. Move it back to the position the caller asked for, counted in the
-                // list as it now stands.
-                var target = Math.Min(start, _length - 1);
-                if (target >= 0 && target < _length - 1)
+                // Push put it at the tail and dropped the oldest, which shifted every survivor
+                // down one: the element the caller pointed at now sits at start - 1, and that is
+                // where the item goes to stay in front of it.
+                var target = start - 1;
+                for (var i = _length - 1; i > target; i--)
                 {
-                    for (var i = _length - 1; i > target; i--)
-                    {
-                        this[i] = this[i - 1];
-                    }
-
-                    this[target] = item;
+                    this[i] = this[i - 1];
                 }
 
-                start++;
+                this[target] = item;
+
+                // `start` deliberately does NOT advance here. Each insert also evicts, and the
+                // two shifts cancel: the next item's slot has the same index as this one's.
             }
         }
     }
