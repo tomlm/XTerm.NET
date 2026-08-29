@@ -2509,6 +2509,8 @@ public class InputHandler
 
                 case OscCommand.KittyNotification:
                     HandleKittyNotification(arg);
+                    break;
+
                 case OscCommand.KittyClipboard:
                     HandleKittyClipboard(arg);
                     break;
@@ -2683,7 +2685,10 @@ public class InputHandler
                     encoded = keyValue[1] == "1";
                     break;
                 case "u":
-                    if (int.TryParse(keyValue[1], out var parsedUrgency))
+                    // The spec defines exactly 0 (low), 1 (normal) and 2 (critical); anything
+                    // else reads as unspecified, so a host can map the value onto its
+                    // notification API without range-checking a protocol it did not parse.
+                    if (int.TryParse(keyValue[1], out var parsedUrgency) && parsedUrgency is >= 0 and <= 2)
                         urgency = parsedUrgency;
                     break;
                 case "n":
@@ -2724,6 +2729,14 @@ public class InputHandler
 
         _kittyNotifications.Remove(key);
         if (notification.TryBuild(out var title, out var body))
+            // "If a notification has no title, the body will be used as title" — the spec's own
+            // sentence, honoured here so every host does not rediscover it, and so a host that
+            // hands Title to an OS API requiring one never gets null with content present.
+            if (title is null && body is not null)
+            {
+                title = body;
+                body = null;
+            }
             _terminal.RaiseKittyNotificationReceived(notification.Identifier, title, body, notification.Urgency, notification.Icon);
     }
 

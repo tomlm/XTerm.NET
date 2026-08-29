@@ -45,7 +45,10 @@ public class KittyNotificationTests
         terminal.Write($"{Esc}]99;i=build:p=body:d=1:e=1;IGZpbmlzaGVk{Bel}");
 
         Assert.NotNull(notification);
-        Assert.Equal("Build finished", notification!.Body);
+        // Body-only chunks: the assembled body is PROMOTED to the title, per the spec's
+        // "if a notification has no title, the body will be used as title."
+        Assert.Equal("Build finished", notification!.Title);
+        Assert.Null(notification.Body);
     }
 
     [Fact]
@@ -117,5 +120,35 @@ public class KittyNotificationTests
 
         Assert.Empty(notifications);
         Assert.Empty(responses);
+    }
+
+    [Fact]
+    public void Osc99_BodyOnlyNotification_PromotesBodyToTitle()
+    {
+        // The spec: "If a notification has no title, the body will be used as title."
+        var terminal = CreateTerminal();
+        TerminalEvents.NotificationEventArgs? notification = null;
+        terminal.NotificationReceived += (_, e) => notification = e;
+
+        terminal.Write($"{Esc}]99;p=body;Only a body{St}");
+
+        Assert.NotNull(notification);
+        Assert.Equal("Only a body", notification!.Title);
+        Assert.Null(notification.Body);
+        Assert.Equal("Only a body", notification.Text);
+    }
+
+    [Fact]
+    public void Osc99_OutOfRangeUrgency_ReadsAsUnspecified()
+    {
+        // u is exactly 0, 1 or 2; u=999 must not escape into the public event.
+        var terminal = CreateTerminal();
+        TerminalEvents.NotificationEventArgs? notification = null;
+        terminal.NotificationReceived += (_, e) => notification = e;
+
+        terminal.Write($"{Esc}]99;u=999;Hello{St}");
+
+        Assert.NotNull(notification);
+        Assert.Null(notification!.Urgency);
     }
 }
