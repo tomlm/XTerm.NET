@@ -753,6 +753,74 @@ public class LiveOptionsTests
         Assert.True(Holds(terminal, "line0"), "a no-op write must not trim anything");
     }
     [Fact]
+    public void Assigning_a_theme_after_construction_reseeds_the_palette()
+    {
+        // ColorPalette.ApplyTheme documents itself as the runtime path for an embedder following
+        // the OS light/dark setting -- but the option that names the theme was read once, to build
+        // the palette, and never again. An embedder assigning a new theme watched nothing happen.
+        var terminal = new Terminal(new TerminalOptions
+        {
+            Cols = 20,
+            Rows = 4,
+            Theme = new ThemeOptions { Background = "#000000", Foreground = "#ffffff" },
+        });
+
+        terminal.Options.Theme = new ThemeOptions { Background = "#ffffff", Foreground = "#000000" };
+
+        Assert.Equal(0xFFFFFF, terminal.Colors.Background);
+        Assert.Equal(0x000000, terminal.Colors.Foreground);
+    }
+
+    [Fact]
+    public void A_new_theme_reseeds_colours_an_application_had_changed()
+    {
+        // Half in the old theme and half in the new one is not a theme, so OSC 10/11 changes are
+        // re-seeded away rather than preserved across a theme switch.
+        var terminal = new Terminal(new TerminalOptions
+        {
+            Cols = 20,
+            Rows = 4,
+            Theme = new ThemeOptions { Background = "#000000" },
+        });
+        terminal.Write($"{((char)0x1B)}]11;#123456{((char)0x1B)}\\");   // OSC 11: application sets it
+
+        terminal.Options.Theme = new ThemeOptions { Background = "#ffffff" };
+
+        Assert.Equal(0xFFFFFF, terminal.Colors.Background);
+    }
+
+    [Fact]
+    public void Changing_the_tab_stop_width_lays_the_stops_out_again()
+    {
+        // ResetTabStops read this, but only ran at construction, on a resize and on RIS -- so the
+        // change looked ignored, and then took effect later when something unrelated resized the
+        // window.
+        var terminal = new Terminal(new TerminalOptions { Cols = 40, Rows = 4, TabStopWidth = 8 });
+        terminal.Write("\t");
+        Assert.Equal(8, terminal.Buffer.X);
+
+        terminal.Options.TabStopWidth = 4;
+
+        terminal.Write($"{((char)0x1B)}[1;1H\t");
+        Assert.Equal(4, terminal.Buffer.X);
+    }
+
+    [Fact]
+    public void A_resize_keeps_the_options_size_in_step_with_the_terminal()
+    {
+        // Options.Cols went on reporting the number the terminal was BUILT with while Terminal.Cols
+        // reported the number it is. Two public properties of the same name, disagreeing.
+        var terminal = new Terminal(new TerminalOptions { Cols = 80, Rows = 24 });
+
+        terminal.Resize(120, 40);
+
+        Assert.Equal(120, terminal.Options.Cols);
+        Assert.Equal(40, terminal.Options.Rows);
+        Assert.Equal(terminal.Cols, terminal.Options.Cols);
+        Assert.Equal(terminal.Rows, terminal.Options.Rows);
+    }
+
+    [Fact]
     public void The_options_object_a_caller_kept_does_not_reach_the_terminal()
     {
         // The snapshot contract from #101, restated here because the live hook is installed on the

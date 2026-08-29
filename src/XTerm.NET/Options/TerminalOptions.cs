@@ -10,10 +10,20 @@ public class TerminalOptions : ICloneable
     /// <summary>
     /// Number of columns in the terminal.
     /// </summary>
+    /// <remarks>
+    /// The starting size, kept in step afterwards: <see cref="Terminal.Resize"/> writes the new
+    /// size back here, so this and <see cref="Terminal.Cols"/> do not drift apart.
+    ///
+    /// Writing it does NOT resize a running terminal — call <see cref="Terminal.Resize"/>, which
+    /// changes both dimensions at once. Honouring each property on its own would resize twice,
+    /// the first time through a width-and-height pair the caller never asked for, reflowing the
+    /// buffer through a geometry that existed only between two statements.
+    /// </remarks>
     public int Cols { get; set; } = 80;
 
     /// <summary>
-    /// Number of rows in the terminal.
+    /// Number of rows in the terminal. See <see cref="Cols"/>: the starting size, kept in step by
+    /// <see cref="Terminal.Resize"/>, which is also the way to change it.
     /// </summary>
     public int Rows { get; set; } = 24;
 
@@ -56,7 +66,37 @@ public class TerminalOptions : ICloneable
     /// <summary>
     /// Tab stop width.
     /// </summary>
-    public int TabStopWidth { get; set; } = 8;
+    /// <remarks>
+    /// Live: setting this lays the stops out again at the new spacing. It used to be read only by
+    /// the reset that runs at construction, on a resize and on RIS, so a host changing it saw
+    /// nothing happen and then saw it take effect later, when something unrelated resized the
+    /// window -- which is worse than either, because the change looked ignored rather than
+    /// pending.
+    ///
+    /// This lays the stops out from scratch, so stops an application placed itself with HTS are
+    /// discarded. That is what changing the width means: the stops are no longer where the
+    /// application put them.
+    /// </remarks>
+    public int TabStopWidth
+    {
+        get => _tabStopWidth;
+        set
+        {
+            if (value == _tabStopWidth)
+                return;
+
+            _tabStopWidth = value;
+            TabStopWidthChanged?.Invoke();
+        }
+    }
+
+    private int _tabStopWidth = 8;
+
+    /// <summary>
+    /// Installed by <see cref="Terminal"/> on the snapshot it owns. Not copied by the copy
+    /// constructor, for the reason given on <see cref="ScrollbackChanged"/>.
+    /// </summary>
+    internal Action? TabStopWidthChanged;
 
     /// <summary>
     /// Whether to enable bell sound/notification.
@@ -329,7 +369,39 @@ public class TerminalOptions : ICloneable
     /// <summary>
     /// Theme colors.
     /// </summary>
-    public ThemeOptions Theme { get; set; } = new ThemeOptions();
+    /// <remarks>
+    /// Live: assigning a theme re-seeds the palette of the terminal this options object belongs
+    /// to. It was read once, to build that palette, and never again -- so an embedder following
+    /// the OS light/dark setting assigned a new theme and watched nothing happen, even though
+    /// <see cref="ColorPalette.ApplyTheme"/> existed for exactly that purpose and says so.
+    ///
+    /// Assignment, not mutation. Changing a property ON a theme object already assigned here is
+    /// not observed, because the object is shared rather than copied; assign a new
+    /// <see cref="ThemeOptions"/>, or call <see cref="ColorPalette.ApplyTheme"/> directly.
+    ///
+    /// Colours an application set through OSC 4/10/11/12 are re-seeded away, which is the point:
+    /// a palette half in the old theme and half in the new one is not a theme.
+    /// </remarks>
+    public ThemeOptions Theme
+    {
+        get => _theme;
+        set
+        {
+            if (ReferenceEquals(value, _theme))
+                return;
+
+            _theme = value;
+            ThemeChanged?.Invoke(value);
+        }
+    }
+
+    private ThemeOptions _theme = new ThemeOptions();
+
+    /// <summary>
+    /// Installed by <see cref="Terminal"/> on the snapshot it owns. Not copied by the copy
+    /// constructor, for the reason given on <see cref="ScrollbackChanged"/>.
+    /// </summary>
+    internal Action<ThemeOptions>? ThemeChanged;
 
     /// <summary>
     /// Minimum contrast ratio.

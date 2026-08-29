@@ -458,11 +458,14 @@ public class Terminal : IDisposable
         _buffer = _normalBuffer;
         _usingAltBuffer = false;
 
-        // Scrollback was read once, here, and never again: a host that lowered it to reclaim
-        // memory or raised it because the user asked got a property that reported the new value
-        // and did nothing. It reaches the buffer now. The normal buffer only -- the alternate
-        // screen has no history by definition, and keeps none while this is set.
+        // Options that were read once here and never again, so a host writing them got a property
+        // that reported the new value and did nothing. Each reaches the thing it names now.
+        //
+        // Scrollback goes to the normal buffer only -- the alternate screen has no history by
+        // definition and keeps none while this is set.
         Options.ScrollbackChanged = _normalBuffer.SetScrollback;
+        Options.ThemeChanged = Colors.ApplyTheme;
+        Options.TabStopWidthChanged = ResetTabStops;
 
         // Initialize parser and input handler
         _parser = new EscapeSequenceParser();
@@ -705,6 +708,15 @@ public class Terminal : IDisposable
 
         Cols = cols;
         Rows = rows;
+
+        // The options carry the size too, and stopped agreeing with it the moment anything
+        // resized: Options.Cols went on reporting the number the terminal was BUILT with while
+        // Cols reported the number it is. Two public properties of the same name disagreeing is a
+        // worse failure than a stale one, because nothing about reading either says which to
+        // believe. Resize stays the way to change the size -- setting the two options separately
+        // would resize twice, once through a geometry the caller never asked for.
+        Options.Cols = cols;
+        Options.Rows = rows;
 
         // A wider screen gains the stops it did not have room for; a program's custom stops do
         // not survive a resize, which is what xterm does too.
@@ -1625,8 +1637,11 @@ public class Terminal : IDisposable
         _disposed = true;
 
         // The options snapshot outlives this terminal whenever the caller kept a reference to what
-        // it passed in, and the hook holds the buffer, so it goes with the rest of the handlers.
+        // it passed in, and these hooks hold the buffer and the palette, so they go with the rest
+        // of the handlers.
         Options.ScrollbackChanged = null;
+        Options.ThemeChanged = null;
+        Options.TabStopWidthChanged = null;
 
         // Unsubscribe from parser events
         _parser.PrintFast = null;
