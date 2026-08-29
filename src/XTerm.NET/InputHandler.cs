@@ -94,6 +94,13 @@ public class InputHandler
     /// </summary>
     private static bool IsCombiningCharacter(int codePoint)
     {
+        // Nothing below U+0300 combines — the marks begin at COMBINING GRAVE ACCENT — so ASCII
+        // and Latin-1, the overwhelming majority of every stream, leave in one compare instead
+        // of reaching the category lookup. Three bench runs put that lookup at ~4% on ASCII-
+        // and CJK-heavy corpora; this is the NoteLinkRun lesson wearing yet another coat.
+        if (codePoint < 0x0300)
+            return false;
+
         // Variation Selectors (U+FE00�U+FE0F)
         if (codePoint >= 0xFE00 && codePoint <= 0xFE0F)
             return true;
