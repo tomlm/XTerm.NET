@@ -191,6 +191,16 @@ public class Terminal
     public event EventHandler<TerminalEvents.DataEventArgs>? DataReceived;
 
     /// <summary>
+    /// Fired when an application writes clipboard data through OSC 52 or Kitty OSC 5522.
+    /// </summary>
+    public event EventHandler<TerminalEvents.ClipboardWriteEventArgs>? ClipboardWriteRequested;
+
+    /// <summary>
+    /// Fired when an application requests clipboard data through OSC 52 or Kitty OSC 5522.
+    /// </summary>
+    public event EventHandler<TerminalEvents.ClipboardReadEventArgs>? ClipboardReadRequested;
+
+    /// <summary>
     /// Fired when the terminal title changes.
     /// </summary>
     public event EventHandler<TerminalEvents.TitleChangeEventArgs>? TitleChanged;
@@ -1064,12 +1074,23 @@ public class Terminal
     // Internal methods for raising events (called by InputHandler)
     internal void RaiseDataReceived(string data) => 
         DataReceived?.Invoke(this, new TerminalEvents.DataEventArgs(data));
+
+    internal void RaiseClipboardWriteRequested(string target, string mimeType, byte[] data) =>
+        RaiseClipboardWriteRequested(target, new[] { new TerminalEvents.ClipboardFormat(mimeType, data) });
+
+    internal void RaiseClipboardWriteRequested(
+        string target, IReadOnlyList<TerminalEvents.ClipboardFormat> formats) =>
+        ClipboardWriteRequested?.Invoke(this, new TerminalEvents.ClipboardWriteEventArgs(target, formats));
+
+    internal void RaiseClipboardReadRequested(TerminalEvents.ClipboardReadEventArgs args) =>
+        ClipboardReadRequested?.Invoke(this, args);
     
     internal void RaiseTitleChanged(string title) => 
         TitleChanged?.Invoke(this, new TerminalEvents.TitleChangeEventArgs(title));
     
     internal void RaiseDirectoryChanged(string directory) => 
         DirectoryChanged?.Invoke(this, new TerminalEvents.DirectoryChangeEventArgs(directory));
+
 
     internal void RaiseHyperlinkChanged(string? url) =>
         HyperlinkChanged?.Invoke(this, new TerminalEvents.HyperlinkEventArgs(url ?? string.Empty, url == null));
@@ -1143,6 +1164,9 @@ public class Terminal
 
     internal void RaiseNotificationReceived(string text) =>
         NotificationReceived?.Invoke(this, new TerminalEvents.NotificationEventArgs(text));
+
+    internal void RaiseKittyNotificationReceived(string? identifier, string? title, string? body, int? urgency, string? icon) =>
+        NotificationReceived?.Invoke(this, new TerminalEvents.NotificationEventArgs(identifier, title, body, urgency, icon));
     internal void RaiseOscReceived(string identifier, int code, string data, string raw, bool recognized) =>
         OscReceived?.Invoke(this, new TerminalEvents.OscReceivedEventArgs(identifier, code, data, raw, recognized));
     
@@ -1339,6 +1363,11 @@ public class Terminal
 
         // Clear all event subscriptions
         DataReceived = null;
+        ClipboardWriteRequested = null;
+        ClipboardReadRequested = null;
+        CursorStyleChanged = null;
+        SynchronizedOutputChanged = null;
+        BufferChanged = null;
         TitleChanged = null;
         BellRang = null;
         Resized = null;
