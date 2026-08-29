@@ -397,6 +397,7 @@ public class InputHandler
                 // paying the full line fetch below just to be refused.
                 if ((continuesCluster
                      || (uint)(codePoint - 0x0900) > 0xD7FB - 0x0900   // marks: skip the call, not just the checks
+                     || codePoint == ZeroWidthJoiner                   // inside the hull but never a candidate
                      || !RefusesSequenceCheaply(codePoint))
                     && TryAppendToPreviousCell(data, codePoint))
                 {
@@ -939,7 +940,7 @@ public class InputHandler
         // following a complete syllable should get. The bracket is the candidate ranges' hull:
         // ordinary combining marks — most of what ever joins — skip both class tests in one
         // compare, which the profiler charged this method 3.6 points of the unicode corpus for.
-        if ((uint)(codePoint - 0x0900) <= 0xD7FB - 0x0900)
+        if ((uint)(codePoint - 0x0900) <= 0xD7FB - 0x0900 && codePoint != ZeroWidthJoiner)
         {
             var hangulClass = HangulClassOf(codePoint);
             if (hangulClass != 0)
