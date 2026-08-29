@@ -145,6 +145,32 @@ public class WideCellInvariantTests
     }
 
     [Fact]
+    public void A_wide_character_at_the_right_margin_keeps_its_spacer_inside_the_pane()
+    {
+        // The spacer is bounded by the right MARGIN, not the screen edge, or a two-column
+        // character on the last column of a region plants its second half in the pane next door.
+        // This is also the case that decides whether the wrap limit may be reused: moving the
+        // cursor past the margin changes the answer, so a wrap has to recompute it.
+        var terminal = NewTerminal(cols: 20, rows: 4);
+        terminal.Write($"{Esc}[?69h");         // DECLRMM
+        terminal.Write($"{Esc}[5;12s");        // margins at columns 5..12 (0-based 4..11)
+        terminal.Write($"{Esc}[1;12H");        // the right margin itself
+        terminal.Write("界");
+
+        // Nothing may land right of the margin, on any row.
+        for (var y = 0; y < 4; y++)
+        {
+            var row = terminal.Buffer.Lines[y]!;
+            Assert.True(string.IsNullOrEmpty(row[12].Content) || row[12].Content == " ",
+                $"row {y} column 12 holds '{row[12].Content}', outside the right margin");
+            AssertNoOrphans(terminal, y);
+        }
+
+        // It wrapped into the pane instead: left margin of the next row.
+        Assert.Equal("界", terminal.Buffer.Lines[1]![4].Content);
+    }
+
+    [Fact]
     public void A_wide_character_that_cannot_fit_is_dropped_when_wrapping_is_off()
     {
         // The early wrap that makes room for a two-column character is guarded by DECAWM, so with

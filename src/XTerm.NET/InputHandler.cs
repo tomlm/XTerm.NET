@@ -523,7 +523,12 @@ public class InputHandler
         if (width == 2 && _buffer.X == wrapLimit && _terminal.Options.Wraparound)
             _buffer.SetCursorRaw(wrapLimit + 1, _buffer.Y);
 
-        if (_buffer.X > wrapLimit && !ResolveAutowrap())
+        // Whether the cursor moved to another row, which is the only thing that can make the limit
+        // computed above stale -- WrapLimit asks where the cursor is, and a wrap is the one event
+        // here that puts it somewhere else.
+        var wrapped = false;
+
+        if (_buffer.X > wrapLimit && !(wrapped = ResolveAutowrap()))
         {
             // Wrapping is off and the cursor is past the last column. DECAWM off does not mean
             // "discard": the VT100, xterm and xterm.js all keep OVERWRITING the last column, so a
@@ -595,10 +600,11 @@ public class InputHandler
         // make the renderer draw a two-column glyph into one column. The erase paths get this from
         // BufferLine.Fill; printing writes a single cell and has to say so itself.
         // The margin the spacer has to fit inside, for a wide character only -- ASCII never asks,
-        // so it never pays the call. Computed HERE rather than reused from before the wrap
-        // decision, because resolving a wrap moves the cursor and the answer belongs to the column
-        // the character actually landed on. Once, and read twice below.
-        var spacerLimit = width == 2 ? WrapLimit() : 0;
+        // so it never pays for it. Recomputed only when a wrap actually moved the cursor: the
+        // limit is a question about where the cursor is, and nothing else between there and here
+        // moves it. Asking again unconditionally meant a WrapLimit call for every CJK character in
+        // a corpus made of them, to be told what the value at the top of the method already said.
+        var spacerLimit = width == 2 ? (wrapped ? WrapLimit() : wrapLimit) : 0;
         var writesSpacer = width == 2 && _buffer.X + 1 <= spacerLimit;
 
         // Guarded at the CALL, the lesson this file keeps teaching: the repair is array reads on
