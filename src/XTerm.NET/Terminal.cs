@@ -625,6 +625,9 @@ public class Terminal
         BracketedPasteMode = false;
         PasteNotificationMode = false;
         InvalidatePendingPaste();
+        // A reset mid-5522-write abandons the transfer: a terminator arriving after RIS must not
+        // commit pre-reset data to the host clipboard.
+        _inputHandler.ResetKittyClipboard();
         OriginMode = false;
         LeftRightMarginMode = false;
         CursorVisible = true;
@@ -1446,6 +1449,9 @@ public class Terminal
     /// <summary>How long a paste token stays redeemable. Checked at redemption; single-use.</summary>
     private static readonly TimeSpan PasteTokenLifetime = TimeSpan.FromSeconds(60);
 
+    /// <summary>The clock the token lifetime is measured on; swappable so expiry is testable.</summary>
+    internal Func<DateTime> PasteClock = static () => DateTime.UtcNow;
+
     /// <summary>
     /// Pastes plain text. The convenience overload of <see cref="Paste(TerminalPaste)"/> for
     /// hosts that only ever paste text.
@@ -1463,9 +1469,13 @@ public class Terminal
     /// the text/plain content is bracketed the classic way. With neither, the raw text is sent.
     /// </summary>
     /// <remarks>
-    /// Additive by design: <see cref="BracketedPasteMode"/> stays public and an embedder that
-    /// wraps its own pastes keeps working — but such an embedder never gets 5522 behaviour,
-    /// because only this method knows how to announce one.
+    /// <para>Additive by design: <see cref="BracketedPasteMode"/> stays public and an embedder
+    /// that wraps its own pastes keeps working — but such an embedder never gets 5522 behaviour,
+    /// because only this method knows how to announce one.</para>
+    /// <para>Serialize with <see cref="Write(string)"/>, like every other member: this publishes
+    /// token state the write path's redemption reads. A paste that cannot supply text/plain is
+    /// dropped when only mode 2004 (or neither mode) is set — there is nothing safe to
+    /// flatten.</para>
     /// </remarks>
     public void Paste(TerminalPaste paste)
     {
@@ -1478,8 +1488,11 @@ public class Terminal
             return;
         }
 
-        // 2004 and the raw path flatten to text, as terminals always have.
-        var text = paste.GetData("text/plain") is { } bytes
+        // 2004 and the raw path flatten to text, as terminals always have. Only a mime the
+        // paste actually OFFERED is asked for — an accessor is entitled to be a plain lookup over
+        // its own list — and a paste that cannot supply text/plain is dropped outside mode 5522,
+        // because there is nothing safe to flatten.
+        var text = paste.MimeTypes.Contains("text/plain") && paste.GetData("text/plain") is { } bytes
             ? System.Text.Encoding.UTF8.GetString(bytes)
             : null;
         if (text is null)
@@ -1493,11 +1506,17 @@ public class Terminal
     private void AnnouncePaste(TerminalPaste paste)
     {
         // A new paste supersedes the old token outright: at most one is ever redeemable.
+        //
+        // The LOGICAL password is ASCII text (128 random bits as hex), and the wire carries its
+        // base64-encoded UTF-8 — because the spec defines pw as a base64-encoded UTF-8 string,
+        // and a conforming client decodes it, holds the text, and re-encodes it to redeem. Raw
+        // random bytes are not valid UTF-8, and such a client would corrupt them in transit.
         var tokenBytes = new byte[16];
         System.Security.Cryptography.RandomNumberGenerator.Fill(tokenBytes);
-        var token = Convert.ToBase64String(tokenBytes);
+        var logical = Convert.ToHexString(tokenBytes);
+        var token = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(logical));
         var target = paste.FromPrimary ? "p" : "c";
-        _pendingPaste = new PendingPaste(token, target, paste, DateTime.UtcNow);
+        _pendingPaste = new PendingPaste(logical, target, paste, PasteClock());
 
         var loc = paste.FromPrimary ? ":loc=primary" : string.Empty;
         var mimeList = Convert.ToBase64String(
@@ -1518,16 +1537,34 @@ public class Terminal
     internal TerminalPaste? TryRedeemPaste(string token, string name, string target)
     {
         var pending = _pendingPaste;
-        if (pending is null || pending.Token != token)
+        if (pending is null || name.Length == 0)
+            return null;
+
+        // The wire form is base64 of the logical password's UTF-8; conforming clients may have
+        // decoded and re-encoded it, so comparison happens on the decoded text.
+        string presented;
+        try
+        {
+            presented = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(token));
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+
+        if (pending.Token != presented)
             return null;
 
         // The token was presented: consume it now, valid or not — replaying a rejected
-        // redemption must not get a second try.
-        _pendingPaste = null;
+        // redemption must not get a second try. Compare-and-swap so a NEWER paste published
+        // between the read above and this consume is left alone rather than wiped.
+        if (!ReferenceEquals(
+                System.Threading.Interlocked.CompareExchange(ref _pendingPaste, null, pending),
+                pending))
+            return null;
 
-        if (name.Length == 0
-            || pending.Target != target
-            || DateTime.UtcNow - pending.IssuedAtUtc > PasteTokenLifetime)
+        if (pending.Target != target
+            || PasteClock() - pending.IssuedAtUtc > PasteTokenLifetime)
             return null;
 
         return pending.Paste;

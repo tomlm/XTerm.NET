@@ -3746,18 +3746,23 @@ public class InputHandler
             base64 = new StringBuilder();
             base64Chunks[mimeType] = base64;
             _kittyClipboardData![mimeType] = [];
+            _kittyClipboardTransferSize += mimeType.Length + ClipboardEntryOverhead;
         }
         base64.Append(payload);
+        _kittyClipboardTransferSize += payload.Length;
         if (TryDecodeBase64(base64.ToString(), out var chunk))
         {
-            if ((long)_kittyClipboardData!.Values.Sum(data => (long)data.Count) + chunk.Length > MaxClipboardBytes)
+            if (_kittyClipboardDecodedBytes + chunk.Length > MaxClipboardBytes)
             {
                 var id = _kittyClipboardId;
                 ResetKittyClipboard();
                 RaiseKittyClipboardResponse("write", "EIO", id);
                 return;
             }
-            _kittyClipboardData[mimeType].AddRange(chunk);
+            _kittyClipboardData![mimeType].AddRange(chunk);
+            _kittyClipboardDecodedBytes += chunk.Length;
+            // The pending base64 is spent: its charge is exchanged for the decoded bytes'.
+            _kittyClipboardTransferSize += chunk.Length - base64.Length;
             base64.Clear();
         }
         else if (TransferSize > MaxClipboardBytes * 4 / 3 + 4)
@@ -3773,11 +3778,15 @@ public class InputHandler
 
     private long MaxClipboardBytes => Math.Max(1, _terminal.Options.MaxClipboardBytes);
     private const int ClipboardEntryOverhead = 256;
-    private long TransferSize =>
-        _kittyClipboardData!.Values.Sum(data => (long)data.Count)
-        + _kittyClipboardBase64!.Values.Sum(data => (long)data.Length)
-        + _kittyClipboardData.Keys.Sum(mimeType => (long)mimeType.Length + ClipboardEntryOverhead)
-        + _kittyClipboardAliases!.Sum(alias => (long)alias.Alias.Length + alias.Target.Length + ClipboardEntryOverhead);
+    /// <summary>
+    /// The transfer's running byte charge — maintained at every mutation rather than recomputed,
+    /// because the property is consulted once per wdata packet and a rescan of every accumulated
+    /// value, buffer, key and alias made parsing quadratic: hundreds of thousands of tiny MIME
+    /// entries under the default cap could freeze the terminal before any limit fired.
+    /// </summary>
+    private long _kittyClipboardTransferSize;
+    private long _kittyClipboardDecodedBytes;
+    private long TransferSize => _kittyClipboardTransferSize;
 
     private void HandleKittyClipboardRead(string target, string id, string? payload, string pw, string name)
     {
@@ -3786,11 +3795,22 @@ public class InputHandler
         // reads are enabled. An absent or invalid token is not an error — per the spec the
         // terminal falls back to its standard security behaviour, which here is the gated host
         // seam below.
-        if (pw.Length > 0 && target.Length > 0 && payload is not null
-            && TryDecodeBase64(payload, out var pasteRequestBytes)
+        // A pw accompanied by a name consumes the token the moment it is PRESENTED — before
+        // payload validation, so a malformed redemption attempt cannot be corrected and retried
+        // against a token that should already be spent. A pw with no name is, per the spec,
+        // treated as though no password was given: nothing is consumed and the request falls
+        // through to the standard gated path.
+        if (pw.Length > 0 && name.Length > 0 && target.Length > 0
             && _terminal.TryRedeemPaste(pw, name, target) is { } paste)
         {
-            ServePaste(paste, Encoding.UTF8.GetString(pasteRequestBytes), id);
+            if (payload is not null && TryDecodeBase64(payload, out var pasteRequestBytes))
+            {
+                ServePaste(paste, Encoding.UTF8.GetString(pasteRequestBytes), id);
+                return;
+            }
+
+            // The token is spent either way; a malformed payload is the sender's own EINVAL.
+            RaiseKittyClipboardResponse("read", "EINVAL", id);
             return;
         }
 
@@ -3842,7 +3862,13 @@ public class InputHandler
             foreach (var (mimeType, clipboardData) in responses)
             {
                 var encodedMime = Convert.ToBase64String(Encoding.UTF8.GetBytes(mimeType));
-                foreach (var chunk in clipboardData!.Chunk(4096))
+                if (clipboardData!.Length == 0)
+                {
+                    // As in ServePaste: a supplied empty value is an answer, not an absence.
+                    _terminal.RaiseDataReceived($"\u001b]5522;type=read:status=DATA:mime={encodedMime}{FormatKittyId(id)};\u001b\\");
+                    continue;
+                }
+                foreach (var chunk in clipboardData.Chunk(4096))
                     _terminal.RaiseDataReceived($"\u001b]5522;type=read:status=DATA:mime={encodedMime}{FormatKittyId(id)};{Convert.ToBase64String(chunk)}\u001b\\");
             }
             RaiseKittyClipboardResponse("read", "DONE", id);
@@ -3864,7 +3890,10 @@ public class InputHandler
                     Deliver();
             });
             _terminal.RaiseClipboardReadRequested(args);
-            if (!args.Deferred)
+            // A synchronous answer WINS, as the args promise and OSC 52 already honours: when one
+            // subscriber set Data and another deferred, the sync value completes the slot now and
+            // the late Respond is a disarmed no-op. Only a defer with no sync answer stays open.
+            if (args.Data is not null || !args.Deferred)
                 args.Respond(args.Data);
         }
 
@@ -3880,13 +3909,17 @@ public class InputHandler
     /// </summary>
     private void ServePaste(TerminalPaste paste, string requested, string id)
     {
-        RaiseKittyClipboardResponse("read", "OK", id);
-
+        // Everything is resolved BEFORE the first packet goes out, for two reasons the reply
+        // format forces. OK must not promise what nothing can deliver: the spec's ENOSYS exists
+        // for a requested type that is unavailable, and an empty successful transfer would teach
+        // clients that missing formats are valid empty data. And GetData is HOST code — the
+        // standard read path collects every answer before emitting for the same reason — so a
+        // throwing accessor surfaces before OK rather than truncating the reply mid-stream and
+        // hanging the application on a DONE that never comes.
+        var replies = new List<(string EncodedMime, byte[] Data)>();
         if (requested == ".")
         {
-            var list = Convert.ToBase64String(
-                Encoding.UTF8.GetBytes(string.Join(' ', paste.MimeTypes)));
-            _terminal.RaiseDataReceived($"\u001b]5522;type=read:status=DATA:mime=Lg=={FormatKittyId(id)};{list}\u001b\\");
+            replies.Add(("Lg==", Encoding.UTF8.GetBytes(string.Join(' ', paste.MimeTypes))));
         }
         else
         {
@@ -3894,13 +3927,29 @@ public class InputHandler
             {
                 if (!paste.MimeTypes.Contains(mimeType) || paste.GetData(mimeType) is not { } bytes)
                     continue;
-
-                var encodedMime = Convert.ToBase64String(Encoding.UTF8.GetBytes(mimeType));
-                foreach (var chunk in bytes.Chunk(4096))
-                    _terminal.RaiseDataReceived($"\u001b]5522;type=read:status=DATA:mime={encodedMime}{FormatKittyId(id)};{Convert.ToBase64String(chunk)}\u001b\\");
+                replies.Add((Convert.ToBase64String(Encoding.UTF8.GetBytes(mimeType)), bytes));
             }
         }
 
+        if (replies.Count == 0)
+        {
+            RaiseKittyClipboardResponse("read", "ENOSYS", id);
+            return;
+        }
+
+        RaiseKittyClipboardResponse("read", "OK", id);
+        foreach (var (encodedMime, bytes) in replies)
+        {
+            if (bytes.Length == 0)
+            {
+                // A supplied empty value is an ANSWER — one empty chunk keeps it distinguishable
+                // from a type that was never available at all.
+                _terminal.RaiseDataReceived($"\u001b]5522;type=read:status=DATA:mime={encodedMime}{FormatKittyId(id)};\u001b\\");
+                continue;
+            }
+            foreach (var chunk in bytes.Chunk(4096))
+                _terminal.RaiseDataReceived($"\u001b]5522;type=read:status=DATA:mime={encodedMime}{FormatKittyId(id)};{Convert.ToBase64String(chunk)}\u001b\\");
+        }
         RaiseKittyClipboardResponse("read", "DONE", id);
     }
 
@@ -3937,6 +3986,7 @@ public class InputHandler
         }
 
         _kittyClipboardAliases!.AddRange(aliases.Select(alias => (alias, target)));
+        _kittyClipboardTransferSize += aliases.Sum(alias => (long)alias.Length + target.Length + ClipboardEntryOverhead);
     }
 
     private static bool TryParseKittyClipboardMetadata(
@@ -4024,8 +4074,14 @@ public class InputHandler
         }
     }
 
-    private void ResetKittyClipboard()
+    /// <summary>
+    /// Abandons any in-progress OSC 5522 write transfer. Internal because RIS must reach it:
+    /// a reset mid-transfer must not let a later terminator commit pre-reset data to the host.
+    /// </summary>
+    internal void ResetKittyClipboard()
     {
+        _kittyClipboardTransferSize = 0;
+        _kittyClipboardDecodedBytes = 0;
         _kittyClipboardData = null;
         _kittyClipboardBase64 = null;
         _kittyClipboardAliases = null;
