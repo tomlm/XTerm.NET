@@ -438,19 +438,22 @@ public class EscapeSequenceParser
                 case ParserState.CsiIgnore:
                     OnExecute(code);
 
-                    // CAN and SUB abandon whatever is in flight -- that is what CAN is for -- and
-                    // the vt100.net table and xterm.js both return to Ground on them. Without the
-                    // transition this parser stayed inside the cancelled sequence and went on
-                    // reading the bytes after it as parameters. DcsPassthrough and ApcString have
-                    // handled these correctly all along, further down, and keep doing so: they
-                    // have a payload to close and report as unclean.
-                    if (code == 0x18 || code == 0x1A)
-                    {
-                        Transition(ParserState.Ground);
-                    }
-                    else if (code == 0x1B) // ESC
+                    // ESC first: it opens every escape sequence, so in any stream carrying SGR it
+                    // is the control character that arrives here most. CAN and SUB are the rare
+                    // pair and are tested after it rather than in front of it.
+                    if (code == 0x1B) // ESC
                     {
                         Transition(ParserState.Escape);
+                    }
+                    else if (code == 0x18 || code == 0x1A)
+                    {
+                        // CAN and SUB abandon whatever is in flight -- that is what CAN is for --
+                        // and the vt100.net table and xterm.js both return to Ground on them.
+                        // Without the transition this parser stayed inside the cancelled sequence
+                        // and went on reading the bytes after it as parameters. DcsPassthrough and
+                        // ApcString have handled these correctly all along, further down, and keep
+                        // doing so: they have a payload to close and report as unclean.
+                        Transition(ParserState.Ground);
                     }
                     return;
 
@@ -474,10 +477,11 @@ public class EscapeSequenceParser
                         DispatchOsc();
                         Transition(code == 0x1B ? ParserState.Escape : ParserState.Ground);
                     }
-                    else if (code >= 0x20 && code < 0x80)
-                    {
-                        OscPut(code);
-                    }
+                    // Nothing else is appended. Reaching here means a C0 control other than the
+                    // terminators above, or a C1 other than ST -- neither belongs in a payload,
+                    // and the arm that used to take them could not fire anyway: this block is
+                    // entered only for code < 0x20 or 0x80-0x9F, so a `code >= 0x20 && code < 0x80`
+                    // test was false for everything that could reach it.
                     return;
             }
         }
@@ -804,7 +808,12 @@ public class EscapeSequenceParser
                 // buffer and were handed to the NEXT ESC dispatch. terminfo's enacs sends
                 // ESC ( B ESC ) 0, and the leftover "(" turned the second designator into a G0
                 // line-drawing switch -- a terminal that drew its own prompt in box characters.
-                _collect.Clear();
+                //
+                // Tested before clearing because this runs on every ESC and the builder is
+                // already empty for every sequence that carries no intermediate, which is nearly
+                // all of them: a length compare instead of a call.
+                if (_collect.Length > 0)
+                    _collect.Clear();
                 break;
 
             case ParserState.CsiEntry:
