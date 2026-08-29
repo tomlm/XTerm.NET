@@ -490,7 +490,11 @@ public class EscapeSequenceParser
                 // It slipped through because the C0/C1 test above brackets 0x00-0x1F and
                 // 0x80-0x9F, and this arm took everything else -- the ASCII fast paths already
                 // exclude it, then handed it here to be printed as a cell.
-                if (code >= 0x20 && code != 0x7F)
+                //
+                // One compare, not two: the control block above RETURNS for everything below 0x20
+                // in this state, so the old `code >= 0x20` guard could not fail by the time
+                // execution reached here. Excluding DEL replaces it rather than joining it.
+                if (code != 0x7F)
                 {
                     OnPrint(code);
                 }
@@ -565,18 +569,22 @@ public class EscapeSequenceParser
                 break;
 
             case ParserState.CsiParam:
-                if (code >= 0x3C && code <= 0x3F)
-                {
-                    // A private marker is only legal before the parameters. Arriving after a digit
-                    // it makes the sequence malformed, and the spec's answer is to swallow the
-                    // rest of it rather than act on the half that parsed: CSI 1 ? 5 h was being
-                    // honoured as SM 15. This is the only path into CsiIgnore, which was
-                    // unreachable until now.
-                    Transition(ParserState.CsiIgnore);
-                }
-                else if (code >= 0x30 && code < 0x40)
+                // Digits, colon and semicolon FIRST: this is where a CSI spends nearly every one
+                // of its characters -- CSI 38;2;R;G;B m is a dozen of them and one final -- so
+                // testing the rare private marker ahead of them charged the whole hot path for a
+                // case that almost never fires.
+                if (code >= 0x30 && code < 0x3C)
                 {
                     Param(code);
+                }
+                else if (code >= 0x3C && code <= 0x3F)
+                {
+                    // A private marker is legal
+                    // before the parameters, not after one. Arriving here the sequence is
+                    // malformed, and the spec swallows the rest rather than acting on the half
+                    // that parsed: CSI 1 ? 5 h was honoured as SM 15. Also the only path into
+                    // CsiIgnore, unreachable until this.
+                    Transition(ParserState.CsiIgnore);
                 }
                 else if (code >= 0x40 && code < 0x7F)
                 {
