@@ -4,6 +4,17 @@ using XTerm;
 using XTerm.Bench;
 using XTerm.Options;
 
+// The CI perf gate swaps a BASE-side XTerm.NET.dll into this HEAD-built output, and the base
+// may depend on packages this build's deps.json has never heard of -- the host only probes the
+// deps.json trusted list, so a staged assembly beside the app still fails to load. Probe the
+// app directory for anything unknown: dependency drift between the two sides, in either
+// direction, then never breaks the harness.
+System.Runtime.Loader.AssemblyLoadContext.Default.Resolving += (context, name) =>
+{
+    var candidate = Path.Combine(AppContext.BaseDirectory, name.Name + ".dll");
+    return File.Exists(candidate) ? context.LoadFromAssemblyPath(candidate) : null;
+};
+
 // Two modes, because they answer different questions.
 //
 //   bench  — BenchmarkDotNet: how long, and how many bytes allocated, per stream. Hard numbers.

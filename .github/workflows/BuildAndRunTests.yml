@@ -93,8 +93,14 @@ jobs:
         BASE="${{ github.event.pull_request.base.sha || 'HEAD~1' }}"
         echo "base commit: $BASE"
         git worktree add /tmp/base "$BASE"
-        dotnet build /tmp/base/src/XTerm.NET -c Release --property WarningLevel=0
+        # CopyLocalLockFileAssemblies, because a plain library build does not put package
+        # assemblies in its bin — and the base may depend on packages the head no longer
+        # carries. The swap below only replaces XTerm.NET.dll, so the base's companions are
+        # staged no-clobber: head's versions win where both sides have one, and the base's
+        # extras merely sit unloaded while head runs.
+        dotnet build /tmp/base/src/XTerm.NET -c Release --property WarningLevel=0           -p:CopyLocalLockFileAssemblies=true
         cp /tmp/base/src/XTerm.NET/bin/Release/net10.0/XTerm.NET.dll /tmp/libs/base.dll
+        cp -n /tmp/base/src/XTerm.NET/bin/Release/net10.0/*.dll "$OUT/" || true
 
     # Alternating, so a runner that gets slower or faster part way through does so to both sides
     # rather than to one. Run through `dotnet <dll>` rather than `dotnet run`, which would rebuild
