@@ -116,6 +116,25 @@ public class TerminalBuffer
         /// </summary>
         public bool PendingWrap { get; set; }
 
+        /// <summary>
+        /// What G0-G3 were designated to when the cursor was saved, indexed by <see
+        /// cref="CharsetMode"/>. <see cref="Charset"/> records which G-set was selected; this
+        /// records what each one MEANT, because ESC ( 0 replaces a designation rather than the
+        /// selection, and DECRC has to put both back.
+        ///
+        /// It lives here, with the rest of the saved state, because DECSC is per-screen: an
+        /// application that saves and restores inside the alternate buffer must not disturb what
+        /// the normal buffer had saved.
+        ///
+        /// A fixed array of four rather than a copied Dictionary, allocated on the first DECSC
+        /// and reused after: DECSC is not rare -- a full-screen program saves and restores the
+        /// cursor on every redraw -- and copying a dictionary allocated once per save. There are
+        /// exactly four G-slots and the enum numbers them from zero, so the save is four
+        /// reference writes. Null means DECSC has not run on this screen, which is what tells
+        /// DECRC to leave the designations alone.
+        /// </summary>
+        public Dictionary<char, string>?[]? Designations { get; set; }
+
         public SavedCursor()
         {
             X = 0;

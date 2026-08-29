@@ -117,6 +117,29 @@ public class CursorAndMarginTests
     }
 
     [Fact]
+    public void A_save_inside_the_alternate_screen_does_not_disturb_the_normal_one()
+    {
+        // DECSC is per-screen: the rest of the saved state already lives on the buffer, so the
+        // charset designations have to as well. Held on the input handler instead, a full-screen
+        // program's save-and-restore inside the alternate buffer overwrote what the shell had
+        // saved, and the line-drawing designation came back as ASCII after the program exited.
+        var terminal = NewTerminal();
+        terminal.Write($"{Esc}(0");        // normal screen: G0 = line drawing
+        terminal.Write($"{Esc}7");         // saved here, with line drawing designated
+
+        terminal.Write($"{Esc}[?1049h");   // a full-screen program starts
+        terminal.Write($"{Esc}(B");        // it wants ASCII
+        terminal.Write($"{Esc}7");         // and saves and restores on its own redraws
+        terminal.Write($"{Esc}8");
+        terminal.Write($"{Esc}[?1049l");   // it exits
+
+        terminal.Write($"{Esc}8");         // the shell restores what IT saved
+        terminal.Write("q");
+
+        Assert.Equal("\u2500", Row(terminal, 0, 1));
+    }
+
+    [Fact]
     public void A_program_can_set_and_clear_its_own_tab_stops()
     {
         // `tabs 4` writes stops with HTS. TBC used to acknowledge the request and do nothing.

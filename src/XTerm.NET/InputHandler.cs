@@ -40,21 +40,6 @@ public class InputHandler
     private Dictionary<char, string>? _activeCharset;
     private CharsetMode _currentCharset;
 
-    /// <summary>
-    /// What each G-slot pointed at when DECSC last ran, indexed by <see cref="CharsetMode"/>.
-    /// </summary>
-    /// <remarks>
-    /// A fixed array of four, not a Dictionary copy: DECSC is not rare -- a full-screen program
-    /// saves and restores the cursor on every redraw -- and copying a dictionary allocated one
-    /// per save. There are exactly four G-slots and the enum numbers them from zero, so an array
-    /// indexes them directly and the save becomes four reference writes into storage that is
-    /// allocated once.
-    /// </remarks>
-    private readonly Dictionary<char, string>?[] _savedCharsetDesignations = new Dictionary<char, string>?[4];
-
-    /// <summary>Whether DECSC has run, so DECRC knows the array above means something.</summary>
-    private bool _hasSavedCharsets;
-
     // Variation selector and combining character constants
     private const int VariationSelectorEmojiSymbol = 0xFE0F;  // Emoji presentation selector
     private const int VariationSelectorTextSymbol = 0xFE0E;   // Text presentation selector
@@ -6536,10 +6521,9 @@ public class InputHandler
         // which set is selected, so saving _currentCharset alone restored a pointer to a table
         // the program had since replaced: a TUI that saved the cursor mid-border finished the box
         // in letters.
-        for (var slot = 0; slot < _savedCharsetDesignations.Length; slot++)
-            _savedCharsetDesignations[slot] = _charsets.GetValueOrDefault((CharsetMode)slot);
-
-        _hasSavedCharsets = true;
+        var designations = _buffer.SavedCursorState.Designations ??= new Dictionary<char, string>?[4];
+        for (var slot = 0; slot < designations.Length; slot++)
+            designations[slot] = _charsets.GetValueOrDefault((CharsetMode)slot);
         _buffer.SavedCursorState.OriginMode = _terminal.OriginMode;
         _buffer.SavedCursorState.PendingWrap = _buffer.PendingWrap;
     }
@@ -6556,10 +6540,11 @@ public class InputHandler
         else
             _buffer.SetCursor(_buffer.SavedCursorState.X, _buffer.SavedCursorState.Y);
         _curAttr = _buffer.SavedCursorState.Attr;
-        if (_hasSavedCharsets)
+        var designations = _buffer.SavedCursorState.Designations;
+        if (designations is not null)
         {
-            for (var slot = 0; slot < _savedCharsetDesignations.Length; slot++)
-                _charsets[(CharsetMode)slot] = _savedCharsetDesignations[slot];
+            for (var slot = 0; slot < designations.Length; slot++)
+                _charsets[(CharsetMode)slot] = designations[slot];
         }
 
         _currentCharset = _buffer.SavedCursorState.Charset;
