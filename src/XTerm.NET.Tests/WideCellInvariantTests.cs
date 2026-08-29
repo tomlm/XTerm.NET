@@ -122,4 +122,78 @@ public class WideCellInvariantTests
         var runes = line[0].Content.EnumerateRunes().Select(r => r.Value).ToArray();
         Assert.Equal([0x1F468, 0x200D, 0x1F469], runes);
     }
+
+    [Fact]
+    public void A_wide_character_that_cannot_fit_is_dropped_when_wrapping_is_off()
+    {
+        // The early wrap that makes room for a two-column character is guarded by DECAWM, so with
+        // wrapping off the character reached the last column and was stored there while the margin
+        // refused its spacer -- producing the very orphan this class is about, by the one path
+        // that skipped the guard. xterm.js parks the cursor and drops the character instead.
+        var terminal = NewTerminal(cols: 10);
+        terminal.Write($"{Esc}[?7l");          // DECAWM off
+        terminal.Write($"{Esc}[1;10H");        // last column
+        terminal.Write("界");
+
+        AssertNoOrphans(terminal);
+        Assert.NotEqual(2, terminal.Buffer.Lines[0]![9].Width);
+    }
+
+    [Fact]
+    public void A_wide_character_copied_into_a_line_is_still_repaired_afterwards()
+    {
+        // HasWideCells was latched only by SetCell, but cells also arrive through the bulk copies
+        // that margin scrolling and reflow use, which write the array directly. A line that got
+        // its wide character that way kept a false latch, so every later repair skipped it and the
+        // orphan came back.
+        var line = new XTerm.Buffer.BufferLine(10, XTerm.Buffer.BufferCell.Space);
+        var source = new XTerm.Buffer.BufferLine(10, XTerm.Buffer.BufferCell.Space);
+
+        var wide = XTerm.Buffer.BufferCell.Space;
+        wide.Content = "界";
+        wide.Width = 2;
+        source.SetCell(2, ref wide);
+
+        line.CopyCellsFrom(source, 0, 0, 10, applyInReverse: false);
+
+        Assert.True(line.HasWideCells,
+            "a line holding a copied wide cell must report it, or its repairs are skipped");
+
+        // And the repair the latch gates actually runs: clearing the spacer's column alone would
+        // leave the width-2 cell in front of it orphaned.
+        line.Fill(XTerm.Buffer.BufferCell.Space, 3, 4);
+        Assert.NotEqual(2, line[2].Width);
+    }
+
+    [Fact]
+    public void A_cloned_line_carries_the_wide_cell_latch()
+    {
+        var source = new XTerm.Buffer.BufferLine(10, XTerm.Buffer.BufferCell.Space);
+        var wide = XTerm.Buffer.BufferCell.Space;
+        wide.Content = "界";
+        wide.Width = 2;
+        source.SetCell(0, ref wide);
+
+        Assert.True(source.Clone().HasWideCells);
+    }
+
+    [Fact]
+    public void A_recycled_line_takes_the_latch_of_what_replaced_it()
+    {
+        // CopyFrom REPLACES the contents, so the latch belongs to the incoming cells. Scrollback
+        // lines are recycled, and one that once held a wide character would otherwise carry the
+        // latch for the rest of the session.
+        var source = new XTerm.Buffer.BufferLine(10, XTerm.Buffer.BufferCell.Space);
+        var wide = XTerm.Buffer.BufferCell.Space;
+        wide.Content = "界";
+        wide.Width = 2;
+        source.SetCell(0, ref wide);
+
+        var recycled = new XTerm.Buffer.BufferLine(10, XTerm.Buffer.BufferCell.Space);
+        recycled.CopyFrom(source);
+        Assert.True(recycled.HasWideCells);
+
+        recycled.CopyFrom(new XTerm.Buffer.BufferLine(10, XTerm.Buffer.BufferCell.Space));
+        Assert.False(recycled.HasWideCells);
+    }
 }

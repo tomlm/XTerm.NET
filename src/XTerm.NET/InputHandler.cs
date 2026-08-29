@@ -534,8 +534,19 @@ public class InputHandler
             // Done here rather than inside ResolveAutowrap because that helper answers "was the
             // wrap resolved", and the OSC 66 sized-block path depends on its false to move a whole
             // block back by its own width instead of one column.
-            _buffer.SetCursorRaw(WrapLimit(), _buffer.Y);
+            //
+            // The value computed above, not a second call: reaching here means wrapping is off, so
+            // the early-wrap block did not run and nothing has moved the cursor since.
+            _buffer.SetCursorRaw(wrapLimit, _buffer.Y);
         }
+
+        // DECAWM off and a two-column character at the last column: it does not fit, and there is
+        // nowhere to wrap it to. Stored anyway it became a width-2 cell whose spacer the margin
+        // then refused -- the orphaned half this change exists to prevent, produced by the one
+        // path that skipped the early wrap above. xterm.js parks the cursor at the last column
+        // and drops the character; so does this.
+        if (width == 2 && _buffer.X >= wrapLimit && !_terminal.Options.Wraparound)
+            return;
 
         // A cell belonging to a scaled block anchored on an earlier row is not written into: the
         // cursor moves past the block's cells on this row and the text lands after them. Known

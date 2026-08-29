@@ -87,6 +87,9 @@ public class BufferLine : IEnumerable<BufferCell>
         _lineAttribute = LineAttribute.Normal;
 
         var fill = fillCell ?? BufferCell.Space;
+        if (fill.Width == 2)
+            HasWideCells = true;
+
         for (int i = 0; i < cols; i++)
         {
             _cells[i] = fill;
@@ -109,15 +112,15 @@ public class BufferLine : IEnumerable<BufferCell>
         {
             if (index >= 0 && index < _length)
             {
+                if (value.Width == 2)
+                    HasWideCells = true;
+
                 _cells[index] = value;
                 Cache = null;
             }
         }
     }
 
-    /// <summary>
-    /// Sets a cell at a specific column.
-    /// </summary>
     /// <summary>
     /// Whether this line has ever held a two-column character. A latch, not a count: it exists so
     /// the print path can skip its orphan check with one field read, and the only cost of a stale
@@ -153,6 +156,9 @@ public class BufferLine : IEnumerable<BufferCell>
         }
     }
 
+    /// <summary>
+    /// Sets a cell at a specific column.
+    /// </summary>
     public void SetCell(int index, ref BufferCell cell)
     {
         if (index >= 0 && index < _length)
@@ -342,6 +348,13 @@ public class BufferLine : IEnumerable<BufferCell>
         // that shifts right within a line is safe now whatever it passes.
         if (ReferenceEquals(src, this) && destCol > srcCol && destCol < srcCol + length)
             applyInReverse = true;
+
+        // Inherit the source's latch rather than inspecting what was copied. It is a latch, so
+        // over-approximating costs one repair check that finds nothing, while UNDER-approximating
+        // costs the invariant: margin scrolling and reflow copy cells straight into _cells, and a
+        // wide character arriving that way into a line whose latch stayed false would have every
+        // later repair skip it -- reintroducing exactly the orphan this PR exists to prevent.
+        HasWideCells |= src.HasWideCells;
 
         if (applyInReverse)
         {
@@ -1061,6 +1074,7 @@ public class BufferLine : IEnumerable<BufferCell>
         {
             newLine._cells[i] = _cells[i];
         }
+        newLine.HasWideCells = HasWideCells;
         newLine.Cache = this.Cache;
         return newLine;
     }
@@ -1082,6 +1096,11 @@ public class BufferLine : IEnumerable<BufferCell>
         }
         _isWrapped = line._isWrapped;
         _lineAttribute = line._lineAttribute;
+
+        // Assigned, not OR-ed: this REPLACES the line's contents rather than adding to them, so
+        // the latch belongs to the incoming cells. A recycled scrollback line that once held a
+        // wide character would otherwise carry that latch forever.
+        HasWideCells = line.HasWideCells;
         this.Cache = line.Cache;
     }
 
