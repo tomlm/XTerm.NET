@@ -96,6 +96,12 @@ public enum OscCommand
     KittyClipboard = 5522,
     
     /// <summary>
+    /// Kitty text sizing (OSC 66).
+    /// Format: OSC 66 ; key=value : ... ; text ST
+    /// </summary>
+    TextSizing = 66,
+    
+    /// <summary>
     /// Shell integration marks, FinalTerm/FTCS (OSC 133).
     /// Format: OSC 133 ; A ST            - start of prompt
     ///         OSC 133 ; B ST            - start of command line, i.e. end of prompt

@@ -275,6 +275,12 @@ public class TerminalBuffer
                 var scrollRegionStart = _yBase + _scrollTop;
                 var scrollRegionEnd = _yBase + _scrollBottom;
 
+                // The splice below is what IL and DL do, so it owes any block it tears the same.
+                // Flag tested HERE: a DECSTBM region scrolls once per newline — the tmux shape —
+                // and no bench corpus walks this path to catch a method call per line.
+                if (HasMultiRowSizedRuns)
+                    EraseSizedRunsSplitBy(scrollRegionStart, scrollRegionEnd);
+
                 // Delete the line at the top of scroll region
                 _lines.Splice(scrollRegionStart, 1);
 
@@ -302,6 +308,9 @@ public class TerminalBuffer
             // Calculate absolute positions in the buffer
             var scrollRegionStart = _yBase + _scrollTop;
             var scrollRegionEnd = _yBase + _scrollBottom;
+
+            if (HasMultiRowSizedRuns)
+                EraseSizedRunsSplitBy(scrollRegionStart, scrollRegionEnd);
 
             // Remove line from scroll region bottom
             _lines.Splice(scrollRegionEnd, 1);
@@ -477,6 +486,20 @@ public class TerminalBuffer
         var rows = bottom - top + 1;
         count = Math.Min(count, rows);
 
+        // A box scroll moves cells between lines while the runs describing them stay behind, so any
+        // OSC 66 block inside the box -- or hanging into it from above -- is erased first. The same
+        // rule the line-splicing scrolls follow, applied to the columns this one actually moves.
+        if (HasMultiRowSizedRuns || AnySizedRunsIn(top, bottom))
+        {
+            for (var row = top; row <= bottom; row++)
+            {
+                EraseSizedRunsCovering(_yBase + row, left, width);
+                _lines[_yBase + row]?.EraseSizedRunsReaching(left, width, 0);
+            }
+
+            RefreshMultiRowSizedRuns();
+        }
+
         if (up)
         {
             for (var row = top; row <= bottom - count; row++)
@@ -493,6 +516,18 @@ public class TerminalBuffer
             for (var row = top; row < top + count; row++)
                 FillMarginColumns(row, left, width, fill);
         }
+    }
+
+    /// <summary>Whether any line in the given viewport rows carries a sized run.</summary>
+    private bool AnySizedRunsIn(int top, int bottom)
+    {
+        for (var row = top; row <= bottom; row++)
+        {
+            if (_lines[_yBase + row] is { HasSizedRuns: true })
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>The blank a scroll leaves behind, matching what the full-width path fills with.</summary>
@@ -525,6 +560,159 @@ public class TerminalBuffer
     public int GetAbsoluteY(int y)
     {
         return _yBase + y;
+    }
+
+    /// <summary>
+    /// Whether a block taller than one row has ever been written to this buffer.
+    /// </summary>
+    /// <remarks>
+    /// The guard in front of <see cref="TryGetSizedRunCovering"/>, which the print path asks per
+    /// character. Almost no session ever sets it, and one that does pays a bounded walk of at most
+    /// <see cref="Common.TextSizing.MaxScale"/> minus one lines. It answers "is this worth looking
+    /// for" rather than counting: a stale false would lose the skipping behaviour entirely, so it is
+    /// only ever set by writing a tall block and cleared by
+    /// <see cref="RefreshMultiRowSizedRuns"/>, which the operations that can remove the last one
+    /// call.
+    /// </remarks>
+    public bool HasMultiRowSizedRuns { get; internal set; }
+
+    /// <summary>
+    /// The OSC 66 block, anchored on an EARLIER row, whose cells cover
+    /// <paramref name="column"/> of <paramref name="absoluteRow"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>A block <c>s</c> cells tall occupies <c>s</c> rows growing downwards from the line that
+    /// describes it. Only the first of those rows holds the run; this is how the others are found,
+    /// and it is what both the print path and a renderer need — the former to skip over cells that
+    /// belong to a block, the latter to know not to draw its own text there.</para>
+    /// <para>Rows below the first are found by looking UP rather than by marking them, so nothing
+    /// has to be kept in step with a buffer that scrolls: scrolling moves a block and the rows it
+    /// covers together, and their adjacency is the whole of the relationship.</para>
+    /// </remarks>
+    /// <param name="absoluteRow">Row to test, as an index into <see cref="Lines"/>.</param>
+    /// <param name="column">Column to test.</param>
+    /// <param name="run">The covering block.</param>
+    /// <param name="anchorRow">The row the block is anchored on, which is always above.</param>
+    public bool TryGetSizedRunCovering(int absoluteRow, int column, out LineSizedRun run, out int anchorRow)
+    {
+        for (var above = 1; above < Common.TextSizing.MaxScale; above++)
+        {
+            var row = absoluteRow - above;
+            if (row < 0)
+                break;
+
+            var line = row < _lines.Length ? _lines[row] : null;
+            if (line is null || !line.HasSizedRuns)
+                continue;
+
+            if (line.TryGetSizedRunAt(column, out var candidate) && candidate.Rows > above)
+            {
+                run = candidate;
+                anchorRow = row;
+                return true;
+            }
+        }
+
+        run = default;
+        anchorRow = -1;
+        return false;
+    }
+
+    /// <summary>
+    /// Erases every OSC 66 block anchored ABOVE <paramref name="absoluteRow"/> whose cells reach
+    /// into the given columns of that row, blanking what is left of each on its own line.
+    /// </summary>
+    /// <remarks>
+    /// The protocol's erase rule is about the region of the screen erased, not about a line: a block
+    /// intersected anywhere -- including on a row it merely hangs over -- is erased whole. The
+    /// controls that erase a line's own cells get that for free, because writing over any cell of a
+    /// block destroys it; this is the other half, for the rows below the block's own.
+    /// </remarks>
+    public void EraseSizedRunsCovering(int absoluteRow, int column, int count)
+    {
+        if (!HasMultiRowSizedRuns || count <= 0)
+            return;
+
+        for (var above = 1; above < Common.TextSizing.MaxScale; above++)
+        {
+            var row = absoluteRow - above;
+            if (row < 0)
+                break;
+
+            var line = row < _lines.Length ? _lines[row] : null;
+            if (line is null || !line.HasSizedRuns)
+                continue;
+
+            line.EraseSizedRunsReaching(column, count, above);
+        }
+    }
+
+    /// <summary>
+    /// Erases every OSC 66 block that a splice of the rows <paramref name="regionStart"/> to
+    /// <paramref name="regionEnd"/> would tear in half, and re-derives the search flag.
+    /// </summary>
+    /// <remarks>
+    /// <para>A scroll of a PARTIAL region is the same buffer transformation <c>IL</c> and <c>DL</c>
+    /// perform: a line is spliced out of the middle of the ring and a blank spliced in. Rows inside
+    /// the region move together, so a block wholly inside one keeps its shape; the two blocks that
+    /// do not survive are the one hanging INTO the region from above, whose lower rows are about to
+    /// move away from it, and the one anchored inside the region that reaches OUT below it, whose
+    /// lower rows are about to stay behind. Both are split, and the protocol has a split block
+    /// erased.</para>
+    /// <para>A full-screen scroll moves every row together and needs none of this, which is why the
+    /// call sites ask only for the region they splice.</para>
+    /// </remarks>
+    internal void EraseSizedRunsSplitBy(int regionStart, int regionEnd)
+    {
+        if (!HasMultiRowSizedRuns)
+            return;
+
+        EraseSizedRunsCovering(regionStart, 0, _cols);
+
+        for (var row = regionStart; row <= regionEnd; row++)
+        {
+            var line = row >= 0 && row < _lines.Length ? _lines[row] : null;
+            if (line is null || !line.HasSizedRuns)
+                continue;
+
+            // A block on this row reaches past the region when it is taller than the rows left
+            // below it, the last of which is the region's own bottom.
+            line.EraseSizedRunsReaching(0, _cols, regionEnd - row + 1);
+        }
+
+        RefreshMultiRowSizedRuns();
+    }
+
+    /// <summary>
+    /// Re-derives <see cref="HasMultiRowSizedRuns"/> from what the buffer actually holds.
+    /// </summary>
+    /// <remarks>
+    /// The flag only ever turns itself on, because turning it off wrongly would lose the skipping
+    /// behaviour while turning it on wrongly costs only a lookup. That leaves it to the operations
+    /// that plausibly remove the last tall block -- clearing the screen, a reset -- to ask for it to
+    /// be worked out again, which is worth doing because a stale true retires the print fast path
+    /// for the rest of the session. The scan is bounded by the ring and only runs when the flag is
+    /// set, so a session that has never drawn a tall block never pays for it.
+    /// </remarks>
+    public void RefreshMultiRowSizedRuns()
+    {
+        if (!HasMultiRowSizedRuns)
+            return;
+
+        for (int i = 0; i < _lines.Length; i++)
+        {
+            var line = _lines[i];
+            if (line is null || !line.HasSizedRuns)
+                continue;
+
+            foreach (var run in line.SizedRuns)
+            {
+                if (run.Rows > 1)
+                    return;
+            }
+        }
+
+        HasMultiRowSizedRuns = false;
     }
 
     /// <summary>
@@ -776,7 +964,7 @@ public class TerminalBuffer
                 wrappedLines.Insert(0, nextLine);
             }
 
-            if (BufferReflow.HasNonNormalLineAttribute(wrappedLines))
+            if (BufferReflow.IsUnreflowable(wrappedLines))
             {
                 continue;
             }

@@ -678,6 +678,11 @@ public class Terminal
                 line.LineAttribute = LineAttribute.Normal;
             }
         }
+
+        // Filling every line took every OSC 66 block with it, so the print path can stop looking for
+        // the rows one hangs over -- otherwise a single heading early in a session retires the fast
+        // path for the whole of it.
+        _buffer.RefreshMultiRowSizedRuns();
         _buffer.SetCursor(0, 0);
     }
 

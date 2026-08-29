@@ -26,6 +26,8 @@ that part of the picture; Kitty is an *overlay* ordered against the text by its 
 - **Kitty Graphics** — Decodes the Kitty protocol (`ESC _ G …`), including chunked transmission, PNG,
   transmit-once/place-many by image id, animation, and U+10EEEE Unicode placeholders, so `icat`,
   `chafa -f kitty`, `timg -pk`, `yazi` and `image.nvim` work the same way
+- **Kitty Text Sizing** — Decodes the text sizing protocol (`OSC 66`), so a client can state how many
+  cells a string takes and ask for it larger or smaller than the base size
 - **Capability Queries** — Answers XTGETTCAP (`ESC P + q …`), so a program can ask the terminal what
   it can do instead of trusting whatever terminfo entry happens to be installed. See
   [Capability queries](#capability-queries)
@@ -313,6 +315,50 @@ void RenderTerminal(Terminal terminal)
 **Handling wide characters:**
 
 Wide characters (e.g., CJK ideographs, emoji) have `Width = 2`. The first cell contains the character, and the second cell has `Width = 0` as a placeholder — skip it during rendering but allocate space for the double-width glyph.
+
+**Handling sized text (`OSC 66`):**
+
+The Kitty text sizing protocol — `OSC 66 ; s=2 ; Heading ST` — draws a run of text at a multiple of
+the cell size. It has two halves, and a renderer can honour the first without the second.
+
+The *width* half is the emulator's own and needs nothing from you. A run claims `s * w` columns (or,
+with `w=0`, each of its characters claims `s` times its normal width), and it claims them the way a
+double-width character does: the first cell carries the text with `Width` set to the columns it took,
+and the rest are `Width = 0` continuations. So the cursor, selection and search already agree with
+the client about how much room the run occupies — which is the point of the `w` key, a client telling
+the terminal a string's width instead of both sides guessing at Unicode. A line holding a run is not
+re-wrapped by a resize, exactly as a double-width line is not: the block keeps its shape, and a
+narrowing that cuts it erases it and blanks what is left rather than leaving a cell claiming columns
+that are gone.
+
+The *scale* half is yours. Ask the line what it holds:
+
+```csharp
+if (line.TryGetSizedRunAt(col, out LineSizedRun run))
+{
+    // run.Cols   — the columns the run covers
+    // run.Rows   — how many rows tall the block is (its scale), growing DOWNWARDS from this line
+    // run.Sizing — Scale, Width, the Numerator/Denominator fraction, and the two alignments
+}
+```
+
+Draw the run's text scaled to `run.Cols` by `run.Rows` cells, applying the fraction inside that block
+when `run.Sizing.IsFractional` and placing the fractional area with `VerticalAlignment` and
+`HorizontalAlignment`. The rows a tall block covers are held for it: printing that would land in one
+of them steps past the block instead, so the text a client writes underneath a heading is placed
+after it rather than beneath it. Ask the buffer which block covers a cell:
+
+```csharp
+if (terminal.Buffer.TryGetSizedRunCovering(absoluteRow, col, out var run, out var anchorRow))
+{
+    // the block is drawn from anchorRow; this cell is one of the rows it occupies
+}
+```
+
+Erasing or splicing any row a block touches — `ED`, `EL`, `ECH`, `IL`, `DL` — erases the whole
+block, as the protocol asks, so a block never outlives the rows it was drawn over. A renderer that
+cannot scale at all should draw the text at the base size in the first cell of the block; the columns
+are reported honestly either way.
 
 ### Images
 
