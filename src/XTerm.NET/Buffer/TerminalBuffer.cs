@@ -148,6 +148,12 @@ public class TerminalBuffer
     /// </summary>
     public BufferLine? GetLine(int y)
     {
+        // The signature promises null for a row that is not there; forwarding straight to the ring
+        // threw IndexOutOfRangeException instead, so every caller written against the nullable
+        // contract was one stale row index away from taking down the write loop.
+        if (y < 0 || y >= _lines.Length)
+            return null;
+
         return _lines[y];
     }
 
@@ -389,9 +395,15 @@ public class TerminalBuffer
         if (_yBase == 0)
             return;
 
-        _lines.TrimStart(_yBase);
+        var dropped = _yBase;
+        _lines.TrimStart(dropped);
         _yBase = 0;
         _yDisp = 0;
+
+        // Anything tracking absolute rows -- a selection, a search result, a shell-integration
+        // mark -- is now pointing above the buffer. Resize's trim path already reports itself;
+        // this one did not, so CSI 3 J left the selection highlighting rows that had moved.
+        Trimmed?.Invoke(dropped);
     }
 
     /// <summary>

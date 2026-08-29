@@ -158,10 +158,15 @@ public class SelectionManager
             var lineText = line.TranslateToString(false, startX, endX + 1);
             text.Append(lineText);
 
-            // Add line break if not last line and line doesn't wrap
-            if (y < end.y && !line.IsWrapped)
+            // The flag belongs to the FOLLOWING line, not this one: IsWrapped means "this line
+            // continues the previous", so whether row y joins row y+1 is row y+1's answer. Testing
+            // this row inserted newlines inside wrapped text and ran separate lines together --
+            // copying a wrapped command out of the scrollback pasted it broken in both directions.
+            if (y < end.y)
             {
-                text.Append('\n');
+                var next = y + 1 < buffer.Lines.Length ? buffer.Lines[y + 1] : null;
+                if (next is null || !next.IsWrapped)
+                    text.Append('\n');
             }
         }
 
@@ -214,28 +219,32 @@ public class SelectionManager
         var start = _selectionStart.Value;
         var end = _selectionEnd.Value;
 
-        // Expand start to word boundary
-        var startLine = start.y >= 0 && start.y < buffer.Lines.Length ? buffer.Lines[start.y] : null;
-        if (startLine != null)
+        // Expansion follows the ORDER the points are in, not the order they were recorded in.
+        // Growing _selectionStart leftward and _selectionEnd rightward is only right while the
+        // anchor precedes the mouse; drag backwards and the two swap roles, so the anchor was
+        // grown the wrong way and the word under the mouse was truncated instead of completed.
+        var forward = start.y < end.y || (start.y == end.y && start.x <= end.x);
+        var (first, last) = forward ? (start, end) : (end, start);
+
+        var firstLine = first.y >= 0 && first.y < buffer.Lines.Length ? buffer.Lines[first.y] : null;
+        if (firstLine != null)
         {
-            while (start.x > 0 && IsWordChar(startLine[start.x - 1].Content))
+            while (first.x > 0 && IsWordChar(firstLine[first.x - 1].Content))
             {
-                start.x--;
+                first.x--;
             }
         }
 
-        // Expand end to word boundary
-        var endLine = end.y >= 0 && end.y < buffer.Lines.Length ? buffer.Lines[end.y] : null;
-        if (endLine != null)
+        var lastLine = last.y >= 0 && last.y < buffer.Lines.Length ? buffer.Lines[last.y] : null;
+        if (lastLine != null)
         {
-            while (end.x < _terminal.Cols - 1 && IsWordChar(endLine[end.x + 1].Content))
+            while (last.x < _terminal.Cols - 1 && IsWordChar(lastLine[last.x + 1].Content))
             {
-                end.x++;
+                last.x++;
             }
         }
 
-        _selectionStart = start;
-        _selectionEnd = end;
+        (_selectionStart, _selectionEnd) = forward ? (first, last) : (last, first);
     }
 
     /// <summary>

@@ -129,8 +129,27 @@ public class CircularList<T> where T : class
             }
             else
             {
-                // At max capacity, push out oldest
+                // At capacity the oldest element goes, but the new one still belongs at `start`.
+                // Push alone appended it to the TAIL, so a splice into the middle of a full list
+                // silently became an append -- inserting a reflowed line put it at the bottom of
+                // the scrollback instead of where the text was.
                 Push(item);
+
+                // Push put it at the tail and dropped the oldest, so every surviving index shifted
+                // down by one. Move it back to the position the caller asked for, counted in the
+                // list as it now stands.
+                var target = Math.Min(start, _length - 1);
+                if (target >= 0 && target < _length - 1)
+                {
+                    for (var i = _length - 1; i > target; i--)
+                    {
+                        this[i] = this[i - 1];
+                    }
+
+                    this[target] = item;
+                }
+
+                start++;
             }
         }
     }
@@ -144,6 +163,16 @@ public class CircularList<T> where T : class
             return;
 
         count = Math.Min(count, _length);
+
+        // Release the trimmed slots. Advancing the start index alone left every trimmed line
+        // referenced by the backing array until a later Push happened to overwrite that slot, so
+        // CSI 3 J returned the scrollback's memory only as new output arrived to displace it.
+        // Pop already nulls its slot for the same reason.
+        for (var i = 0; i < count; i++)
+        {
+            _array[(_startIndex + i) % MaxLength] = default;
+        }
+
         _startIndex = (_startIndex + count) % MaxLength;
         _length -= count;
     }
