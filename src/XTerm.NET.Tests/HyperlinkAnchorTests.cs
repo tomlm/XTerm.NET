@@ -204,6 +204,20 @@ public class HyperlinkAnchorTests
     }
 
     [Fact]
+    public void Widening_joins_the_pieces_of_one_wrapped_link()
+    {
+        var t = Fresh(cols: 10, rows: 5);
+        t.Write(Link("https://example.com") + "0123456789ABCD" + EndLink());
+        t.Write($"{Esc}[5;1H");
+
+        t.Resize(20, 5);
+
+        var link = Assert.Single(Row(t).Links);
+        Assert.Equal(0, link.Column);
+        Assert.Equal(14, link.Cols);
+    }
+
+    [Fact]
     public void Reflow_splits_a_link_at_each_new_wrap_boundary()
     {
         var t = Fresh(cols: 12, rows: 6);

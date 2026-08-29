@@ -455,9 +455,20 @@ public class BufferLine : IEnumerable<BufferCell>
     /// <summary>Drops every link span. Only line reuse does this.</summary>
     internal void ClearLinks() => _links = null;
 
-    /// <summary>Adds an already-normalized link span without joining it to a neighbour.</summary>
+    /// <summary>Adds an already-normalized link span, joining a contiguous piece of the same link.</summary>
     internal void AddLink(LineHyperlink link)
     {
+        if (_links is { Count: > 0 })
+        {
+            var previous = _links[^1];
+            if (previous.EndColumn == link.Column && previous.SameLinkAs(link.Url, link.Id))
+            {
+                _links[^1] = new LineHyperlink(
+                    previous.Column, previous.Cols + link.Cols, previous.Url, previous.Id);
+                return;
+            }
+        }
+
         _links ??= new List<LineHyperlink>(1);
         _links.Add(link);
     }

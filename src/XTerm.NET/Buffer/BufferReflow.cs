@@ -66,6 +66,9 @@ public static class BufferReflow
             }
 
             var metadata = CaptureMetadata(wrappedLines, oldCols);
+            // The helper describes the same logical cell stream in either resize direction: it
+            // advances by newCols and shortens only at a wide-cell boundary. With newCols larger
+            // it therefore yields the exact rows the merge loop below produces as well.
             var destinationLineLengths = metadata is null
                 ? null
                 : ReflowSmallerGetNewLineLengths(wrappedLines, oldCols, newCols);
@@ -300,6 +303,9 @@ public static class BufferReflow
             {
                 var (line, column) = Locate(offset, lineLengths);
                 var take = Math.Min(remaining, lineLengths[line] - column);
+                // Capture clamps links to the source stream and reflow preserves that stream's
+                // total length, so a positive remainder always has a destination cell.
+                System.Diagnostics.Debug.Assert(take > 0);
                 if (take <= 0)
                     break;
                 lines[line].AddLink(new LineHyperlink(column, take, logical.Url, logical.Id));
@@ -313,12 +319,13 @@ public static class BufferReflow
     {
         for (var i = 0; i < lineLengths.Count; i++)
         {
+            // An end-of-content mark belongs at the end of the final row rather than disappearing.
             if (offset < lineLengths[i] || i == lineLengths.Count - 1)
                 return (i, Math.Clamp(offset, 0, lineLengths[i]));
             offset -= lineLengths[i];
         }
 
-        return (0, 0);
+        throw new InvalidOperationException("Reflow metadata requires at least one destination row.");
     }
 
     /// <summary>
