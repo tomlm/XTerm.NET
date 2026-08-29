@@ -455,6 +455,13 @@ public class BufferLine : IEnumerable<BufferCell>
     /// <summary>Drops every link span. Only line reuse does this.</summary>
     internal void ClearLinks() => _links = null;
 
+    /// <summary>Adds an already-normalized link span without joining it to a neighbour.</summary>
+    internal void AddLink(LineHyperlink link)
+    {
+        _links ??= new List<LineHyperlink>(1);
+        _links.Add(link);
+    }
+
     /// <summary>
     /// Records what a write of <paramref name="count"/> columns at <paramref name="column"/> did to
     /// this line's links: extended one, started one, or took those columns out of one.
