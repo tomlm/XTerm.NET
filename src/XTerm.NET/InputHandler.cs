@@ -5351,24 +5351,6 @@ public class InputHandler
         bool set;
         if (isPrivate)
         {
-            case TerminalMode.SynchronizedOutput:
-                state = _terminal.SynchronizedOutput ? 1 : 2;
-                break;
-
-            // Bracketed paste MIME leans on this answer by design: its spec's detection IS
-            // DECRQM, and an application that gets silence times out and falls back to 2004.
-            case TerminalMode.PasteNotification:
-                state = _terminal.PasteNotificationMode ? 1 : 2;
-                break;
-
-            // Worth answering, because an application that cannot ask will not use the feature: the
-            // whole point of DECSLRM is a layout that behaves differently when margins are available,
-            // and a well-behaved one checks before relying on them.
-            case TerminalMode.LeftRightMargin:
-                state = _terminal.LeftRightMarginMode ? 1 : 2;
-                break;
-
-            default:
             if (!TryGetPrivateModeState(mode, out set))
                 return;
         }
@@ -5402,6 +5384,11 @@ public class InputHandler
         {
             case (int)TerminalMode.AppCursorKeys:
                 set = _terminal.ApplicationCursorKeys;
+                return true;
+            // Bracketed paste MIME leans on this answer by design: its spec's detection IS
+            // DECRQM, and an application that gets silence times out and falls back to 2004.
+            case (int)TerminalMode.PasteNotification:
+                set = _terminal.PasteNotificationMode;
                 return true;
             case (int)TerminalMode.ReverseVideo:
                 set = _terminal.ReverseVideo;
