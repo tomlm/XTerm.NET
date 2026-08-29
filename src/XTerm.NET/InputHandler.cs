@@ -179,8 +179,10 @@ public class InputHandler
         // unicode corpus: CJK text — the bulk of that corpus — paid every Hangul range and the
         // Indic bracket to learn it was neither. The bands send Latin through one compare and
         // CJK through four.
-        if (codePoint < 0x0900)
-            return false;                                        // Latin through Hebrew and Arabic
+        // One unsigned bracket ejects BOTH ends — Latin below, CJK-adjacent astral emoji above.
+        // Every candidate lives in [U+0900, U+D7FB]; emoji walked the whole ladder without this.
+        if ((uint)(codePoint - 0x0900) > 0xD7FB - 0x0900)
+            return false;
         if (codePoint <= 0x0D7F)
             return IsConjunctConsonantCandidate(codePoint);      // the eight linker scripts
         if (codePoint < 0x1100)
