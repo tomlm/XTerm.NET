@@ -215,6 +215,14 @@ public class InputHandler
         return codePoint is >= 0xD7B0 and <= 0xD7C6 or >= 0xD7CB and <= 0xD7FB;
     }
 
+    /// <summary>
+    /// Whether this codepoint might join the previous cell at all — the category rules or the
+    /// sequence rules. Print guards the call with an inline <c>codePoint &gt;= 0x0300</c> so the
+    /// ASCII majority never gets here.
+    /// </summary>
+    private static bool MayContinueCluster(int codePoint) =>
+        IsCombiningCharacter(codePoint) || IsSequenceJoinCandidate(codePoint);
+
     /// <summary>The Fitzpatrick skin tone modifiers, U+1F3FB to U+1F3FF.</summary>
     private static bool IsSkinToneModifier(int codePoint)
         => codePoint >= 0x1F3FB && codePoint <= 0x1F3FF;
@@ -315,7 +323,10 @@ public class InputHandler
             // renders as a letter in a box — so it simply stops being the first half of anything.
             _regionalPending = null;
 
-            if (continuesCluster || IsCombiningCharacter(codePoint) || IsSequenceJoinCandidate(codePoint))
+            // Guarded at the CALL, like the placeholder test above and for the same measured
+            // reason: nothing below U+0300 can combine OR continue a sequence, so ASCII — most of
+            // every frame — pays one inline compare here instead of two real calls answering no.
+            if (continuesCluster || (codePoint >= 0x0300 && MayContinueCluster(codePoint)))
             {
                 // Find the previous cell to combine with
                 if (TryAppendToPreviousCell(data, codePoint))
