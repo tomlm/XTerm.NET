@@ -602,8 +602,22 @@ public class Terminal
     /// <summary>
     /// Resizes the terminal.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// Either dimension is negative.
+    /// </exception>
+    /// <remarks>
+    /// Zero is allowed and negative is not, which is a real distinction rather than a lenient one.
+    /// A host legitimately reports zero while its control exists but has not been laid out yet, and
+    /// the buffer supports being built empty and brought to life by a later resize -- there is a
+    /// test pinning exactly that. A negative dimension describes no state a window can be in; it
+    /// only ever arrives from arithmetic that went wrong upstream, and every buffer operation from
+    /// here down would carry the mistake somewhere that cannot explain itself.
+    /// </remarks>
     public void Resize(int cols, int rows)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(cols);
+        ArgumentOutOfRangeException.ThrowIfNegative(rows);
+
         if (cols == Cols && rows == Rows)
             return;
 

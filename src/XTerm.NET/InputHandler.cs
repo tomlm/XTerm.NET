@@ -45,6 +45,12 @@ public class InputHandler
     private const int VariationSelectorTextSymbol = 0xFE0E;   // Text presentation selector
     private const int ZeroWidthJoiner = 0x200D;               // ZWJ for emoji sequences
     private const int ObjectReplacementCharacter = 0xFFFC;    // stands in for an embedded object
+
+    /// <summary>
+    /// UTF-16 ceiling on one cell's cluster text. Generous next to the longest sequences that
+    /// occur in real text; a bound rather than a judgement about what should join.
+    /// </summary>
+    private const int MaxClusterChars = 64;
     private const int KeycapCombiner = 0x20E3;                // 1️⃣: digit + VS16 + this
     private const int SkinToneFirst = 0x1F3FB;                // Fitzpatrick modifiers,
     private const int SkinToneLast = 0x1F3FF;                 // light through dark
@@ -973,6 +979,16 @@ public class InputHandler
         }
 
         // Append the combining character to the previous cell's content
+        // A cluster has a practical ceiling: the longest real ones -- a family emoji with skin
+        // tones, a Devanagari conjunct with matras -- run to a dozen or so codepoints. Without a
+        // cap, a program that sends one base character and then combining marks forever grows a
+        // single cell's string without bound, and every intermediate length is interned
+        // permanently: REP of a self-joining cluster did this quadratically inside one CSI
+        // sequence. Refusing the join sends the mark to a cell of its own, which is what a
+        // terminal that cannot stack any more marks should show anyway.
+        if (prevCell.Content.Length >= MaxClusterChars)
+            return false;
+
         var newContent = prevCell.Content + data;
 
         // The appended codepoint's own column contribution, computed INCREMENTALLY: re-walking
@@ -2030,6 +2046,21 @@ public class InputHandler
         {
             _kittyTransmission.Append(payload);
 
+            // The cap MaxKittyPayloadChars was written for, finally applied where it matters.
+            // It was only ever enforced on _apcPayload, which bounds ONE escape sequence -- but a
+            // transmission spans as many sequences as the client cares to send, and each one is
+            // individually legal. 300 protocol-conforming chunks grew this accumulator to 292 MB
+            // with the transmission still open. EFBIG is the protocol's own answer for an image
+            // the terminal will not hold, and the state is dropped so the next chunk starts clean
+            // rather than continuing an abandoned image.
+            if (_kittyTransmission.PayloadLength > MaxKittyPayloadChars)
+            {
+                var abandoned = _kittyTransmission.Command;
+                _kittyTransmission = null;
+                ReplyToKitty(abandoned, Graphics.KittyError.TooLarge);
+                return;
+            }
+
             if (command.MoreChunks)
                 return;
 
@@ -2211,6 +2242,19 @@ public class InputHandler
             else
             {
                 FillCanvas(canvas, command.FrameBackground);
+            }
+
+            // Frames are charged against the same budget images are. ImageRegistry.Store accounts
+            // every image it holds and trims to the budget, but a frame never goes through Store --
+            // it is appended to an animation the registry already holds, so the registry's byte
+            // count never moved and no trim could ever see it. An animation is the one place in
+            // this protocol where a client adds full canvases to an object that already exists,
+            // which is exactly how the accounting was slipped.
+            var budget = _terminal.Options.MaxImageRegistryBytes;
+            if (budget > 0 && animation.ByteCount + frameBytes > budget)
+            {
+                ReplyToKitty(command, Graphics.KittyError.TooLarge);
+                return;
             }
 
             // A new frame's gap defaults to the protocol's figure rather than to nothing, or an
@@ -3066,9 +3110,14 @@ public class InputHandler
                 data[..separator],
                 new System.Text.UTF8Encoding(false, true).GetString(encoded));
         }
-        catch (ArgumentException)
+        catch (Exception e) when (e is FormatException or ArgumentException)
         {
-            // Invalid base64 or UTF-8 is untrusted terminal output, so ignore it.
+            // Invalid base64 or UTF-8 is untrusted terminal output, so ignore it. FormatException
+            // is named explicitly because it is NOT an ArgumentException -- the two are siblings
+            // under SystemException -- so Convert.FromBase64String's own failure was the one thing
+            // this catch did not cover, and it escaped through Terminal.Write into the caller's
+            // read loop. DecoderFallbackException, from the strict UTF-8 decode below, is an
+            // ArgumentException and was always caught.
             return false;
         }
     }
@@ -4650,7 +4699,10 @@ public class InputHandler
 
     private void InsertLines(Params parameters)
     {
-        var count = Math.Max(parameters.GetParam(0, 1), 1);
+        // Clamped to the region for the same reason SU/SD are: inserting or deleting more lines
+        // than the region holds leaves it blank either way, and every path below moves a line at
+        // a time.
+        var count = Math.Min(Math.Max(parameters.GetParam(0, 1), 1), _terminal.Rows);
         if (!InsideScrollRegion())
             return;
 
@@ -4681,7 +4733,10 @@ public class InputHandler
 
     private void DeleteLines(Params parameters)
     {
-        var count = Math.Max(parameters.GetParam(0, 1), 1);
+        // Clamped to the region for the same reason SU/SD are: inserting or deleting more lines
+        // than the region holds leaves it blank either way, and every path below moves a line at
+        // a time.
+        var count = Math.Min(Math.Max(parameters.GetParam(0, 1), 1), _terminal.Rows);
         if (!InsideScrollRegion())
             return;
 
@@ -4779,13 +4834,19 @@ public class InputHandler
 
     private void ScrollUp(Params parameters)
     {
-        var count = Math.Max(parameters.GetParam(0, 1), 1);
+        // Clamped to the screen: scrolling by more than the region holds leaves it blank either
+        // way, and the buffer scrolls a line at a time -- CSI 2000000000 S spent minutes arriving
+        // at the same picture as CSI 67 S.
+        var count = Math.Min(Math.Max(parameters.GetParam(0, 1), 1), _terminal.Rows);
         _buffer.ScrollUp(count);
     }
 
     private void ScrollDown(Params parameters)
     {
-        var count = Math.Max(parameters.GetParam(0, 1), 1);
+        // Clamped to the screen: scrolling by more than the region holds leaves it blank either
+        // way, and the buffer scrolls a line at a time -- CSI 2000000000 S spent minutes arriving
+        // at the same picture as CSI 67 S.
+        var count = Math.Min(Math.Max(parameters.GetParam(0, 1), 1), _terminal.Rows);
         _buffer.ScrollDown(count);
     }
 

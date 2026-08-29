@@ -882,14 +882,13 @@ public class EscapeSequenceParser
 
             if (_inSubParam)
             {
-                _subParamValue = _subParamValue * 10 + digit;
+                _subParamValue = Saturate(_subParamValue, digit);
                 return;
             }
 
             // Get current value of last parameter and update it
             var currentValue = _params.GetParam(_params.Length - 1, 0);
-            var newValue = currentValue * 10 + digit;
-            _params.UpdateLastParam(newValue);
+            _params.UpdateLastParam(Saturate(currentValue, digit));
         }
     }
 
@@ -945,8 +944,42 @@ public class EscapeSequenceParser
             handler.Invoke(this, new EscEventArgs(finalChar, collected));
     }
 
+    /// <summary>
+    /// Appends a digit, stopping at <see cref="MaxParamValue"/> rather than wrapping. Unchecked
+    /// multiply turned CSI 99999999999 into a negative or small parameter -- a sequence asking for
+    /// something absurd became a sequence asking for something plausible and wrong, which is worse
+    /// than either refusing it or clamping it. Handlers already clamp what they are given; this
+    /// only guarantees the value they see has the sign and magnitude the stream actually asked for.
+    /// </summary>
+    private static int Saturate(int current, int digit)
+    {
+        if (current > (MaxParamValue - digit) / 10)
+            return MaxParamValue;
+
+        return current * 10 + digit;
+    }
+
+    /// <summary>
+    /// Ceiling for a single CSI parameter. Far above any real sequence; handlers clamp to the
+    /// screen anyway.
+    /// </summary>
+    private const int MaxParamValue = 0x7FFFFFF;
+
+    /// <summary>
+    /// Ceiling on one OSC payload. A sequence that never terminates otherwise grows this buffer
+    /// for as long as the program keeps writing -- the payload is pty-controlled and nothing else
+    /// bounded it. Generous next to the longest real payloads, which are OSC 8 URLs and OSC 52
+    /// clipboard writes.
+    /// </summary>
+    private const int MaxOscPayloadChars = 1 << 20;
+
     private void OscPut(int code)
     {
+        // Past the cap the payload is dropped on the floor rather than truncated and dispatched:
+        // half a URL or half a base64 clipboard write is not something a handler should act on.
+        if (_osc.Length >= MaxOscPayloadChars)
+            return;
+
         // Append the char, not a string built from it. ConvertFromUtf32 allocated once per character
         // of every OSC payload -- window titles, OSC 7 working directories, OSC 8 URLs, and every
         // OSC 133 prompt mark, which a shell emits several times per command.

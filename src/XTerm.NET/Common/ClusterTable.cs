@@ -24,6 +24,21 @@ internal static class ClusterTable
     /// <summary>Id 0 means "no cluster"; the cell's codepoint is its whole content.</summary>
     public const int None = 0;
 
+    /// <summary>
+    /// Ceiling on distinct interned clusters. The class comment above is right about benign
+    /// output -- a session sees a bounded handful of distinct sequences -- but a program on the
+    /// pty chooses what it prints, and a base character with combining marks generates unbounded
+    /// distinct strings for as long as it cares to send them. Nothing evicts, because live cells
+    /// hold ids and scrollback keeps them for the session, so the only safe answer is to stop
+    /// growing.
+    ///
+    /// Past the cap, Intern returns <see cref="None"/> and the cell falls back to its base
+    /// codepoint: combining marks stop being shown, which is wrong on screen but bounded in
+    /// memory. That trade only ever applies to a stream that has already produced this many
+    /// distinct clusters, which no real session does.
+    /// </summary>
+    private const int MaxEntries = 100_000;
+
     private static readonly ConcurrentDictionary<int, string> ById = new();
     private static readonly ConcurrentDictionary<string, int> Ids = new(StringComparer.Ordinal);
 
@@ -37,6 +52,10 @@ internal static class ClusterTable
 
         if (Ids.TryGetValue(text, out var existing))
             return existing;
+
+        // Checked before the id is allocated, so a saturated table costs a lookup and nothing else.
+        if (Ids.Count >= MaxEntries)
+            return None;
 
         var id = Interlocked.Increment(ref _next);
         ById[id] = text;
