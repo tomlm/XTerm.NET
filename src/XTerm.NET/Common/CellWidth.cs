@@ -23,8 +23,12 @@ internal static class CellWidth
     private const int EmojiPlaneStart = 0x1F000;
     private const int EmojiPlaneEnd = 0x20000;
 
+    private const int CjkExtStart = 0x20000;
+    private const int CjkExtEnd = 0x40000;
+
     private static readonly sbyte[] Bmp = CreateTable(BmpEnd);
     private static readonly sbyte[] EmojiPlane = CreateTable(EmojiPlaneEnd - EmojiPlaneStart);
+    private static sbyte[]? _cjkExt;
 
     private static sbyte[] CreateTable(int size)
     {
@@ -56,6 +60,23 @@ internal static class CellWidth
 
             var computed = (sbyte)WidthTables.Lookup(codePoint);
             EmojiPlane[slot] = computed;
+            return computed;
+        }
+
+        // CJK Extension B through H: the one remaining path that is both uncached and hot in a
+        // real workload — every occurrence of an extension ideograph in Chinese text lands here.
+        // The table allocates on the FIRST such character, so the 128 KB costs nothing to every
+        // session that never prints one.
+        if ((uint)(codePoint - CjkExtStart) < CjkExtEnd - CjkExtStart)
+        {
+            var table = _cjkExt ??= CreateTable(CjkExtEnd - CjkExtStart);
+            var slot = codePoint - CjkExtStart;
+            var cached = table[slot];
+            if (cached != Unknown)
+                return cached;
+
+            var computed = (sbyte)WidthTables.Lookup(codePoint);
+            table[slot] = computed;
             return computed;
         }
 
