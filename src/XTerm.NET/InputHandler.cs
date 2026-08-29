@@ -2951,6 +2951,16 @@ public class InputHandler
                     _terminal.RaiseAttentionRequested(value);
                 return _terminal.Options.WindowOptions.RequestAttention;
 
+            case "Capabilities":
+                // iTerm2's capability report: two-letter (then one-letter) codes, integers
+                // attached where the vocabulary defines them. Only what this emulator actually
+                // implements is listed — a detector trusts every code here verbatim.
+                //   T24 truecolor   Cw OSC 52 write   Lr DECSLRM      M mouse    U unicode
+                //   B bracketed     F focus events    Gs strike       Go overline
+                //   Sy sync (2026)  H OSC 8 links     No notifications (OSC 9/99)  Sx sixel
+                _terminal.RaiseDataReceived("\u001b]1337;Capabilities=T24CwLrMUBFGsGoSyHNoSx\u001b\\");
+                return true;
+
             case "ReportCellSize":
                 if (!_terminal.Options.WindowOptions.GetCellSizePixels)
                     return false;
@@ -3117,9 +3127,10 @@ public class InputHandler
             return;
 
         RemoveExpiredKittyNotifications();
+        // The payload separator is optional: a capability query is metadata only
+        // (ESC ] 99 ; i=x:p=? ST) — and every detector sends exactly that form, so requiring the
+        // second ';' made support undetectable while the feature worked.
         var parts = data.Split(new[] { ';' }, 2);
-        if (parts.Length != 2)
-            return;
 
         string? identifier = null;
         var payloadType = "title";
@@ -3163,12 +3174,15 @@ public class InputHandler
 
         if (payloadType == "?")
         {
-            _terminal.RaiseDataReceived($"\u001b]99;i={identifier ?? "0"}:p=?;p=title,body\u001b\\");
+            _terminal.RaiseDataReceived(
+                $"\u001b]99;i={identifier ?? "0"}:p=?;a=notify:o=always:u=0,1,2:p=title,body\u001b\\");
             return;
         }
 
-        if (payloadType is not ("title" or "body"))
+        // Only a query is complete without the payload separator; metadata alone shows nothing.
+        if (parts.Length == 1 || payloadType is not ("title" or "body"))
             return;
+        var payload = parts[1];
 
         var key = identifier ?? string.Empty;
         if (!_kittyNotifications.TryGetValue(key, out var notification))
@@ -3181,8 +3195,8 @@ public class InputHandler
                 _kittyNotifications[key] = notification;
         }
 
-        var payload = encoded ? DecodeBase64(parts[1]) : SanitizeText(parts[1]);
-        if (payload is null || !notification.Append(payloadType, payload, urgency, icon))
+        var text = encoded ? DecodeBase64(payload) : SanitizeText(payload);
+        if (text is null || !notification.Append(payloadType, text, urgency, icon))
         {
             _kittyNotifications.Remove(key);
             return;

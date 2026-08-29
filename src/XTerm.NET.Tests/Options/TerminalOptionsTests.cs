@@ -43,7 +43,7 @@ public class TerminalOptionsTests
         Assert.NotNull(options.Theme);
         Assert.Equal(1, options.MinimumContrastRatio);
         Assert.True(options.DrawBoldTextInBrightColors);
-        Assert.False(options.KittyNotificationsEnabled);
+        Assert.True(options.KittyNotificationsEnabled);   // display-only: on by default, like every terminal that implements OSC 99
         Assert.Null(options.CustomKeyEventHandler);
         Assert.True(options.ClipboardWriteEnabled);
         Assert.False(options.ClipboardReadEnabled);
