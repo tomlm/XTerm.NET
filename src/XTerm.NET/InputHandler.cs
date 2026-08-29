@@ -101,14 +101,6 @@ public class InputHandler
         if (codePoint < 0x0300)
             return false;
 
-        // The same shortcut for the two biggest uniform blocks: katakana and CJK Unified
-        // contain no combining character (the kana voiced-sound marks U+3099-309A sit BELOW
-        // this bracket, so NFD Japanese still clusters). This is a negative invariant from the
-        // character database, not a return to the allowlist: nothing inside it ever needs the
-        // category lookup, and CJK-heavy streams were paying ~5% for it to say no.
-        if (codePoint >= 0x30A0 && codePoint <= 0x9FFF)
-            return false;
-
         // Variation Selectors (U+FE00�U+FE0F)
         if (codePoint >= 0xFE00 && codePoint <= 0xFE0F)
             return true;
@@ -216,12 +208,36 @@ public class InputHandler
     }
 
     /// <summary>
-    /// Whether this codepoint might join the previous cell at all — the category rules or the
-    /// sequence rules. Print guards the call with an inline <c>codePoint &gt;= 0x0300</c> so the
-    /// ASCII majority never gets here.
+    /// One bit per BMP codepoint: might it join the previous cell's cluster — the category rules
+    /// or the sequence rules. Built ONCE from the reference predicates below, so the table cannot
+    /// drift from them; it exists because the hot path must not pay a category lookup per
+    /// character, and the corpora that hurt were exactly the ones full of characters no range
+    /// check anticipates — box drawing in TUI redraws, CJK in prose. 8KB, cold half never touched.
+    /// </summary>
+    private static readonly byte[] MayJoinBmp = BuildMayJoinBmp();
+
+    private static byte[] BuildMayJoinBmp()
+    {
+        var table = new byte[0x10000 >> 3];
+        for (var codePoint = 0x0300; codePoint < 0x10000; codePoint++)
+        {
+            if (IsCombiningCharacter(codePoint) || IsSequenceJoinCandidate(codePoint))
+                table[codePoint >> 3] |= (byte)(1 << (codePoint & 7));
+        }
+        return table;
+    }
+
+    /// <summary>
+    /// Whether this codepoint might join the previous cell at all. Print guards the call with an
+    /// inline <c>codePoint &gt;= 0x0300</c> so the ASCII majority never gets here; the BMP —
+    /// every character whose answer is not obvious from its plane — is one load and a mask, and
+    /// only astral codepoints (emoji machinery, already handled by the checks' cheap heads) run
+    /// the predicates directly.
     /// </summary>
     private static bool MayContinueCluster(int codePoint) =>
-        IsCombiningCharacter(codePoint) || IsSequenceJoinCandidate(codePoint);
+        codePoint < 0x10000
+            ? (MayJoinBmp[codePoint >> 3] & (1 << (codePoint & 7))) != 0
+            : IsCombiningCharacter(codePoint) || IsSequenceJoinCandidate(codePoint);
 
     /// <summary>The Fitzpatrick skin tone modifiers, U+1F3FB to U+1F3FF.</summary>
     private static bool IsSkinToneModifier(int codePoint)
