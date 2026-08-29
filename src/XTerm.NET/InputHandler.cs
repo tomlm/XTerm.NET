@@ -1325,6 +1325,16 @@ public class InputHandler
             case "H": // HTS - set a tab stop at the cursor column
                 _terminal.SetTabStop(_buffer.X);
                 break;
+            case "=": // DECKPAM - application keypad
+                // terminfo's smkx for xterm is ESC [ ? 1 h ESC =, so a program enabling
+                // application cursor keys enabled the keypad in the same breath -- and the second
+                // half was dropped. The keypad generators honoured a mode nothing could set
+                // except DECSET 66.
+                _terminal.ApplicationKeypad = true;
+                break;
+            case ">": // DECKPNM - numeric keypad
+                _terminal.ApplicationKeypad = false;
+                break;
             case "c": // RIS - Reset to Initial State
                 ResetTerminal();
                 break;

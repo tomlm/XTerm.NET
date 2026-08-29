@@ -34,7 +34,12 @@ public class KeyboardInputGenerator
             Key.Enter => "\r",
             Key.Tab => (modifiers & KeyModifiers.Shift) != 0 ? "\u001b[Z" : "\t",
             Key.Backspace => "\u007f", // DEL (127)
-            Key.Escape => modifiers != KeyModifiers.None ? GetModifiedSequence("27~", modifiers) : "\u001b",
+            // Escape sends ESC whatever the modifiers. CSI 27 ; mod ~ is not a sequence xterm
+            // emits -- it belongs to the modifyOtherKeys and Kitty protocols, which an application
+            // opts into. Sending it unasked meant a program that reads a bare ESC (vim leaving
+            // insert mode, a menu closing) got a CSI sequence and ignored it, so Escape appeared
+            // dead whenever a modifier was held.
+            Key.Escape => "\u001b",
             Key.Space => " ",
 
             // Arrow keys
@@ -85,11 +90,14 @@ public class KeyboardInputGenerator
             Key.Keypad8 => GetKeypadKey('x', '8'),
             Key.Keypad9 => GetKeypadKey('y', '9'),
             Key.KeypadDecimal => GetKeypadKey('n', '.'),
-            Key.KeypadDivide => "/",
-            Key.KeypadMultiply => "*",
-            Key.KeypadSubtract => "-",
-            Key.KeypadAdd => "+",
-            Key.KeypadEnter => "\r",
+            // The operator keys and KeypadEnter follow application keypad mode like every other
+            // keypad key; they were returning their literal characters regardless, so a program
+            // that had switched the keypad still received "/" instead of ESC O o.
+            Key.KeypadDivide => GetKeypadKey('o', '/'),
+            Key.KeypadMultiply => GetKeypadKey('j', '*'),
+            Key.KeypadSubtract => GetKeypadKey('m', '-'),
+            Key.KeypadAdd => GetKeypadKey('k', '+'),
+            Key.KeypadEnter => _terminal.ApplicationKeypad ? "\u001bOM" : "\r",
 
             _ => string.Empty
         };
@@ -173,7 +181,10 @@ public class KeyboardInputGenerator
     {
         if (modifiers == KeyModifiers.None)
         {
-            return $"\u001b[{key}";
+            // Home and End follow application cursor keys mode exactly as the arrows do -- xterm
+            // sends ESC O H there, and only the arrows honoured it here, so a full-screen program
+            // that switched modes got SS3 for four keys and CSI for two.
+            return _terminal.ApplicationCursorKeys ? $"\u001bO{key}" : $"\u001b[{key}";
         }
 
         // Modified navigation keys

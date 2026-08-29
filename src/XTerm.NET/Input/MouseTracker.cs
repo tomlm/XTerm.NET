@@ -96,9 +96,13 @@ public class MouseTracker
         int cx = x + 1 + 32; // 1-based + 32 offset
         int cy = y + 1 + 32; // 1-based + 32 offset
 
-        // Clamp to valid range (32-255)
-        cx = Math.Clamp(cx, 32, 255);
-        cy = Math.Clamp(cy, 32, 255);
+        // Clamped to 223, not 255. The report is a BYTE sequence, but this string is UTF-8 encoded
+        // on its way to the pty, so anything above 127 becomes two bytes and the application reads
+        // a coordinate it was never sent -- the classic "mouse stops working past column 95"
+        // report. 223 is the last column this encoding can carry (223 = 255 - 32), and xterm
+        // clamps there too rather than emitting something undecodable.
+        cx = Math.Clamp(cx, 32, 223);
+        cy = Math.Clamp(cy, 32, 223);
 
         return $"\u001b[M{(char)cb}{(char)cx}{(char)cy}";
     }
@@ -107,8 +111,12 @@ public class MouseTracker
     {
         // Similar to default but uses UTF-8 encoding for coordinates > 223
         int cb = EncodeButtonDefault(button, eventType, modifiers);
-        int cx = x + 1 + 32;
-        int cy = y + 1 + 32;
+
+        // Mode 1005 encodes a coordinate as UTF-8, and the protocol allows up to two bytes -- so
+        // 2047 is the ceiling, not int.MaxValue. Past it EncodeUTF8Coord emitted three-byte forms
+        // the specification does not define, which an application decodes as the wrong column.
+        int cx = Math.Clamp(x + 1 + 32, 32, 2047);
+        int cy = Math.Clamp(y + 1 + 32, 32, 2047);
 
         return $"\u001b[M{(char)cb}{EncodeUTF8Coord(cx)}{EncodeUTF8Coord(cy)}";
     }
@@ -179,9 +187,15 @@ public class MouseTracker
         }
 
         // Add modifier flags
-        if ((modifiers & KeyModifiers.Shift) != 0) cb += 4;
-        if ((modifiers & KeyModifiers.Alt) != 0) cb += 8;
-        if ((modifiers & KeyModifiers.Control) != 0) cb += 16;
+        // X10 (DECSET 9) is the original protocol and carries no modifier bits at all -- button
+        // and position, nothing else. Adding them shifted the button number an application reads,
+        // so a shift-click arrived as a different button. Every later mode does carry them.
+        if (TrackingMode != MouseTrackingMode.X10)
+        {
+            if ((modifiers & KeyModifiers.Shift) != 0) cb += 4;
+            if ((modifiers & KeyModifiers.Alt) != 0) cb += 8;
+            if ((modifiers & KeyModifiers.Control) != 0) cb += 16;
+        }
 
         return cb;
     }
@@ -217,13 +231,19 @@ public class MouseTracker
         }
         else if (eventType == MouseEventType.Up)
         {
-            // SGR preserves button info on release (terminator 'm' indicates release)
-            cb = (int)button;
+            // SGR preserves button info on release (terminator 'm' indicates release). None is
+            // -1, so a release reported without a button emitted ESC[<-1;7;7m -- a negative
+            // parameter no parser accepts, and the sequence is discarded along with the release
+            // the application was waiting for. Falling back to the last button held is what
+            // actually happened; button 3 is the protocol's "no button" when even that is unknown.
+            cb = button != MouseButton.None ? (int)button
+               : _lastButton != MouseButton.None ? (int)_lastButton
+               : 3;
         }
         else
         {
             // Button down
-            cb = (int)button;
+            cb = button != MouseButton.None ? (int)button : 3;
         }
 
         // Add modifier flags
