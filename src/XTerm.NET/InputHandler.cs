@@ -22,6 +22,12 @@ public class InputHandler
     private const int MaxPendingKittyNotifications = 16;
     private const int MaxKittyNotificationBytes = 64 * 1024;
     private static readonly TimeSpan KittyNotificationTimeout = TimeSpan.FromMinutes(1);
+    private Dictionary<string, List<byte>>? _kittyClipboardData;
+    private Dictionary<string, StringBuilder>? _kittyClipboardBase64;
+    private List<(string Alias, string Target)>? _kittyClipboardAliases;
+    private string? _kittyClipboardTarget;
+    private string? _kittyClipboardMimeType;
+    private string? _kittyClipboardId;
 
     /// <summary>
     /// The table _currentCharset resolves to, cached.
@@ -2503,6 +2509,8 @@ public class InputHandler
 
                 case OscCommand.KittyNotification:
                     HandleKittyNotification(arg);
+                case OscCommand.KittyClipboard:
+                    HandleKittyClipboard(arg);
                     break;
 
                 case OscCommand.ResetColor:
@@ -2968,40 +2976,415 @@ public class InputHandler
 
     private void HandleClipboard(string data)
     {
-        // OSC 52 ; c ; data ST
-        // Example: OSC 52;c;base64data ST
         var parts = data.Split(new[] { ';' }, 2);
 
-        if (parts.Length >= 2)
-        {
-            var target = parts[0]; // Usually 'c' for clipboard, 'p' for primary
-            var clipdata = parts[1];
+        if (parts.Length != 2)
+            return;
 
-            if (clipdata == "?")
+        var target = parts[0];
+        var clipdata = parts[1];
+
+        // xterm defaults an empty Pc to "s 0"; anything outside the Pc charset is not OSC 52.
+        if (target.Length == 0)
+            target = "s0";
+        else if (!IsValidOsc52ClipboardTarget(target))
+            return;
+
+        if (clipdata == "?")
+        {
+            // Per issue #54 a disabled read answers NOTHING: silence is how this terminal
+            // declines, and an unanswered probe cannot leak whether a clipboard exists.
+            if (!_terminal.Options.ClipboardReadEnabled)
+                return;
+
+            // Armed BEFORE the handler runs, so a host whose clipboard is asynchronous can
+            // Defer() and answer via Respond when its await completes — the response is
+            // byte-identical either way, and null (or never answering) is the same silence an
+            // unhandled request produces.
+            var args = new Events.TerminalEvents.ClipboardReadEventArgs(target, "text/plain");
+            args.Arm(bytes =>
             {
-                // Query clipboard - respond with clipboard content
-                // Format: OSC 52 ; c ; base64data ST
-                // For security, many terminals don't support this
-                // We'll send an empty response
-                _terminal.RaiseDataReceived($"\u001b]52;{target};\u0007");
-            }
-            else
+                if (bytes is null)
+                    return;
+                _terminal.RaiseDataReceived($"\u001b]52;{target};{Convert.ToBase64String(bytes)}\u0007");
+            });
+            _terminal.RaiseClipboardReadRequested(args);
+            if (args.Data is { } sync && args.Disarm())
             {
-                // Set clipboard
-                try
-                {
-                    var decoded = Convert.FromBase64String(clipdata);
-                    var text = System.Text.Encoding.UTF8.GetString(decoded);
-                    // TODO: Integrate with system clipboard
-                    // For now, we just acknowledge receipt
-                }
-                catch
-                {
-                    // Invalid base64 or encoding
-                }
+                _terminal.RaiseDataReceived($"\u001b]52;{target};{Convert.ToBase64String(sync)}\u0007");
             }
+            return;
+        }
+
+        if (!_terminal.Options.ClipboardWriteEnabled)
+            return;
+
+        // Invalid base64 is xterm's documented clear idiom: the host is told "empty", not
+        // nothing. The raise sits outside any catch, so a host handler's own exception
+        // propagates instead of being mistaken for a malformed payload.
+        if (!TryDecodeBase64(clipdata, out var decoded))
+            decoded = Array.Empty<byte>();
+        _terminal.RaiseClipboardWriteRequested(target, "text/plain", decoded);
+    }
+
+    private void HandleKittyClipboard(string data)
+    {
+        var parts = data.Split(new[] { ';' }, 2);
+        if (!TryParseKittyClipboardMetadata(parts[0], out var type, out var target, out var id))
+            return;
+
+        switch (type)
+        {
+            case "write":
+                HandleKittyClipboardWrite(target, id, parts.Length == 2);
+                break;
+            case "wdata":
+                HandleKittyClipboardWriteData(parts[0], parts.Length == 2 ? parts[1] : null);
+                break;
+            case "read":
+                HandleKittyClipboardRead(target, id, parts.Length == 2 ? parts[1] : null);
+                break;
+            case "walias":
+                HandleKittyClipboardAlias(parts[0], parts.Length == 2 ? parts[1] : null);
+                break;
         }
     }
+
+    private void HandleKittyClipboardWrite(string target, string id, bool hasPayload)
+    {
+        ResetKittyClipboard();
+        if (hasPayload || target.Length == 0)
+        {
+            RaiseKittyClipboardResponse("write", "EINVAL", id);
+            return;
+        }
+
+        if (!_terminal.Options.ClipboardWriteEnabled)
+        {
+            RaiseKittyClipboardResponse("write", "EPERM", id);
+            return;
+        }
+
+        _kittyClipboardData = [];
+        _kittyClipboardBase64 = [];
+        _kittyClipboardAliases = [];
+        _kittyClipboardTarget = target;
+        _kittyClipboardId = id;
+    }
+
+    private void HandleKittyClipboardWriteData(string metadata, string? payload)
+    {
+        if (_kittyClipboardData is null)
+        {
+            return;
+        }
+
+        if (payload is null)
+        {
+            var id = _kittyClipboardId;
+            if (_kittyClipboardBase64!.Values.Any(data => data.Length > 0))
+            {
+                ResetKittyClipboard();
+                RaiseKittyClipboardResponse("write", "EINVAL", id);
+                return;
+            }
+
+            foreach (var (alias, target) in _kittyClipboardAliases!)
+            {
+                if (!_kittyClipboardData.ContainsKey(target))
+                {
+                    ResetKittyClipboard();
+                    RaiseKittyClipboardResponse("write", "EINVAL", id);
+                    return;
+                }
+            }
+            // ONE event for the whole transfer. Platform clipboards replace their contents on
+            // each set, so per-format events could never be committed atomically: the host needs
+            // the complete map to build one data object and set it once.
+            var formats = new List<Events.TerminalEvents.ClipboardFormat>();
+            foreach (var (completedMimeType, clipboardData) in _kittyClipboardData)
+                formats.Add(new Events.TerminalEvents.ClipboardFormat(completedMimeType, [.. clipboardData]));
+            foreach (var (alias, target) in _kittyClipboardAliases)
+            {
+                if (_kittyClipboardData.TryGetValue(target, out var clipboardData))
+                {
+                    formats.Add(new Events.TerminalEvents.ClipboardFormat(alias, [.. clipboardData]));
+                }
+            }
+            // State reset BEFORE the raise: a host handler that throws must surface (that is the
+            // contract), and it must not leave a half-committed transfer armed behind it.
+            var transferTarget = _kittyClipboardTarget!;
+            ResetKittyClipboard();
+            _terminal.RaiseClipboardWriteRequested(transferTarget, formats);
+            RaiseKittyClipboardResponse("write", "DONE", id);
+            return;
+        }
+
+        if (!TryGetKittyMetadataValue(metadata, "mime", out var encodedMime)
+            || !TryDecodeBase64(encodedMime, out var mimeBytes)
+            || !TryGetMimeType(mimeBytes, out var mimeType))
+        {
+            var id = _kittyClipboardId;
+            ResetKittyClipboard();
+            RaiseKittyClipboardResponse("write", "EINVAL", id);
+            return;
+        }
+
+        if (!payload.All(c => char.IsAsciiLetterOrDigit(c) || c is '+' or '/' or '='))
+        {
+            var id = _kittyClipboardId;
+            ResetKittyClipboard();
+            RaiseKittyClipboardResponse("write", "EINVAL", id);
+            return;
+        }
+
+        var base64Chunks = _kittyClipboardBase64!;
+        var base64 = base64Chunks.GetValueOrDefault(mimeType);
+        if (base64 is null)
+        {
+            if (TransferSize + mimeType.Length + ClipboardEntryOverhead > MaxClipboardBytes)
+            {
+                var id = _kittyClipboardId;
+                ResetKittyClipboard();
+                RaiseKittyClipboardResponse("write", "EIO", id);
+                return;
+            }
+            base64 = new StringBuilder();
+            base64Chunks[mimeType] = base64;
+            _kittyClipboardData![mimeType] = [];
+        }
+        base64.Append(payload);
+        if (TryDecodeBase64(base64.ToString(), out var chunk))
+        {
+            if ((long)_kittyClipboardData!.Values.Sum(data => (long)data.Count) + chunk.Length > MaxClipboardBytes)
+            {
+                var id = _kittyClipboardId;
+                ResetKittyClipboard();
+                RaiseKittyClipboardResponse("write", "EIO", id);
+                return;
+            }
+            _kittyClipboardData[mimeType].AddRange(chunk);
+            base64.Clear();
+        }
+        else if (TransferSize > MaxClipboardBytes * 4 / 3 + 4)
+        {
+            var id = _kittyClipboardId;
+            ResetKittyClipboard();
+            RaiseKittyClipboardResponse("write", "EIO", id);
+            return;
+        }
+
+        _kittyClipboardMimeType = mimeType;
+    }
+
+    private long MaxClipboardBytes => Math.Max(1, _terminal.Options.MaxClipboardBytes);
+    private const int ClipboardEntryOverhead = 256;
+    private long TransferSize =>
+        _kittyClipboardData!.Values.Sum(data => (long)data.Count)
+        + _kittyClipboardBase64!.Values.Sum(data => (long)data.Length)
+        + _kittyClipboardData.Keys.Sum(mimeType => (long)mimeType.Length + ClipboardEntryOverhead)
+        + _kittyClipboardAliases!.Sum(alias => (long)alias.Alias.Length + alias.Target.Length + ClipboardEntryOverhead);
+
+    private void HandleKittyClipboardRead(string target, string id, string? payload)
+    {
+        if (!_terminal.Options.ClipboardReadEnabled)
+        {
+            RaiseKittyClipboardResponse("read", "EPERM", id);
+            return;
+        }
+
+        if (target.Length == 0 || payload is null || !TryDecodeBase64(payload, out var mimeBytes))
+        {
+            RaiseKittyClipboardResponse("read", "EINVAL", id);
+            return;
+        }
+
+        var requestedMimeTypes = Encoding.UTF8.GetString(mimeBytes) == "."
+            ? ["."]
+            : Encoding.UTF8.GetString(mimeBytes).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (requestedMimeTypes.Length == 0
+            || requestedMimeTypes.Any(mimeType => !TryGetMimeType(Encoding.UTF8.GetBytes(mimeType), out _)))
+        {
+            RaiseKittyClipboardResponse("read", "EINVAL", id);
+            return;
+        }
+
+        // The reply cannot begin until EVERY requested mime has resolved: OK precedes the
+        // first DATA, and EPERM is only true when none answered. Answers may arrive
+        // synchronously, later (a host that Defer()s while it awaits its clipboard), or as a
+        // mix — the last one to land emits the whole reply. A deferred request the host never
+        // completes leaves the read unanswered, which is why the args' contract says a
+        // deferring host must always call Respond.
+        var answers = new byte[]?[requestedMimeTypes.Length];
+        var outstanding = 0;
+        var dispatched = false;
+
+        void Deliver()
+        {
+            var responses = requestedMimeTypes
+                .Zip(answers, (mimeType, bytes) => (MimeType: mimeType, Data: bytes))
+                .Where(response => response.Data is not null)
+                .ToList();
+            if (responses.Count == 0)
+            {
+                RaiseKittyClipboardResponse("read", "EPERM", id);
+                return;
+            }
+
+            RaiseKittyClipboardResponse("read", "OK", id);
+            foreach (var (mimeType, clipboardData) in responses)
+            {
+                var encodedMime = Convert.ToBase64String(Encoding.UTF8.GetBytes(mimeType));
+                foreach (var chunk in clipboardData!.Chunk(4096))
+                    _terminal.RaiseDataReceived($"\u001b]5522;type=read:status=DATA:mime={encodedMime}{FormatKittyId(id)};{Convert.ToBase64String(chunk)}\u001b\\");
+            }
+            RaiseKittyClipboardResponse("read", "DONE", id);
+        }
+
+        // ONE completion path per mime: the armed callback. A synchronous answer is fed through
+        // it by the Respond below; a handler that already called Respond from inside the handler
+        // disarmed it, so that Respond is a no-op and the answer counts exactly once — the
+        // counter cannot go negative and the reply cannot be delivered twice or hang.
+        outstanding = requestedMimeTypes.Length;
+        for (var i = 0; i < requestedMimeTypes.Length; i++)
+        {
+            var index = i;
+            var args = new Events.TerminalEvents.ClipboardReadEventArgs(target, requestedMimeTypes[i]);
+            args.Arm(bytes =>
+            {
+                answers[index] = bytes;
+                if (--outstanding == 0 && dispatched)
+                    Deliver();
+            });
+            _terminal.RaiseClipboardReadRequested(args);
+            if (!args.Deferred)
+                args.Respond(args.Data);
+        }
+
+        dispatched = true;
+        if (outstanding == 0)
+            Deliver();
+    }
+
+    private void HandleKittyClipboardAlias(string metadata, string? payload)
+    {
+        if (_kittyClipboardData is null || payload is null
+            || !TryGetKittyMetadataValue(metadata, "mime", out var encodedMime)
+            || !TryDecodeBase64(encodedMime, out var mimeBytes)
+            || !TryGetMimeType(mimeBytes, out var target)
+            || !TryDecodeBase64(payload, out var aliasBytes))
+        {
+            var id = _kittyClipboardId;
+            ResetKittyClipboard();
+            RaiseKittyClipboardResponse("write", "EINVAL", id);
+            return;
+        }
+
+        var aliases = Encoding.UTF8.GetString(aliasBytes).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (aliases.Length == 0 || aliases.Any(alias => !TryGetMimeType(Encoding.UTF8.GetBytes(alias), out _))
+            || aliases.Any(alias => _kittyClipboardAliases!.Any(existing => existing.Alias == alias)))
+        {
+            var id = _kittyClipboardId;
+            ResetKittyClipboard();
+            RaiseKittyClipboardResponse("write", "EINVAL", id);
+            return;
+        }
+
+        if (TransferSize + aliases.Sum(alias => (long)alias.Length + target.Length + ClipboardEntryOverhead) > MaxClipboardBytes)
+        {
+            var id = _kittyClipboardId;
+            ResetKittyClipboard();
+            RaiseKittyClipboardResponse("write", "EIO", id);
+            return;
+        }
+
+        _kittyClipboardAliases!.AddRange(aliases.Select(alias => (alias, target)));
+    }
+
+    private static bool TryParseKittyClipboardMetadata(string metadata, out string type, out string target, out string id)
+    {
+        type = string.Empty;
+        target = "c";
+        id = string.Empty;
+        foreach (var item in metadata.Split(':', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var separator = item.IndexOf('=');
+            if (separator <= 0)
+                return false;
+
+            var key = item[..separator];
+            var value = item[(separator + 1)..];
+            if (key == "type")
+                type = value;
+            else if (key == "loc")
+            {
+                target = value switch
+                {
+                    "clipboard" => "c",
+                    "primary" => "p",
+                    _ => string.Empty
+                };
+            }
+            else if (key == "id")
+            {
+                id = new string(value.Where(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '+' or '.').ToArray());
+            }
+        }
+
+        return type is "write" or "wdata" or "read" or "walias";
+    }
+
+    private static bool IsValidOsc52ClipboardTarget(string target) =>
+        target.Length > 0 && target.All(c => c is 'c' or 'p' or 'q' or 's' or >= '0' and <= '7');
+
+    private static bool TryGetKittyMetadataValue(string metadata, string key, out string value)
+    {
+        value = string.Empty;
+        foreach (var item in metadata.Split(':', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (item.StartsWith($"{key}=", StringComparison.Ordinal))
+            {
+                value = item[(key.Length + 1)..];
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool TryGetMimeType(byte[] bytes, out string mimeType)
+    {
+        mimeType = Encoding.UTF8.GetString(bytes);
+        return mimeType.Length > 0 && mimeType.All(c => c is >= ' ' and <= '~' and not ';' and not ':');
+    }
+
+    private static bool TryDecodeBase64(string data, out byte[] decoded)
+    {
+        try
+        {
+            decoded = Convert.FromBase64String(data);
+            return true;
+        }
+        catch (FormatException)
+        {
+            decoded = Array.Empty<byte>();
+            return false;
+        }
+    }
+
+    private void ResetKittyClipboard()
+    {
+        _kittyClipboardData = null;
+        _kittyClipboardBase64 = null;
+        _kittyClipboardAliases = null;
+        _kittyClipboardTarget = null;
+        _kittyClipboardMimeType = null;
+        _kittyClipboardId = null;
+    }
+
+    private void RaiseKittyClipboardResponse(string type, string status, string? id = null) =>
+        _terminal.RaiseDataReceived($"\u001b]5522;type={type}:status={status}{FormatKittyId(id ?? _kittyClipboardId)}\u001b\\");
+
+    private static string FormatKittyId(string? id) => string.IsNullOrEmpty(id) ? string.Empty : $":id={id}";
 
     private void HandleColorReset(OscCommand command, string data)
     {
