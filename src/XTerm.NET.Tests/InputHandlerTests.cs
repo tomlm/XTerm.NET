@@ -2679,4 +2679,34 @@ public class InputHandlerTests
 
     #endregion
 
+
+    [Fact]
+    public void Ich_MidLine_ShiftsTheTailInsteadOfReplicatingOneCell()
+    {
+        // The bug as a user met it: type "echo testing", arrow left three times, type a letter.
+        // Readline inserts with ICH, and the overlapping forward copy turned the whole tail into
+        // the cell under the cursor, repeated to the end of the line.
+        var terminal = new Terminal(new TerminalOptions { Cols = 20, Rows = 5 });
+        terminal.Write("abcdef");
+        terminal.Write("\u001b[4G");        // cursor onto 'd'
+        terminal.Write("\u001b[@");         // ICH 1: make room
+        terminal.Write("X");                  // what readline types next
+
+        var line = terminal.Buffer.Lines[0]!;
+        var text = string.Concat(Enumerable.Range(0, 8).Select(i => line[i].Content));
+        Assert.Equal("abcXdef", text.TrimEnd('\0', ' '));
+    }
+
+    [Fact]
+    public void InsertMode_MidLine_ShiftsTheTailToo()
+    {
+        // IRM (CSI 4 h) takes the other shifting path through Print; same memmove rule applies.
+        var terminal = new Terminal(new TerminalOptions { Cols = 20, Rows = 5 });
+        terminal.Write("abcdef");
+        terminal.Write("\u001b[4G\u001b[4hX\u001b[4l");
+
+        var line = terminal.Buffer.Lines[0]!;
+        var text = string.Concat(Enumerable.Range(0, 8).Select(i => line[i].Content));
+        Assert.Equal("abcXdef", text.TrimEnd('\0', ' '));
+    }
 }
