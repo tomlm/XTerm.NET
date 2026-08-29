@@ -504,6 +504,34 @@ public class TextSizingTests
         Assert.Equal(2, Row(t)[0].Width);
     }
 
+    /// <summary>
+    /// The protocol's 4096-byte payload limit belongs to the sequence, not to one of its modes.
+    /// With w=0 every grapheme is interned in the process-wide cluster table, so an unbounded
+    /// payload here is the more expensive of the two to let through.
+    /// </summary>
+    [Fact]
+    public void An_oversized_payload_is_cut_to_the_protocol_limit_without_a_width_too()
+    {
+        var t = Fresh(cols: 80, rows: 4);
+        t.Write(Sized("s=1", new string('x', 5000)));
+
+        var printed = 0;
+        for (var row = 0; row < t.Buffer.Lines.Length; row++)
+        {
+            var line = t.Buffer.Lines[row];
+            if (line is null)
+                continue;
+
+            for (var col = 0; col < line.Length; col++)
+            {
+                if (line[col].Content == "x")
+                    printed++;
+            }
+        }
+
+        Assert.Equal(4096, printed);
+    }
+
     [Fact]
     public void A_key_longer_than_one_letter_is_ignored_too()
     {

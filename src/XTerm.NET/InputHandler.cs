@@ -2936,9 +2936,14 @@ public class InputHandler
     /// </summary>
     private void PrintSized(string text, TextSizing sizing)
     {
+        // The protocol's payload limit applies to the sequence, not to one of its two modes: with
+        // w=0 an oversized payload would otherwise be walked grapheme by grapheme, interning every
+        // one of them in the process-wide cluster table.
+        text = Truncate(text);
+
         if (sizing.Width > 0)
         {
-            PrintSizedBlock(Truncate(text), sizing.Scale * sizing.Width, sizing);
+            PrintSizedBlock(text, sizing.Scale * sizing.Width, sizing);
             return;
         }
 
