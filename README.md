@@ -226,6 +226,8 @@ terminal.BufferChanged += (sender, e) =>
 };
 
 // Mouse pointer shape requested (OSC 22, Kitty pointer shapes).
+// Off by default: set TerminalOptions.PointerShapesEnabled = true to opt in, which
+// tells the terminal it may answer support queries because you handle this event.
 // e.Shape is a CSS cursor name such as "pointer", "text" or "wait";
 // null means no shape is requested and the host should use its own pointer.
 terminal.PointerShapeChanged += (sender, e) =>

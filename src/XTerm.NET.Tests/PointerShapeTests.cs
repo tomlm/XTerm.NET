@@ -16,7 +16,13 @@ public class PointerShapeTests
     private const string Esc = "\u001b";
     private const string St = "\u001b\\";
 
-    private static Terminal Fresh() => new(new TerminalOptions { Cols = 20, Rows = 5 });
+    /// <summary>
+    /// A terminal with the feature switched on, which is what a host that wires
+    /// <see cref="Terminal.PointerShapeChanged"/> does. The off-by-default behaviour has its own
+    /// tests below.
+    /// </summary>
+    private static Terminal Fresh() =>
+        new(new TerminalOptions { Cols = 20, Rows = 5, PointerShapesEnabled = true });
 
     [Fact]
     public void Sets_a_shape()
@@ -361,13 +367,23 @@ public class PointerShapeTests
     }
 
     /// <summary>
-    /// A host that cannot change the pointer turns the feature off, and the terminal then keeps no
+    /// Off unless a host asks for it. Only a host can change a real pointer, so a stock terminal
+    /// nobody has wired up must not claim it can.
+    /// </summary>
+    [Fact]
+    public void Disabled_by_default()
+    {
+        Assert.False(new TerminalOptions().PointerShapesEnabled);
+    }
+
+    /// <summary>
+    /// A host that cannot change the pointer leaves the feature off, and the terminal then keeps no
     /// state and tells nobody anything.
     /// </summary>
     [Fact]
     public void Disabled_ignores_the_sequence()
     {
-        var terminal = new Terminal(new TerminalOptions { Cols = 20, Rows = 5, PointerShapesEnabled = false });
+        var terminal = new Terminal(new TerminalOptions { Cols = 20, Rows = 5 });
         var changes = 0;
         terminal.PointerShapeChanged += (_, _) => changes++;
 
@@ -385,7 +401,7 @@ public class PointerShapeTests
     [Fact]
     public void Disabled_answers_no_query()
     {
-        var terminal = new Terminal(new TerminalOptions { Cols = 20, Rows = 5, PointerShapesEnabled = false });
+        var terminal = new Terminal(new TerminalOptions { Cols = 20, Rows = 5 });
         var replies = new List<string>();
         terminal.DataReceived += (_, e) => replies.Add(e.Data);
 
