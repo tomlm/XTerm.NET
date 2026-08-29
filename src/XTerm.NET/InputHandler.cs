@@ -350,7 +350,10 @@ public class InputHandler
             line.SetCell(_buffer.X - 1, ref orphan);
         }
 
-        if (_buffer.X + 1 < _terminal.Cols && line[_buffer.X].Width == 2)
+        // GetWidth, not line[X].Width: the indexer hands back a COPY of the cell struct, and
+        // paying that copy on every printed character to read one field of it is most of what
+        // this repair cost the unicode corpus.
+        if (_buffer.X + 1 < _terminal.Cols && line.GetWidth(_buffer.X) == 2)
         {
             var orphan = BufferCell.Space;
             orphan.Attributes = line[_buffer.X].Attributes;
