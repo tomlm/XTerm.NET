@@ -37,6 +37,13 @@ public class Terminal
     public bool ApplicationCursorKeys { get; set; }
     public bool ApplicationKeypad { get; set; }
     public bool BracketedPasteMode { get; set; }
+
+    /// <summary>
+    /// Bracketed paste MIME (private mode 5522). When set, <see cref="Paste(TerminalPaste)"/>
+    /// announces a paste as a Kitty clipboard read response instead of bracketing text — and
+    /// never both, per the spec's precedence rule.
+    /// </summary>
+    public bool PasteNotificationMode { get; set; }
     public bool OriginMode { get; set; }
 
     /// <summary>
@@ -104,6 +111,26 @@ public class Terminal
     public string? CurrentDirectory { get; set; }
     public string? CurrentHyperlink { get; set; }
 
+    /// <summary>The values exported through iTerm2's OSC 1337 SetUserVar extension.</summary>
+    public IReadOnlyDictionary<string, string> UserVariables => _userVariables;
+    private readonly Dictionary<string, string> _userVariables = new();
+
+    internal bool TrySetUserVariable(string name, string value)
+    {
+        if (value.Length > Options.MaxUserVariableBytes
+            || (!_userVariables.ContainsKey(name) && _userVariables.Count >= Options.MaxUserVariables))
+            return false;
+
+        _userVariables[name] = value;
+        return true;
+    }
+
+    /// <summary>The shell integration version reported through iTerm2's OSC 1337 extension.</summary>
+    public string? ShellIntegrationVersion { get; internal set; }
+
+    /// <summary>The remote host reported through iTerm2's OSC 1337 extension.</summary>
+    public string? RemoteHost { get; internal set; }
+
     /// <summary>
     /// The most recent OSC 133 shell integration mark, or null if the shell has never sent one.
     /// </summary>
@@ -169,6 +196,28 @@ public class Terminal
     public string? HyperlinkId { get; set; }
 
     /// <summary>
+    /// The mouse pointer shape an application has asked for with OSC 22, or null when none is set.
+    /// </summary>
+    /// <remarks>
+    /// A name from <see cref="PointerShapes.All"/>. Null means the host should use its own pointer:
+    /// it is the state after a reset, and the state an application returns the terminal to by
+    /// popping everything it pushed.
+    /// </remarks>
+    public string? PointerShape => ActivePointerShapes.Current;
+
+    private readonly PointerShapeStack _normalPointerShapes = new();
+    private readonly PointerShapeStack _altPointerShapes = new();
+
+    /// <summary>
+    /// The shape stack of the screen currently displayed.
+    /// </summary>
+    /// <remarks>
+    /// One stack per screen, as the protocol requires: a full-screen program leaves its shape behind
+    /// on the alternate screen when it is suspended, and the shell it drops back to gets its own.
+    /// </remarks>
+    private PointerShapeStack ActivePointerShapes => _usingAltBuffer ? _altPointerShapes : _normalPointerShapes;
+
+    /// <summary>
     /// Fired when the cursor style or blink setting changes.
     /// </summary>
     public event EventHandler<TerminalEvents.CursorStyleChangedEventArgs>? CursorStyleChanged;
@@ -178,6 +227,16 @@ public class Terminal
     /// Fired when the terminal wants to send data back to the application.
     /// </summary>
     public event EventHandler<TerminalEvents.DataEventArgs>? DataReceived;
+
+    /// <summary>
+    /// Fired when an application writes clipboard data through OSC 52 or Kitty OSC 5522.
+    /// </summary>
+    public event EventHandler<TerminalEvents.ClipboardWriteEventArgs>? ClipboardWriteRequested;
+
+    /// <summary>
+    /// Fired when an application requests clipboard data through OSC 52 or Kitty OSC 5522.
+    /// </summary>
+    public event EventHandler<TerminalEvents.ClipboardReadEventArgs>? ClipboardReadRequested;
 
     /// <summary>
     /// Fired when the terminal title changes.
@@ -234,6 +293,73 @@ public class Terminal
     }
 
     /// <summary>
+    /// Raised when the pointer shape requested via OSC 22 changes, including when it is cleared.
+    /// </summary>
+    public event EventHandler<TerminalEvents.PointerShapeEventArgs>? PointerShapeChanged;
+
+    /// <summary>
+    /// Replaces the current pointer shape on the active screen (OSC 22 ; shape).
+    /// </summary>
+    internal void SetPointerShape(string shape)
+    {
+        var before = PointerShape;
+        ActivePointerShapes.Set(shape);
+        RaisePointerShapeChanged(before);
+    }
+
+    /// <summary>
+    /// Pushes pointer shapes onto the active screen's stack (OSC 22 ; &gt; shape,...).
+    /// </summary>
+    /// <remarks>
+    /// All of them as one operation, so a listener hears about the shape the sequence ends on and
+    /// not about each one on the way there.
+    /// </remarks>
+    internal void PushPointerShapes(IEnumerable<string> shapes)
+    {
+        var before = PointerShape;
+        foreach (var shape in shapes)
+            ActivePointerShapes.Push(shape);
+        RaisePointerShapeChanged(before);
+    }
+
+    /// <summary>
+    /// Pops the current pointer shape off the active screen's stack (OSC 22 ; &lt;).
+    /// </summary>
+    internal void PopPointerShape()
+    {
+        var before = PointerShape;
+        ActivePointerShapes.Pop();
+        RaisePointerShapeChanged(before);
+    }
+
+    /// <summary>
+    /// Empties the active screen's shape stack, so the host uses its own pointer again.
+    /// </summary>
+    internal void ClearPointerShapes()
+    {
+        var before = PointerShape;
+        ActivePointerShapes.Clear();
+        RaisePointerShapeChanged(before);
+    }
+
+    /// <summary>
+    /// Raises <see cref="PointerShapeChanged"/> if the current shape differs from
+    /// <paramref name="before"/>.
+    /// </summary>
+    /// <remarks>
+    /// Only transitions, so a host is not asked to swap the pointer for every frame of a program
+    /// that re-sends the same shape as the mouse moves.
+    /// </remarks>
+    private void RaisePointerShapeChanged(string? before)
+    {
+        var now = PointerShape;
+        if (before == now)
+            return;
+
+        PointerShapeChanged?.Invoke(this, new TerminalEvents.PointerShapeEventArgs(now));
+    }
+
+    /// <summary>
     /// Fired when progress is reported via OSC 9 ; 4.
     /// </summary>
     public event EventHandler<TerminalEvents.ProgressEventArgs>? ProgressChanged;
@@ -242,6 +368,9 @@ public class Terminal
     /// Fired when a desktop notification is requested via OSC 9.
     /// </summary>
     public event EventHandler<TerminalEvents.NotificationEventArgs>? NotificationReceived;
+
+    /// <summary>Fired when iTerm2 requests the user's attention.</summary>
+    public event EventHandler<TerminalEvents.AttentionRequestedEventArgs>? AttentionRequested;
 
     /// <summary>
     /// Fired for every OSC sequence, including ones this terminal does not implement.
@@ -355,6 +484,8 @@ public class Terminal
         ApplicationCursorKeys = false;
         ApplicationKeypad = false;
         BracketedPasteMode = false;
+        PasteNotificationMode = false;
+        InvalidatePendingPaste();
         OriginMode = false;
         LeftRightMarginMode = false;
         CursorVisible = true;
@@ -530,6 +661,8 @@ public class Terminal
     /// </summary>
     public void Reset()
     {
+        var shapeBefore = PointerShape;
+
         // Reset to normal buffer
         if (_usingAltBuffer)
         {
@@ -546,6 +679,11 @@ public class Terminal
         ApplicationCursorKeys = false;
         ApplicationKeypad = false;
         BracketedPasteMode = false;
+        PasteNotificationMode = false;
+        InvalidatePendingPaste();
+        // A reset mid-5522-write abandons the transfer: a terminator arriving after RIS must not
+        // commit pre-reset data to the host clipboard.
+        _inputHandler.ResetKittyClipboard();
         OriginMode = false;
         LeftRightMarginMode = false;
         CursorVisible = true;
@@ -574,6 +712,13 @@ public class Terminal
         // false: the transitions-only contract inverted and staying inverted. RIS is exactly how
         // someone recovers from an application that set the mode and died.
         RaiseSynchronizedOutputChanged(false);
+
+        // Both shape stacks, not just the active screen's, as the protocol requires. RIS is how
+        // someone gets out of a `wait` pointer left behind by a program that died holding one, and
+        // it would still be waiting on the other screen otherwise.
+        _normalPointerShapes.Clear();
+        _altPointerShapes.Clear();
+        RaisePointerShapeChanged(shapeBefore);
 
         // Reset cursor
         _buffer.SetCursor(0, 0);
@@ -604,6 +749,11 @@ public class Terminal
                 line.LineAttribute = LineAttribute.Normal;
             }
         }
+
+        // Filling every line took every OSC 66 block with it, so the print path can stop looking for
+        // the rows one hangs over -- otherwise a single heading early in a session retires the fast
+        // path for the whole of it.
+        _buffer.RefreshMultiRowSizedRuns();
         _buffer.SetCursor(0, 0);
     }
 
@@ -1023,12 +1173,23 @@ public class Terminal
     // Internal methods for raising events (called by InputHandler)
     internal void RaiseDataReceived(string data) => 
         DataReceived?.Invoke(this, new TerminalEvents.DataEventArgs(data));
+
+    internal void RaiseClipboardWriteRequested(string target, string mimeType, byte[] data) =>
+        RaiseClipboardWriteRequested(target, new[] { new TerminalEvents.ClipboardFormat(mimeType, data) });
+
+    internal void RaiseClipboardWriteRequested(
+        string target, IReadOnlyList<TerminalEvents.ClipboardFormat> formats) =>
+        ClipboardWriteRequested?.Invoke(this, new TerminalEvents.ClipboardWriteEventArgs(target, formats));
+
+    internal void RaiseClipboardReadRequested(TerminalEvents.ClipboardReadEventArgs args) =>
+        ClipboardReadRequested?.Invoke(this, args);
     
     internal void RaiseTitleChanged(string title) => 
         TitleChanged?.Invoke(this, new TerminalEvents.TitleChangeEventArgs(title));
     
     internal void RaiseDirectoryChanged(string directory) => 
         DirectoryChanged?.Invoke(this, new TerminalEvents.DirectoryChangeEventArgs(directory));
+
 
     internal void RaiseHyperlinkChanged(string? url) =>
         HyperlinkChanged?.Invoke(this, new TerminalEvents.HyperlinkEventArgs(url ?? string.Empty, url == null));
@@ -1102,6 +1263,11 @@ public class Terminal
 
     internal void RaiseNotificationReceived(string text) =>
         NotificationReceived?.Invoke(this, new TerminalEvents.NotificationEventArgs(text));
+    internal void RaiseAttentionRequested(string action) =>
+        AttentionRequested?.Invoke(this, new TerminalEvents.AttentionRequestedEventArgs(action));
+
+    internal void RaiseKittyNotificationReceived(string? identifier, string? title, string? body, int? urgency, string? icon) =>
+        NotificationReceived?.Invoke(this, new TerminalEvents.NotificationEventArgs(identifier, title, body, urgency, icon));
     internal void RaiseOscReceived(string identifier, int code, string data, string raw, bool recognized) =>
         OscReceived?.Invoke(this, new TerminalEvents.OscReceivedEventArgs(identifier, code, data, raw, recognized));
     
@@ -1164,12 +1330,17 @@ public class Terminal
         if (_usingAltBuffer)
             return;
 
+        var shapeBefore = PointerShape;
         _buffer = _altBuffer!;
         _usingAltBuffer = true;
         // The protocol's flags are per screen; the switch itself carries them so every path in
         // (1049, 1047, 47) behaves the same.
         KittyKeyboardState.SwitchScreen(toAltScreen: true);
         _inputHandler.SetBuffer(_buffer);
+
+        // The screens keep separate shape stacks, so switching can change the current shape without
+        // any application asking for it -- the host has to hear about that like any other change.
+        RaisePointerShapeChanged(shapeBefore);
         BufferChanged?.Invoke(this, new TerminalEvents.BufferChangedEventArgs(BufferType.Alternate));
     }
 
@@ -1181,10 +1352,13 @@ public class Terminal
         if (!_usingAltBuffer)
             return;
 
+        var shapeBefore = PointerShape;
         _buffer = _normalBuffer!;
         _usingAltBuffer = false;
         KittyKeyboardState.SwitchScreen(toAltScreen: false);
         _inputHandler.SetBuffer(_buffer);
+
+        RaisePointerShapeChanged(shapeBefore);
         BufferChanged?.Invoke(this, new TerminalEvents.BufferChangedEventArgs(BufferType.Normal));
     }
 
@@ -1290,6 +1464,11 @@ public class Terminal
 
         // Clear all event subscriptions
         DataReceived = null;
+        ClipboardWriteRequested = null;
+        ClipboardReadRequested = null;
+        CursorStyleChanged = null;
+        SynchronizedOutputChanged = null;
+        BufferChanged = null;
         TitleChanged = null;
         BellRang = null;
         Resized = null;
@@ -1298,8 +1477,10 @@ public class Terminal
         DirectoryChanged = null;
         HyperlinkChanged = null;
         ShellIntegrationMarkReceived = null;
+        PointerShapeChanged = null;
         ProgressChanged = null;
         NotificationReceived = null;
+        AttentionRequested = null;
         OscReceived = null;
         
         // Clear window manipulation events
@@ -1314,4 +1495,161 @@ public class Terminal
         WindowFullscreened = null;
         WindowInfoRequested = null;
     }
+
+    // ---- Bracketed paste MIME (private mode 5522) -------------------------------------------
+
+    private PendingPaste? _pendingPaste;
+
+    private sealed record PendingPaste(
+        string Token, string Target, TerminalPaste Paste, DateTime IssuedAtUtc);
+
+    /// <summary>How long a paste token stays redeemable. Checked at redemption; single-use.</summary>
+    private static readonly TimeSpan PasteTokenLifetime = TimeSpan.FromSeconds(60);
+
+    /// <summary>The clock the token lifetime is measured on; swappable so expiry is testable.</summary>
+    internal Func<DateTime> PasteClock = static () => DateTime.UtcNow;
+
+    /// <summary>
+    /// Pastes plain text. The convenience overload of <see cref="Paste(TerminalPaste)"/> for
+    /// hosts that only ever paste text.
+    /// </summary>
+    public void Paste(string text) =>
+        Paste(new TerminalPaste(
+            new[] { "text/plain" },
+            _ => System.Text.Encoding.UTF8.GetBytes(text)));
+
+    /// <summary>
+    /// The paste entry point — and the only place the spec's precedence rule can live, which is
+    /// why the library owns it. With mode 5522 set, the paste is ANNOUNCED: an unsolicited Kitty
+    /// clipboard read response listing the available MIME types with a single-use token, and no
+    /// bracketing — the terminal must never send both for one paste. With only mode 2004 set,
+    /// the text/plain content is bracketed the classic way. With neither, the raw text is sent.
+    /// </summary>
+    /// <remarks>
+    /// <para>Additive by design: <see cref="BracketedPasteMode"/> stays public and an embedder
+    /// that wraps its own pastes keeps working — but such an embedder never gets 5522 behaviour,
+    /// because only this method knows how to announce one.</para>
+    /// <para>Serialize with <see cref="Write(string)"/>, like every other member: this publishes
+    /// token state the write path's redemption reads. A paste that cannot supply text/plain is
+    /// dropped when only mode 2004 (or neither mode) is set — there is nothing safe to
+    /// flatten.</para>
+    /// </remarks>
+    public void Paste(TerminalPaste paste)
+    {
+        if (paste.MimeTypes.Count == 0)
+            return;
+
+        if (PasteNotificationMode)
+        {
+            AnnouncePaste(paste);
+            return;
+        }
+
+        // 2004 and the raw path flatten to text, as terminals always have. Only a mime the
+        // paste actually OFFERED is asked for — an accessor is entitled to be a plain lookup over
+        // its own list — and a paste that cannot supply text/plain is dropped outside mode 5522,
+        // because there is nothing safe to flatten.
+        var text = paste.MimeTypes.Contains("text/plain") && paste.GetData("text/plain") is { } bytes
+            ? System.Text.Encoding.UTF8.GetString(bytes)
+            : null;
+        if (text is null)
+            return;
+
+        RaiseDataReceived(BracketedPasteMode
+            ? $"\u001b[200~{text}\u001b[201~"
+            : text);
+    }
+
+    private void AnnouncePaste(TerminalPaste paste)
+    {
+        // A new paste supersedes the old token outright: at most one is ever redeemable.
+        //
+        // The LOGICAL password is ASCII text (128 random bits as hex), and the wire carries its
+        // base64-encoded UTF-8 — because the spec defines pw as a base64-encoded UTF-8 string,
+        // and a conforming client decodes it, holds the text, and re-encodes it to redeem. Raw
+        // random bytes are not valid UTF-8, and such a client would corrupt them in transit.
+        var tokenBytes = new byte[16];
+        System.Security.Cryptography.RandomNumberGenerator.Fill(tokenBytes);
+        var logical = Convert.ToHexString(tokenBytes);
+        var token = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(logical));
+        var target = paste.FromPrimary ? "p" : "c";
+        _pendingPaste = new PendingPaste(logical, target, paste, PasteClock());
+
+        var loc = paste.FromPrimary ? ":loc=primary" : string.Empty;
+        var mimeList = Convert.ToBase64String(
+            System.Text.Encoding.UTF8.GetBytes(string.Join(' ', paste.MimeTypes)));
+
+        RaiseDataReceived($"\u001b]5522;type=read:status=OK{loc}:pw={token}\u001b\\");
+        RaiseDataReceived($"\u001b]5522;type=read:status=DATA:mime=Lg==:pw={token};{mimeList}\u001b\\");
+        RaiseDataReceived($"\u001b]5522;type=read:status=DONE:pw={token}\u001b\\");
+    }
+
+    /// <summary>
+    /// Redeems a paste token carried on an OSC 5522 read. Single use — a hit consumes the token
+    /// whatever happens next — and worthless outside its scope: the spec has the token bound to
+    /// the clipboard location that produced the paste, accompanied by a name, and short-lived.
+    /// A miss is NOT an error; the caller falls back to its standard security path, exactly as
+    /// the spec directs for an absent or invalid password.
+    /// </summary>
+    internal TerminalPaste? TryRedeemPaste(string token, string name, string target)
+    {
+        var pending = _pendingPaste;
+        if (pending is null || name.Length == 0)
+            return null;
+
+        // The wire form is base64 of the logical password's UTF-8; conforming clients may have
+        // decoded and re-encoded it, so comparison happens on the decoded text.
+        string presented;
+        try
+        {
+            presented = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(token));
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+
+        if (pending.Token != presented)
+            return null;
+
+        // The token was presented: consume it now, valid or not — replaying a rejected
+        // redemption must not get a second try. Compare-and-swap so a NEWER paste published
+        // between the read above and this consume is left alone rather than wiped.
+        if (!ReferenceEquals(
+                System.Threading.Interlocked.CompareExchange(ref _pendingPaste, null, pending),
+                pending))
+            return null;
+
+        if (pending.Target != target
+            || PasteClock() - pending.IssuedAtUtc > PasteTokenLifetime)
+            return null;
+
+        return pending.Paste;
+    }
+
+    internal void InvalidatePendingPaste() => _pendingPaste = null;
+}
+
+/// <summary>
+/// One paste, as the host hands it to <see cref="Terminal.Paste(TerminalPaste)"/>: the MIME
+/// types on offer, where it came from, and an accessor the terminal calls for the types the
+/// application actually asks for — so nothing is encoded or copied for formats nobody wants.
+/// </summary>
+public sealed class TerminalPaste
+{
+    public TerminalPaste(IReadOnlyList<string> mimeTypes, Func<string, byte[]?> getData, bool fromPrimary = false)
+    {
+        MimeTypes = mimeTypes;
+        GetData = getData;
+        FromPrimary = fromPrimary;
+    }
+
+    /// <summary>The MIME types this paste can supply, most specific first.</summary>
+    public IReadOnlyList<string> MimeTypes { get; }
+
+    /// <summary>Returns the content for one MIME type, or null when it cannot after all.</summary>
+    public Func<string, byte[]?> GetData { get; }
+
+    /// <summary>True when the paste came from the primary selection rather than the clipboard.</summary>
+    public bool FromPrimary { get; }
 }

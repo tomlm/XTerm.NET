@@ -419,3 +419,4 @@ FodyWeavers.xsd
 
 # Generated benchmark corpus — reproducible from a fixed seed
 src/XTerm.NET.Bench/**/corpus/
+perf-report.md
