@@ -558,6 +558,14 @@ public class Terminal
     /// <summary>
     /// Writes data to the terminal.
     /// </summary>
+    /// <remarks>
+    /// If the data came from a PTY, call <see cref="Write(ReadOnlySpan{byte})"/> with the raw
+    /// bytes instead: decoding per read allocates a string the parser does not need, and —
+    /// the sharper edge — a read boundary landing mid-codepoint corrupts that character,
+    /// because per-read decoding cannot carry a partial sequence to the next read. The byte
+    /// overload decodes internally and statefully. This overload is the right call when the
+    /// data already IS a string: programmatic writes, tests, composed sequences.
+    /// </remarks>
     public void Write(string data)
     {
         if (string.IsNullOrEmpty(data))
