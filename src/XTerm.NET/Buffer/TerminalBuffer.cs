@@ -98,6 +98,12 @@ public class TerminalBuffer
     public bool RecycleScrolledLines { get; set; } = true;
 
     /// <summary>
+    /// Supplies the attributes for cells exposed by scrolling. The input handler owns the current
+    /// rendition state; the buffer pulls it only when it needs to create a blank.
+    /// </summary>
+    internal Func<AttributeData>? EraseAttributesProvider { get; set; }
+
+    /// <summary>
     /// Saved cursor state for DECSC/DECRC.
     /// </summary>
     public class SavedCursor
@@ -262,13 +268,13 @@ public class TerminalBuffer
                     && recycled.Length == _cols)
                 {
                     var fill = BufferCell.Space;
-                    fill.Attributes = AttributeData.Default;
+                    fill.Attributes = EraseAttributes();
                     recycled.ResetInPlace(fill, isWrapped);
                     newLine = recycled;
                 }
                 else
                 {
-                    newLine = GetBlankLine(AttributeData.Default, isWrapped);
+                    newLine = GetBlankLine(EraseAttributes(), isWrapped);
                 }
 
                 // When scrollTop is 0, the top line goes into scrollback.
@@ -307,7 +313,7 @@ public class TerminalBuffer
             {
                 // A partial scroll region drops a line from the middle of the ring, not the oldest
                 // slot, so there is nothing safe to recycle here.
-                newLine = GetBlankLine(AttributeData.Default, isWrapped);
+                newLine = GetBlankLine(EraseAttributes(), isWrapped);
 
                 // Scroll region is not at top of screen.
                 // Remove line from scroll region top and add blank at bottom.
@@ -356,7 +362,7 @@ public class TerminalBuffer
             _lines.Splice(scrollRegionEnd, 1);
 
             // Add blank line at top of scroll region
-            var newLine = GetBlankLine(AttributeData.Default);
+            var newLine = GetBlankLine(EraseAttributes());
             _lines.Splice(scrollRegionStart, 0, newLine);
         }
     }
@@ -577,12 +583,15 @@ public class TerminalBuffer
     }
 
     /// <summary>The blank a scroll leaves behind, matching what the full-width path fills with.</summary>
-    private static BufferCell BlankFill()
+    private BufferCell BlankFill()
     {
         var cell = BufferCell.Space;
-        cell.Attributes = AttributeData.Default;
+        cell.Attributes = EraseAttributes();
         return cell;
     }
+
+    private AttributeData EraseAttributes()
+        => EraseAttributesProvider?.Invoke() ?? AttributeData.Default;
 
     private void CopyMarginColumns(int fromRow, int toRow, int left, int width)
     {

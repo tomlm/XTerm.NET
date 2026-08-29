@@ -82,6 +82,7 @@ public class InputHandler
         _terminal = terminal;
         _buffer = terminal.Buffer;
         _curAttr = AttributeData.Default;
+        _buffer.EraseAttributesProvider = GetEraseAttributes;
 
         // Initialize charset tables - all start as ASCII
         _charsets = new Dictionary<CharsetMode, Dictionary<char, string>?>
@@ -97,6 +98,14 @@ public class InputHandler
     }
 
     private void RefreshActiveCharset() => _activeCharset = _charsets.GetValueOrDefault(_currentCharset);
+
+    /// <summary>The current background, without foreground or text rendition attributes.</summary>
+    private AttributeData GetEraseAttributes()
+    {
+        var attributes = AttributeData.Default;
+        attributes.Bg = _curAttr.Bg;
+        return attributes;
+    }
 
     /// <summary>
     /// Checks if a code point is a combining character that should be merged with the previous cell.
@@ -6787,5 +6796,6 @@ public class InputHandler
     public void SetBuffer(Buffer.TerminalBuffer buffer)
     {
         _buffer = buffer;
+        _buffer.EraseAttributesProvider = GetEraseAttributes;
     }
 }
