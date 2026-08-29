@@ -52,7 +52,9 @@ switch (mode)
             baseFiles: Files(args, "--base"),
             headFiles: Files(args, "--head"),
             outputPath: ArgOr(args, "--out", "perf-report.md"),
-            timeFloor: double.Parse(ArgOr(args, "--time-floor", "0.05")));
+            // Matches the TIME_FLOOR the CI workflow passes explicitly, so a local compare and
+            // the gate agree about what counts as a regression.
+            timeFloor: double.Parse(ArgOr(args, "--time-floor", "0.04")));
 
     case "layout":
         CellLayoutProbe.Run();

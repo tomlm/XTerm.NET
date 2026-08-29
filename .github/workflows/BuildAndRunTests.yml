@@ -70,6 +70,21 @@ jobs:
       RUNS: ${{ inputs.runs || '3' }}
       OUT: src/XTerm.NET.Bench/bin/Release/net10.0
 
+      # ---- THE PERF GATES. Both live here, in the file that runs them. ----
+      #
+      # PER-PR: this change against what it branches from. Each corpus fails at
+      # max(TIME_FLOOR, 3 x its own measured noise), so a corpus quiet enough to measure
+      # tightly is held to exactly this number.
+      TIME_FLOOR: "0.04"
+      #
+      # CUMULATIVE: this change against a PINNED REFERENCE, because a per-PR gate bounds no
+      # trajectory. Four percent allowed five times compounds to 21.7%, and every one of those
+      # PRs passes its own gate on the way. This is the budget for ALL drift since the
+      # reference, so the PR that spends the last of it is the one that has to find the time
+      # back -- or the reference moves deliberately, in a change that says why.
+      BASELINE_REF: "v2.0.0-rc001"
+      BASELINE_FLOOR: "0.05"
+
     steps:
     - uses: actions/checkout@v4
       with:
@@ -87,6 +102,23 @@ jobs:
         dotnet build src/XTerm.NET.Bench -c Release --property WarningLevel=0
         mkdir -p /tmp/libs
         cp "$OUT/XTerm.NET.dll" /tmp/libs/head.dll
+
+    - name: Build the baseline library
+      id: baseline
+      run: |
+        # Absent or unfetchable, the cumulative gate is skipped rather than failing the run --
+        # a fork or a shallow clone should not look like a regression.
+        if git rev-parse --verify "$BASELINE_REF^{commit}" >/dev/null 2>&1; then
+          git worktree add /tmp/baseline "$BASELINE_REF"
+          dotnet build /tmp/baseline/src/XTerm.NET -c Release --property WarningLevel=0 \
+            -p:CopyLocalLockFileAssemblies=true
+          cp /tmp/baseline/src/XTerm.NET/bin/Release/net10.0/XTerm.NET.dll /tmp/libs/baseline.dll
+          cp -n /tmp/baseline/src/XTerm.NET/bin/Release/net10.0/*.dll "$OUT/" || true
+          echo "available=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "baseline ref $BASELINE_REF not found; cumulative gate skipped"
+          echo "available=false" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Build the base library
       run: |
@@ -107,8 +139,13 @@ jobs:
     # and put the branch's own library straight back over the one being measured.
     - name: Measure
       run: |
+        # The baseline joins the alternation rather than being measured separately: comparing
+        # against a number recorded on some other runner would measure the runner, not the code.
+        SIDES="base head"
+        [ "${{ steps.baseline.outputs.available }}" = "true" ] && SIDES="baseline base head"
+
         for r in $(seq 1 "$RUNS"); do
-          for side in base head; do
+          for side in $SIDES; do
             cp "/tmp/libs/$side.dll" "$OUT/XTerm.NET.dll"
             dotnet "$OUT/XTerm.NET.Bench.dll" ci \
               --chars "$CHARS" --warm-chars $((CHARS / 4)) \
@@ -118,16 +155,46 @@ jobs:
 
     - name: Compare
       id: compare
+      env:
+        # THE PERF GATE. Each corpus fails at max(this, 3 x its own measured noise), so this is
+        # the floor -- a corpus quiet enough to measure tightly is held to exactly this number.
+        # It lives here, in the file that runs the gate, rather than as a default buried in the
+        # bench's argument parsing, so changing it does not mean going to find it first.
+        TIME_FLOOR: "0.04"
       run: |
         cp /tmp/libs/head.dll "$OUT/XTerm.NET.dll"
         set +e
         dotnet "$OUT/XTerm.NET.Bench.dll" compare \
           --base $(ls /tmp/base-*.json) \
           --head $(ls /tmp/head-*.json) \
+          --time-floor "$TIME_FLOOR" \
           --out /tmp/report.md
         echo "status=$?" >> "$GITHUB_OUTPUT"
         set -e
         cat /tmp/report.md >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Compare against the pinned baseline
+      id: compare-baseline
+      if: steps.baseline.outputs.available == 'true'
+      run: |
+        set +e
+        dotnet "$OUT/XTerm.NET.Bench.dll" compare \
+          --base $(ls /tmp/baseline-*.json) \
+          --head $(ls /tmp/head-*.json) \
+          --time-floor "$BASELINE_FLOOR" \
+          --out /tmp/baseline-report.md
+        echo "status=$?" >> "$GITHUB_OUTPUT"
+        set -e
+        {
+          echo ""
+          echo "## Cumulative, against \`$BASELINE_REF\`"
+          echo ""
+          echo "Everything merged since the reference, measured together. A per-PR gate bounds"
+          echo "each change and nothing about the trajectory: 4% allowed five times compounds to"
+          echo "21.7%, with every one of those PRs green on its way past."
+          echo ""
+        } >> "$GITHUB_STEP_SUMMARY"
+        cat /tmp/baseline-report.md >> "$GITHUB_STEP_SUMMARY"
 
     # Best effort. A pull request from a fork gets a read-only token, so this cannot post -- the job
     # summary above is the copy that always exists.
@@ -141,7 +208,13 @@ jobs:
           || gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/report.md
 
     - name: Fail on a regression
-      if: steps.compare.outputs.status != '0'
+      if: steps.compare.outputs.status != '0' || (steps.compare-baseline.outputs.status != '' && steps.compare-baseline.outputs.status != '0')
       run: |
-        echo "::error::Perf comparison reported a regression. See the job summary."
+        if [ "${{ steps.compare.outputs.status }}" != "0" ]; then
+          echo "::error::This change regressed against its base. See the job summary."
+        fi
+        if [ "${{ steps.compare-baseline.outputs.status }}" != "" ] \
+           && [ "${{ steps.compare-baseline.outputs.status }}" != "0" ]; then
+          echo "::error::Cumulative drift since $BASELINE_REF is over budget. Either find the time back, or move the reference deliberately in a change that says why."
+        fi
         exit 1
