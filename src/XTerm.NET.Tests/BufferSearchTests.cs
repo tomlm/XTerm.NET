@@ -229,10 +229,25 @@ public class BufferSearchTests
 
         // THIS thread's allocations, not the process's. xUnit runs test classes in parallel, so
         // the process-wide counter picks up whatever the suite happens to be doing on other threads
-        // -- measured at 66 MB once, none of it from here. A per-thread counter cannot be polluted.
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        search.Find("zzz");
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        // -- measured at 66 MB once, none of it from here.
+        //
+        // The per-thread counter is not exact either, which is why this takes the SMALLEST of
+        // several windows rather than trusting one. The runtime credits a thread with a whole 8 KB
+        // allocation quantum when it hands one out and subtracts the unused tail only while that
+        // context is live, so a GC on ANY thread discards the context and the unused tail becomes
+        // bytes we appear to have allocated. This search is the worst case for that: it allocates
+        // its pattern up front and then walks 200,000 cells without allocating again, leaving a
+        // full quantum exposed for the whole walk. CI read 8,200 bytes for a window that truly cost
+        // 112. The real cost is deterministic and the error only ever adds, so the minimum is the
+        // truth -- and the string-per-line version this guards against would blow the budget in
+        // every window, not one in fifty.
+        var allocated = long.MaxValue;
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            search.Find("zzz");
+            allocated = Math.Min(allocated, GC.GetAllocatedBytesForCurrentThread() - before);
+        }
 
         Assert.True(allocated < 4096,
             $"a search over 4,000 lines allocated {allocated:N0} bytes; the string-per-line version cost megabytes");
