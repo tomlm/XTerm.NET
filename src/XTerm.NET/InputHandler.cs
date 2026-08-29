@@ -266,8 +266,8 @@ public class InputHandler
     /// </summary>
     private bool RefusesSequenceCheaply(int codePoint)
     {
-        if ((uint)(codePoint - 0x0900) > 0xD7FB - 0x0900)
-            return false;                     // marks, VS, ZWJ: never sequence candidates
+        // The caller already applied the candidate-hull bracket inline, so everything here is
+        // a potential sequence character; marks, VS and ZWJ never reach this method.
         // The REP tracker is exactly the context needed: stamped after every print and append,
         // cancelled by the operations that move the cursor, and position-checked here besides —
         // a stale entry simply fails the match and the full path decides.
@@ -394,7 +394,9 @@ public class InputHandler
                 // Find the previous cell to combine with — unless the tracked neighbour already
                 // says no: Korean prose is syllable after non-joining syllable, and each one was
                 // paying the full line fetch below just to be refused.
-                if ((continuesCluster || !RefusesSequenceCheaply(codePoint))
+                if ((continuesCluster
+                     || (uint)(codePoint - 0x0900) > 0xD7FB - 0x0900   // marks: skip the call, not just the checks
+                     || !RefusesSequenceCheaply(codePoint))
                     && TryAppendToPreviousCell(data, codePoint))
                 {
                     // A ZWJ promises another component after it; remember where, so it can be recognised.
