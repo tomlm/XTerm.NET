@@ -1046,6 +1046,7 @@ public class TerminalBuffer
                 // over whitespace. There is nothing to redistribute either way.
                 continue;
             }
+            var metadata = BufferReflow.CaptureMetadata(wrappedLines, _cols);
             var linesToAdd = destLineLengths.Length - wrappedLines.Count;
             int trimmedLines;
             if (_yBase == 0 && _y != _lines.Length - 1)
@@ -1117,6 +1118,8 @@ public class TerminalBuffer
                     wrappedLines[i].ReplaceCells(destLineLengths[i], newCols, nullCell);
                 }
             }
+            if (metadata is not null)
+                BufferReflow.RestoreMetadata(wrappedLines, destLineLengths, metadata);
 
             var viewportAdjustments = linesToAdd - trimmedLines;
             while (viewportAdjustments-- > 0)

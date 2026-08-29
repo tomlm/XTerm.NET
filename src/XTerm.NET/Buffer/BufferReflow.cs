@@ -16,6 +16,15 @@ public readonly struct NewLayoutResult
 /// </summary>
 public static class BufferReflow
 {
+    internal readonly record struct LogicalMark(int Offset, LineMark Mark);
+    internal readonly record struct LogicalLink(int Offset, int Length, string Url, string? Id);
+
+    internal sealed class ReflowMetadata
+    {
+        public List<LogicalMark> Marks { get; } = new();
+        public List<LogicalLink> Links { get; } = new();
+    }
+
     /// <summary>
     /// Evaluates indexes of rows to remove after a reflow-larger operation.
     /// </summary>
@@ -56,6 +65,14 @@ public static class BufferReflow
                 continue;
             }
 
+            var metadata = CaptureMetadata(wrappedLines, oldCols);
+            // The helper describes the same logical cell stream in either resize direction: it
+            // advances by newCols and shortens only at a wide-cell boundary. With newCols larger
+            // it therefore yields the exact rows the merge loop below produces as well.
+            var destinationLineLengths = metadata is null
+                ? null
+                : ReflowSmallerGetNewLineLengths(wrappedLines, oldCols, newCols);
+
             var destLineIndex = 0;
             var destCol = GetWrappedLineTrimmedLength(wrappedLines, destLineIndex, oldCols);
             var srcLineIndex = 1;
@@ -94,6 +111,8 @@ public static class BufferReflow
             }
 
             wrappedLines[destLineIndex].ReplaceCells(destCol, newCols, nullCell);
+            if (metadata is not null)
+                RestoreMetadata(wrappedLines, destinationLineLengths!, metadata);
 
             var countToRemove = 0;
             for (var removeIndex = wrappedLines.Count - 1; removeIndex > 0; removeIndex--)
@@ -225,6 +244,88 @@ public static class BufferReflow
         }
 
         return newLineLengths.ToArray();
+    }
+
+    /// <summary>
+    /// Captures line-owned metadata in the same logical coordinate space used to redistribute cells.
+    /// </summary>
+    internal static ReflowMetadata? CaptureMetadata(
+        IReadOnlyList<BufferLine> lines, int cols)
+    {
+        ReflowMetadata? result = null;
+        var lineOffset = 0;
+        for (var i = 0; i < lines.Count; i++)
+        {
+            var length = GetWrappedLineTrimmedLength(lines, i, cols);
+            foreach (var mark in lines[i].Marks)
+            {
+                (result ??= new ReflowMetadata()).Marks.Add(
+                    new LogicalMark(lineOffset + Math.Clamp(mark.Column, 0, length), mark));
+            }
+
+            foreach (var link in lines[i].Links)
+            {
+                var start = Math.Clamp(link.Column, 0, length);
+                var end = Math.Clamp(link.EndColumn, start, length);
+                if (end > start)
+                    (result ??= new ReflowMetadata()).Links.Add(
+                        new LogicalLink(lineOffset + start, end - start, link.Url, link.Id));
+            }
+
+            lineOffset += length;
+        }
+
+        return result;
+    }
+
+    /// <summary>Places logical metadata onto the rows that now own the corresponding cells.</summary>
+    internal static void RestoreMetadata(
+        IReadOnlyList<BufferLine> lines, IReadOnlyList<int> lineLengths, ReflowMetadata metadata)
+    {
+        foreach (var line in lines)
+        {
+            line.ClearMarks();
+            line.ClearLinks();
+        }
+
+        foreach (var logical in metadata.Marks)
+        {
+            var (line, column) = Locate(logical.Offset, lineLengths);
+            var mark = logical.Mark;
+            lines[line].AddMark(new LineMark(column, mark.Kind, mark.ExitCode));
+        }
+
+        foreach (var logical in metadata.Links)
+        {
+            var offset = logical.Offset;
+            var remaining = logical.Length;
+            while (remaining > 0)
+            {
+                var (line, column) = Locate(offset, lineLengths);
+                var take = Math.Min(remaining, lineLengths[line] - column);
+                // Capture clamps links to the source stream and reflow preserves that stream's
+                // total length, so a positive remainder always has a destination cell.
+                System.Diagnostics.Debug.Assert(take > 0);
+                if (take <= 0)
+                    break;
+                lines[line].AddLink(new LineHyperlink(column, take, logical.Url, logical.Id));
+                offset += take;
+                remaining -= take;
+            }
+        }
+    }
+
+    private static (int Line, int Column) Locate(int offset, IReadOnlyList<int> lineLengths)
+    {
+        for (var i = 0; i < lineLengths.Count; i++)
+        {
+            // An end-of-content mark belongs at the end of the final row rather than disappearing.
+            if (offset < lineLengths[i] || i == lineLengths.Count - 1)
+                return (i, Math.Clamp(offset, 0, lineLengths[i]));
+            offset -= lineLengths[i];
+        }
+
+        throw new InvalidOperationException("Reflow metadata requires at least one destination row.");
     }
 
     /// <summary>

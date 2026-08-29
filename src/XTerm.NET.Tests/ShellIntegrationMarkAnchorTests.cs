@@ -104,6 +104,21 @@ public class ShellIntegrationMarkAnchorTests
         Assert.Equal(ShellIntegrationMark.PromptStart, MarksOn(t, 0)[0].Kind);
     }
 
+    [Fact]
+    public void Reflow_moves_a_mark_to_the_row_and_column_owning_its_position()
+    {
+        var t = Fresh(cols: 10, rows: 5);
+        t.Write("0123456789AB" + Mark("A") + "CD");
+        t.Write($"{Esc}[5;1H");
+
+        t.Resize(20, 5);
+
+        Assert.Empty(MarksOn(t, 1));
+        var mark = Assert.Single(MarksOn(t, 0));
+        Assert.Equal(12, mark.Column);
+        Assert.Equal(ShellIntegrationMark.PromptStart, mark.Kind);
+    }
+
     /// <summary>A recycled line is a new line: the ring hands back the object it is about to drop.</summary>
     [Fact]
     public void A_line_reused_by_the_ring_carries_no_marks_over()

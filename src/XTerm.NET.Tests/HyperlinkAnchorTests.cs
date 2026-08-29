@@ -188,6 +188,57 @@ public class HyperlinkAnchorTests
         Assert.Empty(Row(t).Links);
     }
 
+    [Fact]
+    public void Reflow_moves_a_link_with_its_text_and_removes_the_old_span()
+    {
+        var t = Fresh(cols: 10, rows: 5);
+        t.Write("0123456789" + Link("https://example.com") + "ABCD" + EndLink());
+        t.Write($"{Esc}[5;1H"); // Keep the cursor out of the wrapped group so it may reflow.
+
+        t.Resize(20, 5);
+
+        Assert.False(Row(t, 1).HasLinks);
+        Assert.True(Row(t).TryGetLinkAt(12, out var link));
+        Assert.Equal(10, link.Column);
+        Assert.Equal(4, link.Cols);
+    }
+
+    [Fact]
+    public void Widening_joins_the_pieces_of_one_wrapped_link()
+    {
+        var t = Fresh(cols: 10, rows: 5);
+        t.Write(Link("https://example.com") + "0123456789ABCD" + EndLink());
+        t.Write($"{Esc}[5;1H");
+
+        t.Resize(20, 5);
+
+        var link = Assert.Single(Row(t).Links);
+        Assert.Equal(0, link.Column);
+        Assert.Equal(14, link.Cols);
+    }
+
+    [Fact]
+    public void Reflow_splits_a_link_at_each_new_wrap_boundary()
+    {
+        var t = Fresh(cols: 12, rows: 6);
+        t.Write(Link("https://example.com", "id=wrapped") + "abcdefghij" + EndLink());
+        t.Write($"{Esc}[6;1H");
+
+        t.Resize(4, 6);
+
+        var spans = Enumerable.Range(0, t.Buffer.Lines.Length)
+            .Select(row => t.Buffer.Lines[row])
+            .Where(line => line?.HasLinks == true)
+            .Select(line => line!.Links.Single())
+            .ToArray();
+        Assert.Equal(new[] { 4, 4, 2 }, spans.Select(span => span.Cols));
+        Assert.All(spans, span =>
+        {
+            Assert.Equal(0, span.Column);
+            Assert.Equal("wrapped", span.Id);
+        });
+    }
+
     /// <summary>
     /// Erasing takes the link with the text. Unlike a mark: a mark records a position in the
     /// history, but a link is a property of its text, and an erased span left clickable is an
