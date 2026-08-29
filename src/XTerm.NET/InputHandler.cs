@@ -5390,18 +5390,15 @@ public class InputHandler
         int state;
         if (isPrivate)
         {
-            if (mode == (int)TerminalMode.GraphemeClustering)
-            {
-                // Clustering is unconditional: DECSET and DECRST cannot change it, so DECRPM's
-                // "permanently set" value is the only truthful capability report.
-                state = 3;
-            }
-            else
-            {
-                if (!TryGetPrivateModeState(mode, out var set))
-                    return;
-                state = set ? 1 : 2;
-            }
+            // Mode 2027 (grapheme clustering) is DELIBERATELY not answered yet. Reporting it —
+            // the value would be 3, permanently set — is a claim of UAX #29 conformance, and the
+            // clustering here still lacks the sequence rules (Hangul GB6–GB8, Indic GB9c), which
+            // are not rare in practice: macOS stores filenames in NFD, so a Korean directory
+            // listing is decomposed jamo. Issue #78 stays open until that work lands; silence
+            // costs an application its read timeout, overstating costs it correctness.
+            if (!TryGetPrivateModeState(mode, out var set))
+                return;
+            state = set ? 1 : 2;
         }
         else if (TryGetAnsiModeState(mode, out var set))
         {

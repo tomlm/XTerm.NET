@@ -118,18 +118,21 @@ public class RequestModeTests
     }
 
     [Fact]
-    public void Reports_grapheme_clustering_as_permanently_set()
+    public void Grapheme_clustering_mode_is_consumed_in_silence_for_now()
     {
+        // The enum entry keeps DECSET/DECRST from logging 2027 as unknown, but the QUERY stays
+        // unanswered on purpose: a reply of 3 claims UAX #29 conformance, and the sequence rules
+        // (Hangul GB6-GB8, Indic GB9c) are not implemented yet — see issue #78, which stays open
+        // until they are. Silence is the pre-existing "no claim" answer.
         var terminal = Fresh();
         var replies = Replies(terminal);
         var mode = (int)TerminalMode.GraphemeClustering;
 
+        terminal.Write(Set(mode));
         terminal.Write(Reset(mode));
         terminal.Write(Query(mode));
-        terminal.Write(Set(mode));
-        terminal.Write(Query(mode));
 
-        Assert.Equal(new[] { PermanentReport(mode), PermanentReport(mode) }, replies);
+        Assert.Empty(replies);
     }
 
     /// <summary>
