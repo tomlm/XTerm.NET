@@ -2610,6 +2610,8 @@ public class InputHandler
 
                 case OscCommand.TextSizing:
                     recognized = HandleTextSizing(arg);
+                    break;
+
                 case OscCommand.KittyNotification:
                     HandleKittyNotification(arg);
                     break;
