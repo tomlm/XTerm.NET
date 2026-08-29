@@ -148,6 +148,25 @@ public class BufferLine : IEnumerable<BufferCell>
         if (index < 0 || text.Length == 0 || index + text.Length > _length)
             return;
 
+        // Same invariant Fill keeps, for the same reason: a run landing on either half of a wide
+        // character must take the other half with it, or the renderer draws a two-column glyph
+        // into one column. This path writes cells directly rather than through SetCell, so like
+        // the bookkeeping below it has to say so itself.
+        if (index > 0 && GetWidth(index - 1) == 2)
+        {
+            var orphan = BufferCell.Space;
+            orphan.Attributes = _cells[index - 1].Attributes;
+            _cells[index - 1] = orphan;
+        }
+
+        var end = index + text.Length;
+        if (end < _length && _cells[end - 1].Width == 2)
+        {
+            var orphan = BufferCell.Space;
+            orphan.Attributes = _cells[end].Attributes;
+            _cells[end] = orphan;
+        }
+
         var cells = _cells.AsSpan(index, text.Length);
         for (var i = 0; i < text.Length; i++)
         {
@@ -250,6 +269,18 @@ public class BufferLine : IEnumerable<BufferCell>
     {
         if (endCol == -1)
             endCol = _length;
+
+        // A wide character straddles two columns, so a range that cuts through one leaves the
+        // other half behind: a width-2 cell whose second column is now a space, or a spacer with
+        // nothing in front of it. The renderer then draws a two-column glyph into one column and
+        // the rest of the row shifts. ReplaceCells has carried this repair all along and only
+        // reflow ever reached it; erasing needs it just as much, and widening the range here also
+        // gives the link, image and sized-run bookkeeping below the true span that was cleared.
+        if (startCol > 0 && startCol < _length && GetWidth(startCol - 1) == 2)
+            startCol--;
+
+        if (endCol < _length && endCol > 0 && GetWidth(endCol - 1) == 2)
+            endCol++;
 
         for (int i = startCol; i < endCol && i < _length; i++)
         {

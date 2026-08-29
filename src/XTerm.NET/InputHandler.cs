@@ -315,6 +315,24 @@ public class InputHandler
         return false;
     }
 
+    /// <summary>
+    /// Extended_Pictographic, near enough for GB11: the emoji blocks plus the handful of older
+    /// symbols that carry the property. A tighter answer needs the Unicode property data; this
+    /// errs toward the blocks emoji actually come from, and the cost of being wrong at the edges
+    /// is a cluster that splits rather than one that swallows unrelated text.
+    /// </summary>
+    private static bool IsExtendedPictographic(int codePoint) => codePoint switch
+    {
+        >= 0x1F000 and <= 0x1FAFF => true,   // the emoji planes
+        >= 0x2600 and <= 0x27BF => true,     // Misc Symbols, Dingbats
+        0x00A9 or 0x00AE or 0x203C or 0x2049 => true,
+        >= 0x2100 and <= 0x21FF => true,     // Letterlike, arrows used as emoji
+        >= 0x2300 and <= 0x23FF => true,     // Misc Technical (watch, hourglass)
+        >= 0x2B00 and <= 0x2BFF => true,     // stars, arrows
+        >= 0xFE0F and <= 0xFE0F => true,     // VS16 keeps a pictographic cluster together
+        _ => false,
+    };
+
     /// <summary>The Fitzpatrick skin tone modifiers, U+1F3FB to U+1F3FF.</summary>
     private static bool IsSkinToneModifier(int codePoint)
         => codePoint >= SkinToneFirst && codePoint <= SkinToneLast;
@@ -393,9 +411,14 @@ public class InputHandler
                 return;
 
             // A character standing exactly where a ZWJ was just merged continues that cluster.
+            // GB11 is ZWJ x \p{Extended_Pictographic}: the ZWJ keeps the cluster only when what
+            // follows is itself a pictograph. Accepting anything meant an emoji followed by a
+            // letter -- man, ZWJ, e-acute -- swallowed the letter into the emoji's cell, where it
+            // stopped being text the user could see or select.
             var continuesCluster = _zwjContinuation is { } pending
                                    && pending.Row == _buffer.Y + _buffer.YBase
-                                   && pending.Col == _buffer.X;
+                                   && pending.Col == _buffer.X
+                                   && IsExtendedPictographic(codePoint);
             _zwjContinuation = null;
 
             // A second regional indicator lands beside the first and turns it into a flag: one glyph, two
@@ -443,6 +466,16 @@ public class InputHandler
         // Handle autowrap. The wrap TEST stays inline: it runs once per printed character, and
         // hiding it inside ResolveAutowrap cost alt-redraw 9% in method-call overhead -- the same
         // lesson NoteLinkRun's guard learned. The method only runs when a wrap is actually due.
+        // A wide character needs TWO columns, so the wrap test has to know its width: written at
+        // the last column it was stored there with no room for its spacer, leaving a width-2 cell
+        // in one column and the cursor one past the pending-wrap position. Resolved before the
+        // width is used below, which is why the width is measured first.
+        var incomingWidth = GetStringCellWidth(data.Length == 1
+            ? Charsets.TranslateChar(data[0], _activeCharset)
+            : data);
+        if (incomingWidth == 2 && _buffer.X == WrapLimit() && _terminal.Options.Wraparound)
+            _buffer.SetCursorRaw(WrapLimit() + 1, _buffer.Y);
+
         if (_buffer.X > WrapLimit() && !ResolveAutowrap())
         {
             // Wrapping is off and the cursor is past the last column. DECAWM off does not mean
@@ -508,6 +541,27 @@ public class InputHandler
         // around the written column, because a Sixel is content and printing replaces that part of
         // it; a Kitty run is left alone, because it is an overlay whose z-index orders it against
         // the text. Both fall out of where a picture is stored rather than from anything done here.
+
+        // Overwriting half of a wide character leaves the other half behind: a width-2 cell whose
+        // second column now holds something else, or a spacer with nothing in front of it. Both
+        // make the renderer draw a two-column glyph into one column. The erase paths get this from
+        // BufferLine.Fill; printing writes a single cell and has to say so itself.
+        if (line is not null)
+        {
+            if (_buffer.X > 0 && line.GetWidth(_buffer.X - 1) == 2)
+            {
+                var orphan = BufferCell.Space;
+                orphan.Attributes = line[_buffer.X - 1].Attributes;
+                line.SetCell(_buffer.X - 1, ref orphan);
+            }
+
+            if (_buffer.X + 1 < _terminal.Cols && line[_buffer.X].Width == 2)
+            {
+                var orphan = BufferCell.Space;
+                orphan.Attributes = line[_buffer.X].Attributes;
+                line.SetCell(_buffer.X + 1, ref orphan);
+            }
+        }
 
         // Set the cell
         line?.SetCell(_buffer.X, ref cell);
@@ -753,8 +807,13 @@ public class InputHandler
         // character past the last column OVERWRITES it rather than being discarded, and the run
         // path can only stop. Rare enough to hand to Print rather than teach twice -- the default
         // is on, so nothing in normal output takes this branch.
+        // A pending ZWJ continuation is per-character state the run path does not carry: it wrote
+        // its span directly and never consulted or cleared _zwjContinuation, so an emoji ending in
+        // ZWJ followed by an ASCII chunk lost the continuation that Print would have honoured --
+        // the two paths disagreed about the same bytes depending only on how they were chunked.
         if (!UseRunPrinting || _terminal.InsertMode || _activeCharset is not null
-            || _buffer.HasMultiRowSizedRuns || !_terminal.Options.Wraparound)
+            || _buffer.HasMultiRowSizedRuns || !_terminal.Options.Wraparound
+            || _zwjContinuation is not null)
         {
             foreach (var b in data)
                 Print(CodePointText.Get((char)b));
@@ -836,8 +895,13 @@ public class InputHandler
         // character past the last column OVERWRITES it rather than being discarded, and the run
         // path can only stop. Rare enough to hand to Print rather than teach twice -- the default
         // is on, so nothing in normal output takes this branch.
+        // A pending ZWJ continuation is per-character state the run path does not carry: it wrote
+        // its span directly and never consulted or cleared _zwjContinuation, so an emoji ending in
+        // ZWJ followed by an ASCII chunk lost the continuation that Print would have honoured --
+        // the two paths disagreed about the same bytes depending only on how they were chunked.
         if (!UseRunPrinting || _terminal.InsertMode || _activeCharset is not null
-            || _buffer.HasMultiRowSizedRuns || !_terminal.Options.Wraparound)
+            || _buffer.HasMultiRowSizedRuns || !_terminal.Options.Wraparound
+            || _zwjContinuation is not null)
         {
             for (var k = 0; k < count; k++)
                 Print(CodePointText.Get(data[start + k]));
@@ -6794,7 +6858,11 @@ public class InputHandler
             }
         }
 
-        return width;
+        // Clamped for the same reason TryAppendToPreviousCell clamps its incremental answer: a
+        // grid cell is one or two columns and nothing else, so a cluster with two spacing marks
+        // (or a double conjunct) measuring 3 gave the two paths different answers about the same
+        // text and put a width the cell machinery has never seen into the buffer.
+        return Math.Min(width, (ushort)2);
     }
 
     public void SetBuffer(Buffer.TerminalBuffer buffer)
