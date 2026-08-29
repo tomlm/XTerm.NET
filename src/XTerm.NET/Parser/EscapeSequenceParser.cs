@@ -1075,7 +1075,13 @@ public class EscapeSequenceParser
         // prefix that did fit, which is precisely the partial action this is here to prevent: an
         // oversized OSC 52 would arrive as a perfectly valid clipboard write of attacker-chosen
         // length. The flag makes the whole sequence unusable, and DispatchOsc drops it.
-        if (_osc.Length >= MaxOscPayloadChars)
+        //
+        // Counted in UTF-16 units, which is what the builder actually holds: a supplementary
+        // character appends a surrogate PAIR, so testing the cap alone let one land a unit past
+        // the ceiling. It changed nothing that matters -- DispatchOsc tests `>=` and still drops
+        // the payload -- but a bound worth stating is worth holding exactly, and knowing the
+        // width costs nothing here because the branch below already knows it.
+        if (_osc.Length + (code < 0x10000 ? 1 : 2) > MaxOscPayloadChars)
             return;
 
         // Append the char, not a string built from it. ConvertFromUtf32 allocated once per character

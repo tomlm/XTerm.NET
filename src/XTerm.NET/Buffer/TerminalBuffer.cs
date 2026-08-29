@@ -146,6 +146,12 @@ public class TerminalBuffer
 
     public SavedCursor SavedCursorState { get; set; }
 
+    /// <summary>
+    /// Forgets what DECSC saved on this screen, so a later DECRC restores the initial state
+    /// rather than whatever was current before a RIS.
+    /// </summary>
+    public void ResetSavedCursor() => SavedCursorState = new SavedCursor();
+
     public TerminalBuffer(int cols, int rows, int scrollback, bool hasScrollback = true)
     {
         _hasScrollback = hasScrollback;

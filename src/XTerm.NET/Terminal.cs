@@ -814,6 +814,13 @@ public class Terminal : IDisposable
         // drawing into G0 and died left the next one printing box characters for letters.
         _inputHandler.ResetCharsets();
 
+        // The SAVED cursor context too, on both screens. Resetting only the live tables left the
+        // reset one DECRC away from being undone: designate line drawing, DECSC, RIS, DECRC, and
+        // the dead program's designations come back. DECSC state is per-screen, so a reset that
+        // cleared only the active buffer would leave the other one loaded.
+        _normalBuffer?.ResetSavedCursor();
+        _altBuffer?.ResetSavedCursor();
+
         // Kitty keyboard flags do not survive a reset: RIS is exactly how someone recovers from
         // an application that set them and died.
         KittyKeyboardState.Reset();
@@ -1500,18 +1507,12 @@ public class Terminal : IDisposable
                 break;
 
             case 0x08: // BS - Backspace
-                if (_buffer.X > 0)
-                {
-                    _buffer.SetCursor(_buffer.X - 1, _buffer.Y);
-                }
-                else if (ReverseWraparound && _buffer.Y > 0)
-                {
-                    // DECSET 45 was stored and reported by DECRQM but nothing ever read it, so a
-                    // program that enabled reverse wraparound and backspaced off the left edge sat
-                    // there -- a shell erasing a wrapped command line stopped at the wrap and left
-                    // the first row of it on screen.
-                    _buffer.SetCursor(Cols - 1, _buffer.Y - 1);
-                }
+                // DECSET 45 was stored and reported by DECRQM but nothing ever read it, so a
+                // program that enabled reverse wraparound and backspaced off the left edge sat
+                // there -- a shell erasing a wrapped command line stopped at the wrap and left
+                // the first row of it on screen. The motion lives with the other cursor motions,
+                // so it is bounded by the same margins they are.
+                _inputHandler.Backspace();
                 break;
 
             case 0x09: // HT - Tab
@@ -1566,9 +1567,6 @@ public class Terminal : IDisposable
         LineFed?.Invoke(this, new TerminalEvents.LineFeedEventArgs("\n"));
     }
 
-    /// <summary>
-    /// Disposes the terminal and releases resources.
-    /// </summary>
     /// <summary>Whether <see cref="Dispose"/> has run. A disposed terminal accepts no writes.</summary>
     private bool _disposed;
 
