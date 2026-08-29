@@ -452,7 +452,7 @@ public class BufferLine : IEnumerable<BufferCell>
         return false;
     }
 
-    /// <summary>Drops every link span. Only line reuse does this.</summary>
+    /// <summary>Drops every link span for line reuse or reflow reconstruction.</summary>
     internal void ClearLinks() => _links = null;
 
     /// <summary>Adds an already-normalized link span, joining a contiguous piece of the same link.</summary>
