@@ -101,6 +101,14 @@ public class InputHandler
         if (codePoint < 0x0300)
             return false;
 
+        // The same shortcut for the two biggest uniform blocks: katakana and CJK Unified
+        // contain no combining character (the kana voiced-sound marks U+3099-309A sit BELOW
+        // this bracket, so NFD Japanese still clusters). This is a negative invariant from the
+        // character database, not a return to the allowlist: nothing inside it ever needs the
+        // category lookup, and CJK-heavy streams were paying ~5% for it to say no.
+        if (codePoint >= 0x30A0 && codePoint <= 0x9FFF)
+            return false;
+
         // Variation Selectors (U+FE00�U+FE0F)
         if (codePoint >= 0xFE00 && codePoint <= 0xFE0F)
             return true;
