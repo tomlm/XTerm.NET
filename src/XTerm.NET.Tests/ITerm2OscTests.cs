@@ -140,7 +140,7 @@ public class ITerm2OscTests
 
         terminal.Write(Osc("ReportCellSize"));
 
-        Assert.Equal("\u001b]1337;ReportCellSize=3;2\u001b\\", response);
+        Assert.Equal("\u001b]1337;ReportCellSize=3.0;2.0;1.0\u001b\\", response);
     }
 
     [Fact]
@@ -182,4 +182,40 @@ public class ITerm2OscTests
                                "jwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABESURBVBhXY+ASkeOSN8+WM4naYeRZa+sWt6Ar" +
                                "iqH48PW8jmcxTXN1V07bFKC36nhx9T6GO9NOXPq40/eZ2J1ZvxigAAD9BhlVn28K4gAAAABJRU5E" +
                                "rkJggg==";
+
+    [Fact]
+    public void File_HugePayloadIsRejectedBeforeDecoding()
+    {
+        // A valid-base64 blob larger than the registry budget must be dropped from its LENGTH,
+        // before FromBase64String materialises the decoded copy — otherwise the reject itself
+        // costs the allocation the cap exists to prevent.
+        var terminal = new Terminal(new TerminalOptions { MaxImageRegistryBytes = 1024 });
+        var recognized = new List<bool>();
+        terminal.OscReceived += (_, e) => { if (e.Code == 1337) recognized.Add(e.Recognized); };
+
+        var huge = Convert.ToBase64String(new byte[8192]);   // 8x the budget, valid base64
+        terminal.Write($"\u001b]1337;File=inline=1:{huge}\u001b\\");
+
+        Assert.Equal(new[] { false }, recognized);
+    }
+
+    [Fact]
+    public void ReportCellSize_SpeaksPointsAndScale()
+    {
+        // iTerm2's fields are points with a pixels-per-point scale: 20px cells on a 2x display
+        // are 10.0 points, and the scale rides along as the third field.
+        var terminal = new Terminal(new TerminalOptions
+        {
+            CellWidthPixels = 18,
+            CellHeightPixels = 36,
+            DisplayScale = 2.0,
+            WindowOptions = { GetCellSizePixels = true },
+        });
+        string? response = null;
+        terminal.DataReceived += (_, e) => response = e.Data;
+
+        terminal.Write("\u001b]1337;ReportCellSize\u001b\\");
+
+        Assert.Equal("\u001b]1337;ReportCellSize=18.0;9.0;2.0\u001b\\", response);
+    }
 }

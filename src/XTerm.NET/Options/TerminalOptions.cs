@@ -241,6 +241,13 @@ public class TerminalOptions : ICloneable
     public int CellHeightPixels { get; set; } = 20;
 
     /// <summary>
+    /// Device pixels per logical point on the display the terminal renders to — 2.0 on a Retina
+    /// display, 1.0 (the default) where pixels are points. Set by the host beside the cell pixel
+    /// metrics; iTerm2's ReportCellSize divides by it, because that query speaks points.
+    /// </summary>
+    public double DisplayScale { get; set; } = 1.0;
+
+    /// <summary>
     /// Largest Sixel image accepted, in pixels. Larger ones are discarded as they decode.
     /// </summary>
     /// <remarks>
@@ -337,6 +344,7 @@ public class TerminalOptions : ICloneable
         MaxUserVariableBytes = other.MaxUserVariableBytes;
         CellWidthPixels = other.CellWidthPixels;
         CellHeightPixels = other.CellHeightPixels;
+        DisplayScale = other.DisplayScale;
         MaxSixelPixels = other.MaxSixelPixels;
         MaxImageBytes = other.MaxImageBytes;
         WindowOptions = new WindowOptions(other.WindowOptions);

@@ -2647,8 +2647,15 @@ public class InputHandler
             case "ReportCellSize":
                 if (!_terminal.Options.WindowOptions.GetCellSizePixels)
                     return false;
-                _terminal.RaiseDataReceived(
-                    $"\u001b]1337;ReportCellSize={_terminal.Options.CellHeightPixels};{_terminal.Options.CellWidthPixels}\u001b\\");
+                // iTerm2 defines the first two fields as floating-point sizes in POINTS with an
+                // optional pixels-per-point scale — reporting physical pixels as points reads
+                // double on a Retina display. The host supplies DisplayScale alongside the pixel
+                // metrics; at the default 1.0 the numbers are unchanged.
+                var cellScale = Math.Max(1.0, _terminal.Options.DisplayScale);
+                var cellHeightPoints = _terminal.Options.CellHeightPixels / cellScale;
+                var cellWidthPoints = _terminal.Options.CellWidthPixels / cellScale;
+                _terminal.RaiseDataReceived(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                    $"\u001b]1337;ReportCellSize={cellHeightPoints:0.0###};{cellWidthPoints:0.0###};{cellScale:0.0###}\u001b\\"));
                 return true;
 
             default:
@@ -2672,6 +2679,15 @@ public class InputHandler
             return false;
 
         var payload = data[(separator + 1)..];
+
+        // Bounded BEFORE decoding: FromBase64String materialises the whole decoded payload, so
+        // without this a very large valid-base64 blob forces the allocation first and gets
+        // rejected after. The registry budget is the natural ceiling — an image whose COMPRESSED
+        // form already exceeds what the registry would hold has no chance of being kept.
+        if (_terminal.Options.MaxImageRegistryBytes > 0
+            && (long)payload.Length > _terminal.Options.MaxImageRegistryBytes / 3 * 4 + 4)
+            return false;
+
         byte[] encoded;
         try
         {
