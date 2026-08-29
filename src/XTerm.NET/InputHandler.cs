@@ -942,6 +942,7 @@ public class InputHandler
         // following a complete syllable should get. The bracket is the candidate ranges' hull:
         // ordinary combining marks — most of what ever joins — skip both class tests in one
         // compare, which the profiler charged this method 3.6 points of the unicode corpus for.
+        var conjunctConsonantJoined = false;
         if ((uint)(codePoint - 0x0900) <= 0xD7FB - 0x0900 && codePoint != ZeroWidthJoiner)
         {
             var hangulClass = HangulClassOf(codePoint);
@@ -958,19 +959,31 @@ public class InputHandler
                 if (!IsConjunctLinker(last)
                     && !(last == ZeroWidthJoiner && IsConjunctLinker(RuneBeforeLastOf(prevCell.Content))))
                     return false;
+
+                conjunctConsonantJoined = true;
             }
         }
 
         // Append the combining character to the previous cell's content
         var newContent = prevCell.Content + data;
 
-        // The width loop is the ONE authority on what a cluster occupies -- it already speaks
-        // VS15/VS16, skin tones, ZWJ emoji, tags, and spacing marks. Recomputing here is what
-        // makes a matra or a conjunct consonant widen the cell it joins: wcwidth arithmetic
-        // says base+matra is two columns, and every wcwidth-consuming application lays out on
-        // that. Capped at the grid's two columns -- a longer conjunct chain still ligates into
-        // its cluster's cell rather than inventing widths the cell machinery has never met.
-        int newWidth = Math.Clamp(GetStringCellWidth(newContent), 1, 2);
+        // The appended codepoint's own column contribution, computed INCREMENTALLY: re-walking
+        // the whole cluster through the width loop on every append cost the unicode corpus 66%
+        // -- an emoji family re-measured itself once per member. The cases mirror the loop's
+        // branches exactly; a matra or a joined conjunct consonant widens the cell it joins,
+        // because wcwidth arithmetic gives them their columns and every wcwidth-consuming
+        // application lays out on that sum. Clamped to the grid's two columns.
+        var contribution = 0;
+        if (codePoint == VariationSelectorEmojiSymbol && prevCell.Width == 1)
+            contribution = 1;
+        else if (codePoint == VariationSelectorTextSymbol && prevCell.Width == 2)
+            contribution = -1;
+        else if (conjunctConsonantJoined)
+            contribution = 1;
+        else if (codePoint >= 0x0903 && CharUnicodeInfo.GetUnicodeCategory(codePoint)
+                 == UnicodeCategory.SpacingCombiningMark)
+            contribution = 1;
+        int newWidth = Math.Clamp(prevCell.Width + contribution, 1, 2);
 
         // Create the updated cell
         var updatedCell = new BufferCell
