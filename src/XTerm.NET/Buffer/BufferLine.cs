@@ -118,10 +118,21 @@ public class BufferLine : IEnumerable<BufferCell>
     /// <summary>
     /// Sets a cell at a specific column.
     /// </summary>
+    /// <summary>
+    /// Whether this line has ever held a two-column character. A latch, not a count: it exists so
+    /// the print path can skip its orphan check with one field read, and the only cost of a stale
+    /// true is doing a check that finds nothing. Clearing it accurately would mean scanning the
+    /// row on every erase, which is the work it was added to avoid.
+    /// </summary>
+    public bool HasWideCells { get; private set; }
+
     public void SetCell(int index, ref BufferCell cell)
     {
         if (index >= 0 && index < _length)
         {
+            if (cell.Width == 2)
+                HasWideCells = true;
+
             _cells[index] = cell;
 
             // Printing over a Sixel picture replaces that part of it. With tiles in cells this

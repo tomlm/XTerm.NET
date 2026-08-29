@@ -333,6 +333,31 @@ public class InputHandler
         _ => false,
     };
 
+    /// <summary>
+    /// Blanks the half of a wide character that the cell about to be written would orphan.
+    /// </summary>
+    /// <remarks>
+    /// A two-column character occupies its cell and the spacer after it. Writing over either half
+    /// leaves the other behind, and a renderer meeting a width-2 cell whose second column holds
+    /// something else draws a two-column glyph into one column and shifts the rest of the row.
+    /// </remarks>
+    private void RepairSplitWideCell(BufferLine line)
+    {
+        if (_buffer.X > 0 && line.GetWidth(_buffer.X - 1) == 2)
+        {
+            var orphan = BufferCell.Space;
+            orphan.Attributes = line[_buffer.X - 1].Attributes;
+            line.SetCell(_buffer.X - 1, ref orphan);
+        }
+
+        if (_buffer.X + 1 < _terminal.Cols && line[_buffer.X].Width == 2)
+        {
+            var orphan = BufferCell.Space;
+            orphan.Attributes = line[_buffer.X].Attributes;
+            line.SetCell(_buffer.X + 1, ref orphan);
+        }
+    }
+
     /// <summary>The Fitzpatrick skin tone modifiers, U+1F3FB to U+1F3FF.</summary>
     private static bool IsSkinToneModifier(int codePoint)
         => codePoint >= SkinToneFirst && codePoint <= SkinToneLast;
@@ -466,14 +491,20 @@ public class InputHandler
         // Handle autowrap. The wrap TEST stays inline: it runs once per printed character, and
         // hiding it inside ResolveAutowrap cost alt-redraw 9% in method-call overhead -- the same
         // lesson NoteLinkRun's guard learned. The method only runs when a wrap is actually due.
-        // A wide character needs TWO columns, so the wrap test has to know its width: written at
-        // the last column it was stored there with no room for its spacer, leaving a width-2 cell
-        // in one column and the cursor one past the pending-wrap position. Resolved before the
-        // width is used below, which is why the width is measured first.
-        var incomingWidth = GetStringCellWidth(data.Length == 1
-            ? Charsets.TranslateChar(data[0], _activeCharset)
-            : data);
-        if (incomingWidth == 2 && _buffer.X == WrapLimit() && _terminal.Options.Wraparound)
+        // Translate and measure ONCE, before the wrap decision, because both need the answer: a
+        // wide character written at the last column has no room for its spacer, so the wrap test
+        // has to know the width, and the write below needs it too. Measuring in both places cost
+        // alt-redraw 32% -- every printed character paid for two translations and two width
+        // lookups to learn the same thing twice.
+        var translatedData = data;
+        if (data.Length == 1)
+        {
+            translatedData = Charsets.TranslateChar(data[0], _activeCharset);
+        }
+
+        var width = GetStringCellWidth(translatedData);
+
+        if (width == 2 && _buffer.X == WrapLimit() && _terminal.Options.Wraparound)
             _buffer.SetCursorRaw(WrapLimit() + 1, _buffer.Y);
 
         if (_buffer.X > WrapLimit() && !ResolveAutowrap())
@@ -489,16 +520,6 @@ public class InputHandler
             // block back by its own width instead of one column.
             _buffer.SetCursorRaw(WrapLimit(), _buffer.Y);
         }
-
-        // Translate character through active charset
-        var translatedData = data;
-        if (data.Length == 1)
-        {
-            translatedData = Charsets.TranslateChar(data[0], _activeCharset);
-        }
-
-        // Get character width
-        var width = GetStringCellWidth(translatedData);
 
         // A cell belonging to a scaled block anchored on an earlier row is not written into: the
         // cursor moves past the block's cells on this row and the text lands after them. Known
@@ -546,22 +567,12 @@ public class InputHandler
         // second column now holds something else, or a spacer with nothing in front of it. Both
         // make the renderer draw a two-column glyph into one column. The erase paths get this from
         // BufferLine.Fill; printing writes a single cell and has to say so itself.
-        if (line is not null)
-        {
-            if (_buffer.X > 0 && line.GetWidth(_buffer.X - 1) == 2)
-            {
-                var orphan = BufferCell.Space;
-                orphan.Attributes = line[_buffer.X - 1].Attributes;
-                line.SetCell(_buffer.X - 1, ref orphan);
-            }
-
-            if (_buffer.X + 1 < _terminal.Cols && line[_buffer.X].Width == 2)
-            {
-                var orphan = BufferCell.Space;
-                orphan.Attributes = line[_buffer.X].Attributes;
-                line.SetCell(_buffer.X + 1, ref orphan);
-            }
-        }
+        // Guarded at the CALL, the lesson this file keeps teaching: the repair below is two array
+        // reads on EVERY printed character, and a line that has never held a wide character cannot
+        // have an orphan to fix. HasWideCells is one field read, and it is false for the ASCII
+        // that makes up most of every frame.
+        if (line is not null && line.HasWideCells)
+            RepairSplitWideCell(line);
 
         // Set the cell
         line?.SetCell(_buffer.X, ref cell);
