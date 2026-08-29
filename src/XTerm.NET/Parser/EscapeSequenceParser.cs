@@ -431,24 +431,50 @@ public class EscapeSequenceParser
             {
                 case ParserState.Ground:
                 case ParserState.Escape:
+                case ParserState.EscapeIntermediate:
                 case ParserState.CsiEntry:
                 case ParserState.CsiParam:
                 case ParserState.CsiIntermediate:
                 case ParserState.CsiIgnore:
                     OnExecute(code);
-                    if (code == 0x1B) // ESC
+
+                    // CAN and SUB abandon whatever is in flight -- that is what CAN is for -- and
+                    // the vt100.net table and xterm.js both return to Ground on them. Without the
+                    // transition this parser stayed inside the cancelled sequence and went on
+                    // reading the bytes after it as parameters. DcsPassthrough and ApcString have
+                    // handled these correctly all along, further down, and keep doing so: they
+                    // have a payload to close and report as unclean.
+                    if (code == 0x18 || code == 0x1A)
+                    {
+                        Transition(ParserState.Ground);
+                    }
+                    else if (code == 0x1B) // ESC
                     {
                         Transition(ParserState.Escape);
                     }
                     return;
 
                 case ParserState.OscString:
-                    if (code == 0x1B || code == 0x07) // ESC or BEL
+                    if (code == 0x18 || code == 0x1A)
+                    {
+                        // The string is abandoned, not dispatched: half a title or half a
+                        // clipboard write is not something to act on.
+                        OnExecute(code);
+                        _osc.Clear();
+                        Transition(ParserState.Ground);
+                        return;
+                    }
+
+                    // 0x9C is C1 ST, the terminator ECMA-48 actually defines for OSC. It reached
+                    // the payload instead because the fallback arm below matched the whole C1
+                    // range, so an OSC ended with 8-bit ST never ended at all and swallowed
+                    // everything after it.
+                    if (code == 0x1B || code == 0x07 || code == 0x9C)
                     {
                         DispatchOsc();
                         Transition(code == 0x1B ? ParserState.Escape : ParserState.Ground);
                     }
-                    else if (code >= 0x20)
+                    else if (code >= 0x20 && code < 0x80)
                     {
                         OscPut(code);
                     }
@@ -460,7 +486,11 @@ public class EscapeSequenceParser
         switch (_state)
         {
             case ParserState.Ground:
-                if (code >= 0x20)
+                // 0x7F is DEL: not a graphic character, and every reference parser ignores it.
+                // It slipped through because the C0/C1 test above brackets 0x00-0x1F and
+                // 0x80-0x9F, and this arm took everything else -- the ASCII fast paths already
+                // exclude it, then handed it here to be printed as a cell.
+                if (code >= 0x20 && code != 0x7F)
                 {
                     OnPrint(code);
                 }
@@ -509,7 +539,8 @@ public class EscapeSequenceParser
                     DispatchEsc(code);
                     Transition(ParserState.Ground);
                 }
-                break;
+                break;   // C0 controls reach OnExecute through the block above, which this state
+                         // was missing from -- a line feed inside ESC ( <LF> B vanished entirely.
 
             case ParserState.CsiEntry:
                 if (code >= 0x3C && code <= 0x3F) // Private parameter markers (<, =, >, ?)
@@ -534,7 +565,16 @@ public class EscapeSequenceParser
                 break;
 
             case ParserState.CsiParam:
-                if (code >= 0x30 && code < 0x40)
+                if (code >= 0x3C && code <= 0x3F)
+                {
+                    // A private marker is only legal before the parameters. Arriving after a digit
+                    // it makes the sequence malformed, and the spec's answer is to swallow the
+                    // rest of it rather than act on the half that parsed: CSI 1 ? 5 h was being
+                    // honoured as SM 15. This is the only path into CsiIgnore, which was
+                    // unreachable until now.
+                    Transition(ParserState.CsiIgnore);
+                }
+                else if (code >= 0x30 && code < 0x40)
                 {
                     Param(code);
                 }
@@ -750,6 +790,15 @@ public class EscapeSequenceParser
         // Entry actions
         switch (newState)
         {
+            case ParserState.Escape:
+                // The VT500 diagram gives the Escape state a 'clear' entry action, and it was the
+                // one state here without it: intermediates from a previous sequence stayed in the
+                // buffer and were handed to the NEXT ESC dispatch. terminfo's enacs sends
+                // ESC ( B ESC ) 0, and the leftover "(" turned the second designator into a G0
+                // line-drawing switch -- a terminal that drew its own prompt in box characters.
+                _collect.Clear();
+                break;
+
             case ParserState.CsiEntry:
             case ParserState.DcsEntry:
                 _params.Reset();
@@ -1246,8 +1295,12 @@ public class EscapeSequenceParser
         EndDcs(terminatedCleanly: false);
         EndApc(terminatedCleanly: false);
 
-        // And a half of a surrogate pair carried across a Write is abandoned with it.
+        // And a half of a surrogate pair carried across a Write is abandoned with it -- as is a
+        // partial UTF-8 sequence, which the byte entry point holds for the same reason and which
+        // this forgot. A truncated multi-byte prefix surviving a reset meant the next Write's
+        // first character was decoded against bytes from before the reset.
         _pendingHighSurrogate = '\0';
+        _pendingByteCount = 0;
         _state = ParserState.Ground;
         _params.Reset();
         _collect.Clear();
