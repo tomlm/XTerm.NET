@@ -25,6 +25,10 @@ public class Terminal : IDisposable
     private Buffer.TerminalBuffer? _altBuffer;
     private bool _usingAltBuffer;
 
+    /// <summary>
+    /// This terminal's mutable runtime options. Construction snapshots the caller's options, so
+    /// hosts should make later changes through this instance.
+    /// </summary>
     public TerminalOptions Options { get; }
     public Buffer.TerminalBuffer Buffer => _buffer;
     public int Cols { get; private set; }
@@ -439,7 +443,7 @@ public class Terminal : IDisposable
 
     public Terminal(TerminalOptions? options = null)
     {
-        Options = options ?? new TerminalOptions();
+        Options = options?.Clone() ?? new TerminalOptions();
         Cols = Options.Cols;
         Rows = Options.Rows;
         ResetTabStops();

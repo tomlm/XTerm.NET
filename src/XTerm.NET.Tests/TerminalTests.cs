@@ -1,5 +1,6 @@
 using XTerm;
 using XTerm.Buffer;
+using XTerm.Common;
 using XTerm.Options;
 
 namespace XTerm.Tests;
@@ -21,7 +22,7 @@ public class TerminalTests
     }
 
     [Fact]
-    public void Constructor_WithOptions_UsesProvidedOptions()
+    public void Constructor_WithOptions_SnapshotsProvidedOptions()
     {
         // Arrange
         var options = new TerminalOptions { Cols = 100, Rows = 30 };
@@ -32,7 +33,44 @@ public class TerminalTests
         // Assert
         Assert.Equal(100, terminal.Cols);
         Assert.Equal(30, terminal.Rows);
-        Assert.Equal(options, terminal.Options);
+        Assert.NotSame(options, terminal.Options);
+        Assert.Equal(options.Cols, terminal.Options.Cols);
+        Assert.Equal(options.Rows, terminal.Options.Rows);
+    }
+
+    [Fact]
+    public void Terminals_created_from_one_options_object_do_not_alias_each_other()
+    {
+        var options = new TerminalOptions { CursorBlink = false };
+        var first = new Terminal(options);
+        var second = new Terminal(options);
+
+        first.Options.CursorBlink = true;
+
+        Assert.True(first.Options.CursorBlink);
+        Assert.False(second.Options.CursorBlink);
+        Assert.False(options.CursorBlink);
+    }
+
+    [Fact]
+    public void Mutating_constructor_options_later_does_not_reconfigure_the_terminal()
+    {
+        var options = new TerminalOptions { CursorStyle = CursorStyle.Block };
+        var terminal = new Terminal(options);
+
+        options.CursorStyle = CursorStyle.Bar;
+
+        Assert.Equal(CursorStyle.Block, terminal.Options.CursorStyle);
+    }
+
+    [Fact]
+    public void Constructor_snapshot_includes_nested_options()
+    {
+        var options = new TerminalOptions();
+        var terminal = new Terminal(options);
+
+        Assert.NotSame(options.Theme, terminal.Options.Theme);
+        Assert.NotSame(options.WindowOptions, terminal.Options.WindowOptions);
     }
 
     [Fact]
@@ -977,4 +1015,3 @@ public class TerminalTests
         }
     }
 }
-
