@@ -158,14 +158,18 @@ public class TerminalOptions : ICloneable
     /// Whether Kitty desktop notification requests (OSC 99) are honoured.
     /// </summary>
     /// <remarks>
-    /// Off by default, unlike the other Kitty gates: those draw inside the terminal surface,
-    /// whereas a notification hands pty-controlled text to an OS-level API on behalf of any
-    /// program that can write to the pty, including a remote host over ssh. A host that is
-    /// prepared to show notifications opts in. While off the terminal also refuses the p=?
-    /// capability query, so a well-behaved application stays quiet rather than notifying
-    /// into the void.
+    /// On by default, matching every terminal that implements the protocol — kitty, Ghostty,
+    /// foot, WezTerm and iTerm2 all ship desktop notifications enabled. The risk profile allows
+    /// it: unlike clipboard READ-BACK, which exfiltrates data and stays opt-in, a notification
+    /// hands pty-controlled text to a display-only OS API, and the worst a hostile pty writer
+    /// (a remote host over ssh, say) achieves is annoyance the host can gate at display time.
+    /// The default also decides discoverability: capability detectors probe with p=?, and a
+    /// disabled gate deliberately refuses the query — so an off default reads as "unsupported"
+    /// in every terminal comparison matrix. A host that prefers silence sets this false and the
+    /// terminal refuses the query too, keeping well-behaved applications quiet rather than
+    /// notifying into the void.
     /// </remarks>
-    public bool KittyNotificationsEnabled { get; set; }
+    public bool KittyNotificationsEnabled { get; set; } = true;
     /// <summary>
     /// Whether applications may write to the host clipboard using OSC 52 or Kitty OSC 5522.
     /// </summary>

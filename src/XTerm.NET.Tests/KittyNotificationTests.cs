@@ -147,19 +147,18 @@ public class KittyNotificationTests
     }
 
     [Fact]
-    public void Osc99_IsIgnoredByDefault()
+    public void Osc99_WorksByDefault()
     {
+        // Display-only, so on by default like kitty, Ghostty, foot, WezTerm and iTerm2 — and the
+        // default decides discoverability, because detectors read a refused p=? as "unsupported".
         var terminal = new Terminal(new TerminalOptions());
         var notifications = new List<TerminalEvents.NotificationEventArgs>();
-        var responses = new List<string>();
         terminal.NotificationReceived += (_, e) => notifications.Add(e);
-        terminal.DataReceived += (_, e) => responses.Add(e.Data);
 
         terminal.Write($"{Esc}]99;;Hello world{St}");
-        terminal.Write($"{Esc}]99;i=query:p=?;{St}");
 
-        Assert.Empty(notifications);
-        Assert.Empty(responses);
+        Assert.Single(notifications);
+        Assert.Equal("Hello world", notifications[0].Title);
     }
 
     [Fact]
