@@ -895,21 +895,26 @@ public class InputHandler
         // The sequence rules (GB6-GB8, GB9c): the current codepoint alone cannot decide these —
         // whether it continues the cluster depends on what the cluster ENDS with. A refusal here
         // is not an error; Print gives the character an ordinary cell, exactly as a syllable
-        // following a complete syllable should get.
-        var hangulClass = HangulClassOf(codePoint);
-        if (hangulClass != 0)
+        // following a complete syllable should get. The bracket is the candidate ranges' hull:
+        // ordinary combining marks — most of what ever joins — skip both class tests in one
+        // compare, which the profiler charged this method 3.6 points of the unicode corpus for.
+        if ((uint)(codePoint - 0x0900) <= 0xD7FB - 0x0900)
         {
-            if (!HangulJoins(HangulClassOf(LastRuneOf(prevCell.Content)), hangulClass))
-                return false;
-        }
-        else if (IsConjunctConsonantCandidate(codePoint) && !IsCombiningCharacter(codePoint))
-        {
-            // GB9c: the consonant joins when the cluster ends with a linker — or with a ZWJ the
-            // linker precedes, the explicit-conjunct form. Anything else is a new cluster.
-            var last = LastRuneOf(prevCell.Content);
-            if (!IsConjunctLinker(last)
-                && !(last == ZeroWidthJoiner && IsConjunctLinker(RuneBeforeLastOf(prevCell.Content))))
-                return false;
+            var hangulClass = HangulClassOf(codePoint);
+            if (hangulClass != 0)
+            {
+                if (!HangulJoins(HangulClassOf(LastRuneOf(prevCell.Content)), hangulClass))
+                    return false;
+            }
+            else if (IsConjunctConsonantCandidate(codePoint) && !IsCombiningCharacter(codePoint))
+            {
+                // GB9c: the consonant joins when the cluster ends with a linker — or with a ZWJ
+                // the linker precedes, the explicit-conjunct form. Anything else is a new cluster.
+                var last = LastRuneOf(prevCell.Content);
+                if (!IsConjunctLinker(last)
+                    && !(last == ZeroWidthJoiner && IsConjunctLinker(RuneBeforeLastOf(prevCell.Content))))
+                    return false;
+            }
         }
 
         // Append the combining character to the previous cell's content
