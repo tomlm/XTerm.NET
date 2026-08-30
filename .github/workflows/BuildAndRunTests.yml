@@ -84,6 +84,43 @@ jobs:
     - name: Test
       run: dotnet test --no-build --verbosity normal src/XTerm.NET.slnx
 
+  # The same build and tests on macOS. The library is headless and most of it is platform-neutral,
+  # but not all of it: the UTF-8 byte entry, the width tables and anything touching char sizes are
+  # the sort of thing that agrees on one platform and not the other, and the hosts that embed this
+  # are developed on macOS.
+  #
+  # A SEPARATE job rather than a matrix on `build`, deliberately. A matrix renames the check to
+  # "build (ubuntu-latest)", and `build` is the REQUIRED status check -- a required check that
+  # stops reporting under its own name is not failing, it never appears, and branch protection
+  # waits for it for ever. That is exactly how documentation-only pull requests became unmergeable
+  # here, and renaming the check would do it again to every pull request at once.
+  #
+  # Gated like `perf`: nothing under src/ changed means nothing to build differently. Free either
+  # way -- standard GitHub-hosted runners, macOS included, are free and unlimited on public
+  # repositories -- but a run that cannot tell anyone anything is still noise.
+  build-macos:
+    needs: changes
+    if: needs.changes.outputs.src != 'false'
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout XTerm.NET.slnx
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Restore dependencies
+      run: dotnet restore src/XTerm.NET.slnx
+
+    - name: Build
+      run: dotnet build --no-restore src/XTerm.NET.slnx --property WarningLevel=0
+
+    - name: Test
+      run: dotnet test --no-build --verbosity normal src/XTerm.NET.slnx
+
   # Measures this branch against the commit it forked from, on one machine, alternating.
   #
   # Allocation is gated exactly and time is gated against the noise the job observes in itself --
