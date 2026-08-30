@@ -404,13 +404,32 @@ public class TerminalOptions : ICloneable
     internal Action<ThemeOptions>? ThemeChanged;
 
     /// <summary>
-    /// Minimum contrast ratio.
+    /// The least contrast a foreground is allowed to have against the background behind it, as a
+    /// WCAG ratio between 1 (no adjustment) and 21.
     /// </summary>
+    /// <remarks>
+    /// <para>A RENDERER option. This library stores it and never acts on it, because it has no
+    /// renderer — a host that draws cells is the only thing that can enforce a contrast ratio, and
+    /// the value reaches it through here.</para>
+    /// <para>Said explicitly because the alternative is a setting that compiles, persists, round
+    /// trips through the copy constructor and quietly does nothing. That is a worse failure than a
+    /// missing property: nothing throws, nothing warns, and the option looks supported.</para>
+    /// </remarks>
     public double MinimumContrastRatio { get; set; } = 1;
 
     /// <summary>
-    /// Whether to draw bold text in bright colors.
+    /// Whether bold text is drawn in the BRIGHT half of the sixteen — palette index 0-7 becoming
+    /// 8-15.
     /// </summary>
+    /// <remarks>
+    /// <para>A RENDERER option, with the same caveat as <see cref="MinimumContrastRatio"/>: stored
+    /// here, applied by whoever draws.</para>
+    /// <para>It selects a different palette ENTRY, which is what the name says and what xterm.js
+    /// does. It does not mean "lighten the colour": a 24-bit colour a program named exactly has no
+    /// bright counterpart to select and must come through unchanged, and so must a 256-palette index
+    /// the user chose. A host that brightens channels arithmetically is not implementing this
+    /// option, it is overriding the program.</para>
+    /// </remarks>
     public bool DrawBoldTextInBrightColors { get; set; } = true;
 
     /// <summary>
