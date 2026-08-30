@@ -14,6 +14,49 @@ public enum SelectionMode
 }
 
 /// <summary>
+/// The two ends of a selection, in buffer coordinates, with the earlier one first.
+/// </summary>
+/// <remarks>
+/// <para>ORDERED, which is the whole reason this exists as a type rather than a pair of points.
+/// The manager stores the two ends in the order they were DRAGGED, so a backwards drag puts the
+/// later one first -- and every consumer therefore had to know to swap them. Three places inside
+/// this class did, in three copies of the same comparison, and a host that wanted to know what was
+/// selected had to work it out a fourth time.</para>
+/// <para>Rows are ABSOLUTE buffer rows, not viewport rows, so a range stays meaningful while the
+/// viewport scrolls under it. A caller drawing to the screen subtracts the scroll position itself.</para>
+/// </remarks>
+public readonly record struct SelectionRange(int StartX, int StartY, int EndX, int EndY)
+{
+    /// <summary>
+    /// The columns of <paramref name="row"/> this selection covers, clamped to a grid
+    /// <paramref name="cols"/> wide.
+    /// </summary>
+    /// <remarks>
+    /// <para>False when the row holds none of the selection, which lets a renderer skip a row for
+    /// the cost of two comparisons instead of asking about every cell in it.</para>
+    /// <para>Every selection is LINEAR -- there is no block mode -- so a row's share of one is
+    /// always a single contiguous span. That is what makes this expressible as a pair rather than
+    /// a set, and it is why a renderer does not need to scan for where the answer changes.</para>
+    /// <para>Clamped because the range outlives the grid it was made on: a selection taken at one
+    /// width and read after a narrower resize names columns that are no longer there.</para>
+    /// </remarks>
+    public bool TryGetRowSpan(int row, int cols, out int startX, out int endX)
+    {
+        startX = 0;
+        endX = -1;
+
+        if (cols <= 0 || row < StartY || row > EndY)
+            return false;
+
+        var lastColumn = cols - 1;
+        startX = Math.Clamp(row == StartY ? StartX : 0, 0, lastColumn);
+        endX = Math.Clamp(row == EndY ? EndX : lastColumn, 0, lastColumn);
+
+        return startX <= endX;
+    }
+}
+
+/// <summary>
 /// Manages text selection in the terminal.
 /// </summary>
 public class SelectionManager
@@ -30,6 +73,41 @@ public class SelectionManager
     public event Action? SelectionChanged;
     
     public bool HasSelection => _selectionStart.HasValue && _selectionEnd.HasValue;
+
+    /// <summary>
+    /// The current selection as an ordered range, or false when there is none.
+    /// </summary>
+    /// <remarks>
+    /// <para>The one place the two ends are put in order for a caller asking WHAT IS SELECTED.
+    /// That comparison was written out twice -- once to answer about a cell, once to extract the
+    /// text -- and both now come from here.</para>
+    /// <para>The word and line expansions keep their own, and should: they are not asking what is
+    /// selected but which STORED end is which, so they can grow each one outward and put it back in
+    /// the field it came from. An ordered copy cannot answer that. Worth saying because the
+    /// comparison looks identical and the temptation to share it is exactly how the expansion got
+    /// its direction backwards once already.</para>
+    /// <para>Public because a host cannot otherwise find out what is selected without asking about
+    /// every cell. A renderer wanting to paint the highlight had to call
+    /// <see cref="IsCellSelected"/> once per column per row -- several thousand times a frame -- to
+    /// rediscover a range this class already had.</para>
+    /// </remarks>
+    public bool TryGetSelection(out SelectionRange range)
+    {
+        if (!HasSelection)
+        {
+            range = default;
+            return false;
+        }
+
+        var start = _selectionStart!.Value;
+        var end = _selectionEnd!.Value;
+
+        if (start.y > end.y || (start.y == end.y && start.x > end.x))
+            (start, end) = (end, start);
+
+        range = new SelectionRange(start.x, start.y, end.x, end.y);
+        return true;
+    }
 
     public SelectionManager(Terminal terminal)
     {
@@ -124,19 +202,12 @@ public class SelectionManager
         if (!HasSelection)
             return string.Empty;
 
-        var start = _selectionStart!.Value;
-        var end = _selectionEnd!.Value;
-
-        // Normalize selection (start before end)
-        if (start.y > end.y || (start.y == end.y && start.x > end.x))
-        {
-            (start, end) = (end, start);
-        }
+        TryGetSelection(out var range);
 
         var buffer = _terminal.Buffer;
         var text = new System.Text.StringBuilder();
 
-        for (int y = start.y; y <= end.y; y++)
+        for (int y = range.StartY; y <= range.EndY; y++)
         {
             if (y < 0 || y >= buffer.Lines.Length)
                 continue;
@@ -145,14 +216,7 @@ public class SelectionManager
             if (line == null)
                 continue;
 
-            int lastColumn = _terminal.Cols - 1;
-            if (lastColumn < 0)
-                continue;
-
-            int startX = Math.Clamp((y == start.y) ? start.x : 0, 0, lastColumn);
-            int endX = Math.Clamp((y == end.y) ? end.x : lastColumn, 0, lastColumn);
-
-            if (startX > endX)
+            if (!range.TryGetRowSpan(y, _terminal.Cols, out var startX, out var endX))
                 continue;
 
             var lineText = line.TranslateToString(false, startX, endX + 1);
@@ -162,7 +226,7 @@ public class SelectionManager
             // continues the previous", so whether row y joins row y+1 is row y+1's answer. Testing
             // this row inserted newlines inside wrapped text and ran separate lines together --
             // copying a wrapped command out of the scrollback pasted it broken in both directions.
-            if (y < end.y)
+            if (y < range.EndY)
             {
                 var next = y + 1 < buffer.Lines.Length ? buffer.Lines[y + 1] : null;
                 if (next is null || !next.IsWrapped)
@@ -178,31 +242,27 @@ public class SelectionManager
     /// </summary>
     public bool IsCellSelected(int x, int y)
     {
-        if (!HasSelection)
+        if (!TryGetSelection(out var range))
             return false;
 
         var absoluteY = ToAbsoluteY(y);
-        var start = _selectionStart!.Value;
-        var end = _selectionEnd!.Value;
 
-        // Normalize selection
-        if (start.y > end.y || (start.y == end.y && start.x > end.x))
-        {
-            (start, end) = (end, start);
-        }
-
-        // Check if cell is in selection
-        if (absoluteY < start.y || absoluteY > end.y)
+        // Deliberately NOT TryGetRowSpan, which clamps to the grid width. This answers about a
+        // column rather than about a row of a screen, and has never bounded x above -- a caller
+        // asking about a column past the end of a middle row gets true today. Routing it through
+        // the clamped form would change that quietly, and the point of this change is to remove a
+        // duplicated ORDERING rule, not to redefine what a selected cell is.
+        if (absoluteY < range.StartY || absoluteY > range.EndY)
             return false;
 
-        if (absoluteY == start.y && absoluteY == end.y)
-            return x >= start.x && x <= end.x;
+        if (absoluteY == range.StartY && absoluteY == range.EndY)
+            return x >= range.StartX && x <= range.EndX;
 
-        if (absoluteY == start.y)
-            return x >= start.x;
+        if (absoluteY == range.StartY)
+            return x >= range.StartX;
 
-        if (absoluteY == end.y)
-            return x <= end.x;
+        if (absoluteY == range.EndY)
+            return x <= range.EndX;
 
         return true;
     }
