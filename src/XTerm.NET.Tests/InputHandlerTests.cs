@@ -2717,4 +2717,20 @@ public class InputHandlerTests
         var text = string.Concat(Enumerable.Range(0, 8).Select(i => line[i].Content));
         Assert.Equal("abcXdef", text.TrimEnd('\0', ' '));
     }
+
+    [Theory]
+    [InlineData(1, "abcde fgh")]
+    [InlineData(3, "abcde   fgh")]
+    public void Ich_AfterBackspaces_OpensAGapWithoutSmearing(int count, string expected)
+    {
+        // Issue #121's repro, verbatim: the cursor arrives mid-line by backspacing rather than by
+        // CUP, and the gap may be wider than one cell. The count > 1 case exercises the overlap
+        // test inside CopyCellsFrom with a shift distance the count-1 tests above never reach.
+        var terminal = new Terminal(new TerminalOptions { Cols = 40, Rows = 6 });
+        terminal.Write("abcdefgh");
+        terminal.Write("\b\b\b");
+        terminal.Write($"\u001b[{count}@");
+
+        Assert.Equal(expected, terminal.Buffer.Lines[0]!.TranslateToString(true));
+    }
 }
