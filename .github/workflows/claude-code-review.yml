@@ -48,7 +48,13 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           show_full_output: true
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Subscription auth, not an API key. The key path bills the Console credit
+          # balance, which is a different ledger from the Claude subscription -- so a
+          # working desktop app says nothing about whether this will run, and with no
+          # balance loaded every run fails identically with "Credit balance is too low"
+          # after authenticating and reading the PR. Generate the token with
+          # `claude setup-token` and store it as CLAUDE_CODE_OAUTH_TOKEN.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
