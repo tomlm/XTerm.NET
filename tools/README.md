@@ -29,6 +29,39 @@ Two photographs rather than flat rectangles throughout: a solid colour hides a s
 drawn from the wrong row, or a picture stretched by a couple of pixels — and hides a blend entirely,
 since a tint over one flat colour is just another flat colour.
 
+## vttest/
+
+Drives [vttest](https://invisible-island.net/vttest/) against this emulator headlessly, and against
+tmux as a second opinion, then reports where the two screens differ.
+
+```
+dotnet build vttest/VtDrive/VtDrive.csproj
+
+python vttest/vtsweep.py 8 12                        walk menu 8, twelve RETURNs
+python vttest/vtsweep.py --keys - "11" "8" "2"  drive a sub-menu explicitly
+```
+
+`VtDrive` spawns vttest through a pty into a headless `Terminal`, wires `DataReceived` back to the
+pty so reports can be answered, wires `Resized` to `connection.Resize` so DECCOLM reaches the
+application, and dumps the screen after each step. Run it alone to read one screen:
+
+```
+dotnet run --project vttest/VtDrive -- - "6" "3"
+```
+
+**It nominates; it does not judge.** vttest states its own verdict for the tests worth trusting
+(`-- OK`, `-- Ignores origin mode`, `expected EAED`), and that is what decides which side is wrong —
+several differences this found were tmux's bugs, not ours. tmux has no VT52, ignores DECCOLM,
+reports untranslated characters for line-drawing and national sets, and implements neither DECRQM
+nor DECRQCRA, so those menus differ whatever we do.
+
+It is also blind to everything that is not text — colour, BCE fills, cell protection, line
+attributes. Those need a direct probe against the emulator, which is where
+`XTerm.NET.Tests/VtTestBehaviourTests` came from.
+
+Needs `vttest` and `tmux` inside WSL. The findings this produced are issues #123-#126 and #128-#132,
+with the cases that judge themselves ported into `XTerm.NET.Tests/VtTestConformanceTests`.
+
 ## Assets
 
 Everything here is **CC0 or public domain** and safe to redistribute. All of it comes from Wikimedia
