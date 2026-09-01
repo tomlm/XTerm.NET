@@ -14,39 +14,39 @@ public static class Charsets
     public static readonly Dictionary<char, string> VT100LineDrawing = new()
     {
         // Box Drawing Characters
-        { 'j', "\u2518" }, // ? Bottom right corner
-        { 'k', "\u2510" }, // ? Top right corner
-        { 'l', "\u250c" }, // ? Top left corner
-        { 'm', "\u2514" }, // ? Bottom left corner
-        { 'n', "\u253c" }, // ? Cross/intersection
-        { 'q', "\u2500" }, // ? Horizontal line
-        { 't', "\u251c" }, // ? Left tee
-        { 'u', "\u2524" }, // ? Right tee
-        { 'v', "\u2534" }, // ? Bottom tee
-        { 'w', "\u252c" }, // ? Top tee
-        { 'x', "\u2502" }, // ? Vertical line
+        { 'j', "\u2518" }, // ┘ Bottom right corner
+        { 'k', "\u2510" }, // ┐ Top right corner
+        { 'l', "\u250c" }, // ┌ Top left corner
+        { 'm', "\u2514" }, // └ Bottom left corner
+        { 'n', "\u253c" }, // ┼ Cross/intersection
+        { 'q', "\u2500" }, // ─ Horizontal line
+        { 't', "\u251c" }, // ├ Left tee
+        { 'u', "\u2524" }, // ┤ Right tee
+        { 'v', "\u2534" }, // ┴ Bottom tee
+        { 'w', "\u252c" }, // ┬ Top tee
+        { 'x', "\u2502" }, // │ Vertical line
         
         // Special Characters
-        { '`', "\u25c6" }, // ? Diamond
-        { 'a', "\u2592" }, // ? Checkerboard (stipple)
-        { 'b', "\u2409" }, // HT symbol
-        { 'c', "\u240c" }, // FF symbol
-        { 'd', "\u240d" }, // CR symbol
-        { 'e', "\u240a" }, // LF symbol
-        { 'f', "\u00b0" }, // � Degree symbol
-        { 'g', "\u00b1" }, // � Plus/minus
-        { 'h', "\u2424" }, // ? Newline symbol
-        { 'i', "\u240b" }, // ? Vertical tab symbol
-        { 'o', "\u23ba" }, // ? Scan line 1
-        { 'p', "\u23bb" }, // ? Scan line 3
-        { 'r', "\u23bc" }, // ? Scan line 7
-        { 's', "\u23bd" }, // ? Scan line 9
-        { 'y', "\u2264" }, // ? Less than or equal
-        { 'z', "\u2265" }, // ? Greater than or equal
-        { '{', "\u03c0" }, // ? Pi
-        { '|', "\u2260" }, // ? Not equal
-        { '}', "\u00a3" }, // � UK pound sign
-        { '~', "\u00b7" }, // � Centered dot/bullet
+        { '`', "\u25c6" }, // ◆ Diamond
+        { 'a', "\u2592" }, // ▒ Checkerboard (stipple)
+        { 'b', "\u2409" }, // ␉ HT symbol
+        { 'c', "\u240c" }, // ␌ FF symbol
+        { 'd', "\u240d" }, // ␍ CR symbol
+        { 'e', "\u240a" }, // ␊ LF symbol
+        { 'f', "\u00b0" }, // ° Degree symbol
+        { 'g', "\u00b1" }, // ± Plus/minus
+        { 'h', "\u2424" }, // ␤ Newline symbol
+        { 'i', "\u240b" }, // ␋ Vertical tab symbol
+        { 'o', "\u23ba" }, // ⎺ Scan line 1
+        { 'p', "\u23bb" }, // ⎻ Scan line 3
+        { 'r', "\u23bc" }, // ⎼ Scan line 7
+        { 's', "\u23bd" }, // ⎽ Scan line 9
+        { 'y', "\u2264" }, // ≤ Less than or equal
+        { 'z', "\u2265" }, // ≥ Greater than or equal
+        { '{', "\u03c0" }, // π Pi
+        { '|', "\u2260" }, // ≠ Not equal
+        { '}', "\u00a3" }, // £ UK pound sign
+        { '~', "\u00b7" }, // · Centered dot/bullet
     };
 
     /// <summary>
@@ -55,7 +55,7 @@ public static class Charsets
     /// </summary>
     public static readonly Dictionary<char, string> UKCharset = new()
     {
-        { '#', "\u00a3" } // �
+        { '#', "\u00a3" } // £
     };
 
     /// <summary>
