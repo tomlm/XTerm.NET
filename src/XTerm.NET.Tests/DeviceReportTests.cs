@@ -139,4 +139,31 @@ public class DeviceReportTests
         terminal.Write(Esc + "[$u");
         Assert.Empty(replies);
     }
+
+    [Fact]
+    public void Decrqcra_IsSilentBelowLevel64()
+    {
+        var (terminal, replies) = Create();
+        terminal.Write(Esc + "[64\"p");
+        terminal.Write(Esc + "[1;0;1;1;1;1*y");
+        Assert.Single(replies);                 // answered at VT400
+
+        replies.Clear();
+        terminal.Write(Esc + "[62\"p");      // DECSCL: VT200
+        terminal.Write(Esc + "[1;0;1;1;1;1*y");
+        Assert.Empty(replies);
+    }
+
+    [Fact]
+    public void Decrqtsr_IsSilentBelowLevel64()
+    {
+        // The control is VT320 vintage, but the capability the primary DA offers for it --
+        // attribute 17, terminal state interrogation -- is advertised only from level 64.
+        // Declining a request the DA reply has already said the terminal does not take is the
+        // terminal contradicting itself.
+        var (terminal, replies) = Create();
+        terminal.Write(Esc + "[62\"p");
+        terminal.Write(Esc + "[1$u");
+        Assert.Empty(replies);
+    }
 }

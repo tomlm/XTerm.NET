@@ -386,4 +386,65 @@ public class ImageCellLifetimeTests
         terminal.Write($"{Esc}[?1049l"); // and back
         Assert.Equal(8, ImageCellCount(terminal));
     }
+
+    /// <summary>
+    /// The counterpart to every test above: a control that changes RENDITION and not text must
+    /// leave the picture alone.
+    /// </summary>
+    /// <remarks>
+    /// DECCARA sets attributes over an area and never touches a character, so a picture inside that
+    /// area is not being overwritten and must not be split. Going through the ordinary text-write
+    /// path made it look like one -- that path splits the placement at the column being written,
+    /// which is right for printing over a picture and wrong for recolouring the cell under it.
+    /// </remarks>
+    [Fact]
+    public void An_attribute_change_over_a_picture_leaves_it_whole()
+    {
+        var terminal = Fresh();
+        WriteSixel(terminal);
+        var image = ImageAssertions.ImageAt(terminal, 0, 0);
+        Assert.NotNull(image);
+        Assert.Equal(8, ImageCellCount(terminal));
+
+        // Bold over the whole picture and then some.
+        terminal.Write($"{Esc}[2*x{Esc}[1;1;4;4;1$r");
+
+        Assert.Equal(8, ImageCellCount(terminal));
+        Assert.True(ReferenceEquals(ImageAssertions.ImageAt(terminal, 0, 0), image));
+        Assert.True(ReferenceEquals(ImageAssertions.ImageAt(terminal, 1, 3), image));
+        Assert.True(terminal.Buffer.Lines[terminal.Buffer.YBase]![0].Attributes.IsBold());
+    }
+
+    /// <summary>
+    /// And a request that changes nothing must not even write the cells back, because writing a
+    /// cell back unchanged is still a write as far as the placements are concerned.
+    /// </summary>
+    [Fact]
+    public void An_attribute_change_naming_nothing_we_implement_touches_no_cell()
+    {
+        var terminal = Fresh();
+        WriteSixel(terminal);
+        var image = ImageAssertions.ImageAt(terminal, 0, 0);
+        Assert.Equal(8, ImageCellCount(terminal));
+
+        // 31 is a colour, which DECCARA does not carry; the request names nothing this implements.
+        terminal.Write($"{Esc}[2*x{Esc}[1;1;4;4;31$r");
+
+        Assert.Equal(8, ImageCellCount(terminal));
+        Assert.True(ReferenceEquals(ImageAssertions.ImageAt(terminal, 0, 0), image));
+    }
+
+    /// <summary>A DECRARA whose toggles cancel each other is the same nothing.</summary>
+    [Fact]
+    public void Toggles_that_cancel_leave_the_picture_and_the_rendition_alone()
+    {
+        var terminal = Fresh();
+        WriteSixel(terminal);
+        Assert.Equal(8, ImageCellCount(terminal));
+
+        terminal.Write($"{Esc}[2*x{Esc}[1;1;4;4;1;1$t");
+
+        Assert.Equal(8, ImageCellCount(terminal));
+        Assert.False(terminal.Buffer.Lines[terminal.Buffer.YBase]![0].Attributes.IsBold());
+    }
 }

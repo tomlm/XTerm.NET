@@ -828,6 +828,15 @@ public partial class InputHandler
     /// </remarks>
     private void RequestTerminalStateReport(Params parameters)
     {
+        // The refusal is still a report, and this terminal's primary DA offers attribute 17,
+        // terminal state interrogation, only from level 64. Answering below that would have the
+        // terminal declining a request it had already said it does not take -- so a program that
+        // lowered the level with DECSCL gets the same silence every other unavailable control
+        // gives it. The control itself is VT320 vintage; the capability it belongs to is what the
+        // DA reply gates, and matching the reply is what keeps the two from disagreeing.
+        if (_terminal.ConformanceLevel < 64)
+            return;
+
         if (parameters.GetParam(0, 0) == 0)
             return;
 
@@ -1744,6 +1753,12 @@ public partial class InputHandler
     /// </remarks>
     private void RequestChecksumRectangularArea(Params parameters)
     {
+        // VT400 and up, with the rest of the rectangle family. esctest asserts the level before it
+        // reads a single cell back through this -- AssertVTLevel(4, "checksum") -- so the gate is
+        // one the conformance suite already assumes is here.
+        if (!RectangularEditingAvailable)
+            return;
+
         var id = parameters.GetParam(0, 0);
         // parameters[1] is the page, ignored. Coordinates are read in the ORIGIN MODE system,
         // like a cursor address and like every rectangle operation: a program that addresses its

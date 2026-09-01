@@ -301,4 +301,60 @@ public class RectangleOpsTests
         terminal.Write($"{Esc}[2;3;3;6;1$r");
         Assert.True(AttrAt(terminal, 1, 9).IsBold());     // back to a stream
     }
+
+    /// <summary>
+    /// The whole family is VT400, which is the gate xterm puts on each of them and what this
+    /// terminal's own primary DA already says by advertising attribute 28 only from level 64.
+    /// A program that lowered the level with DECSCL asked to be treated as older hardware.
+    /// </summary>
+    [Theory]
+    [InlineData("[42;1;1;2;4$x")]     // DECFRA
+    [InlineData("[1;1;2;4$z")]        // DECERA
+    [InlineData("[1;1;2;4${")]        // DECSERA
+    [InlineData("[1;1;1;4;2;1$v")]    // DECCRA
+    [InlineData("[1;1;2;4;1$r")]      // DECCARA
+    [InlineData("[1;1;2;4;1$t")]      // DECRARA
+    public void The_rectangle_family_is_refused_below_level_64(string sequence)
+    {
+        var terminal = NewTerminal();
+        terminal.Write("abcdefghij");
+        var before = Row(terminal, 0, 10);
+        var boldBefore = AttrAt(terminal, 0, 0).IsBold();
+
+        terminal.Write($"{Esc}[62\"p");        // DECSCL: VT200
+        terminal.Write($"{Esc}{sequence}");
+
+        Assert.Equal(before, Row(terminal, 0, 10));
+        Assert.Equal(boldBefore, AttrAt(terminal, 0, 0).IsBold());
+    }
+
+    [Fact]
+    public void The_rectangle_family_works_again_at_level_64()
+    {
+        var terminal = NewTerminal();
+        terminal.Write($"{Esc}[62\"p{Esc}[64\"p");   // down to VT200 and back up to VT400
+        terminal.Write($"{Esc}[42;1;1;1;3$x");
+
+        Assert.Equal("***       ", Row(terminal, 0, 10));
+    }
+
+    /// <summary>
+    /// DECSACE is the family's one exception, and it is xterm's asymmetry rather than an oversight:
+    /// its handler has no level test where every neighbour has one. Storing which extent a program
+    /// would prefer changes nothing by itself -- the two controls that read it are gated -- so
+    /// there is nothing to refuse.
+    /// </summary>
+    [Fact]
+    public void Decsace_is_stored_at_every_level()
+    {
+        var terminal = NewTerminal();
+        var replies = new List<string>();
+        terminal.DataReceived += (_, e) => replies.Add(e.Data);
+
+        terminal.Write($"{Esc}[62\"p");        // VT200
+        terminal.Write($"{Esc}[2*x");          // DECSACE 2
+        terminal.Write($"{Esc}P$q*x{Esc}\\");  // DECRQSS
+
+        Assert.Equal($"{Esc}P1$r2*x{Esc}\\", Assert.Single(replies));
+    }
 }

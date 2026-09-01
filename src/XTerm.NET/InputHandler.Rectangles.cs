@@ -44,6 +44,24 @@ public partial class InputHandler
         return top >= 0 && left >= 0 && top <= bottom && left <= right;
     }
 
+    /// <summary>
+    /// Whether the DEC rectangular-editing controls are available at the current operating level.
+    /// </summary>
+    /// <remarks>
+    /// <para>VT400 and up, which is the gate xterm puts on every one of them --
+    /// <c>screen-&gt;vtXX_level &gt;= 4</c> on DECCRA, DECERA, DECFRA, DECSERA, DECCARA, DECRARA
+    /// and DECRQCRA alike. It is also what this terminal's own primary DA already says: attribute
+    /// 28, rectangular editing, is advertised only from level 64. Acting on the controls at a level
+    /// where the DA reply denies them is the terminal contradicting itself, and a program that
+    /// lowered the level with DECSCL specifically to be treated as older hardware has asked not to
+    /// be given them.</para>
+    /// <para>DECSACE is deliberately NOT gated, which is xterm's asymmetry rather than an oversight
+    /// on this side: its handler has no level test where every neighbour does. Storing which extent
+    /// a program would prefer costs nothing and changes nothing on its own -- the two controls that
+    /// read it are gated here, so a stored preference below level 64 simply never gets used.</para>
+    /// </remarks>
+    private bool RectangularEditingAvailable => _terminal.ConformanceLevel >= 64;
+
     /// <summary>DECFRA -- fills the rectangle with one character, in the CURRENT rendition.</summary>
     /// <remarks>
     /// The character must be printable -- xterm accepts 32..126 and 160 up -- and an
@@ -52,6 +70,9 @@ public partial class InputHandler
     /// </remarks>
     private void FillRectangularArea(Params parameters)
     {
+        if (!RectangularEditingAvailable)
+            return;
+
         var ch = parameters.GetParam(0, 0);
         if (ch < 32 || (ch > 126 && ch < 160))
             return;
@@ -65,6 +86,8 @@ public partial class InputHandler
     /// <summary>DECERA -- erases the rectangle to blanks, with the erase attributes.</summary>
     private void EraseRectangularArea(Params parameters)
     {
+        if (!RectangularEditingAvailable)
+            return;
         if (!TryReadRectangle(parameters, 0, out var top, out var left, out var bottom, out var right))
             return;
 
@@ -79,6 +102,8 @@ public partial class InputHandler
     /// </summary>
     private void SelectiveEraseRectangularArea(Params parameters)
     {
+        if (!RectangularEditingAvailable)
+            return;
         if (!TryReadRectangle(parameters, 0, out var top, out var left, out var bottom, out var right))
             return;
 
@@ -124,6 +149,8 @@ public partial class InputHandler
     /// </remarks>
     private void CopyRectangularArea(Params parameters)
     {
+        if (!RectangularEditingAvailable)
+            return;
         if (!TryReadRectangle(parameters, 0, out var top, out var left, out var bottom, out var right))
             return;
 
@@ -172,14 +199,20 @@ public partial class InputHandler
     }
 
     /// <summary>
+    /// What the parameter list asks of one attribute. Toggling twice is the same as not asking,
+    /// which is why this composes rather than accumulating a list.
+    /// </summary>
+    private enum AreaAttributeOp : byte { None, Set, Clear, Toggle }
+
+    /// <summary>The five attributes DECCARA and DECRARA can name, in the order the ops are held.</summary>
+    private const int AreaBold = 0, AreaUnderline = 1, AreaBlink = 2, AreaInverse = 3, AreaInvisible = 4;
+
+    /// <summary>
     /// DECCARA (<c>CSI Pt;Pl;Pb;Pr;Pm $ r</c>) and DECRARA (<c>CSI Pt;Pl;Pb;Pr;Pm $ t</c>) -- set
     /// or toggle the named SGR attributes over an area, leaving the characters alone.
     /// </summary>
     /// <remarks>
-    /// <para>The attribute half of the rectangle family, and the only consumer DECSACE has. That
-    /// setting was parsed, stored and read back by DECRQSS while nothing acted on it, because the
-    /// two controls it governs did not exist: a terminal reporting a rectangle-or-stream choice it
-    /// then ignored.</para>
+    /// <para>The attribute half of the rectangle family, and the only consumer DECSACE has.</para>
     /// <para>DECSACE 2 means the RECTANGLE the four coordinates describe. Anything else -- the
     /// default included -- means the STREAM running from the top-left position to the bottom-right
     /// one, so the first row runs from its column to the end of the line, the last row from the
@@ -190,6 +223,18 @@ public partial class InputHandler
     /// and reverses rather than clears them under DECRARA. Everything else in the list is ignored;
     /// colours are not in the standard, and honouring an SGR parameter here that a real VT420 would
     /// not is how a program's careful rectangle ends up recoloured on one terminal only.</para>
+    /// <para>The list is read ONCE, into one op per attribute, rather than re-walked for every
+    /// cell: the answer cannot vary across the area, and a full-screen request asked the same
+    /// question a parameter at a time for every one of its cells. Reading it first is also what
+    /// makes the next paragraph possible.</para>
+    /// <para>A request that changes nothing -- <c>CSI 1;1;1;10;31 $ r</c>, naming only a colour
+    /// this does not implement, or a DECRARA whose toggles cancel -- returns before a cell is
+    /// touched. That is NOT an optimisation. Writing a cell back unchanged still counts as writing
+    /// it, and the write path splits any Sixel or Kitty placement covering that column, on the
+    /// reasonable assumption that a cell being written is a cell whose character is changing. Here
+    /// it never is: these two controls change rendition and nothing else, so the cells that DO
+    /// change go back through the INDEXER, which stores the cell and invalidates the render cache
+    /// without disturbing the picture over it.</para>
     /// <para>Every cell in the area is marked, the trailing half of a wide character included. xterm
     /// skips cells it has never drawn -- it tracks that per cell, and a blank it has never touched
     /// is not a blank it will colour -- but a line here is born full of spaces, so there is no such
@@ -198,6 +243,14 @@ public partial class InputHandler
     /// </remarks>
     private void MarkRectangularArea(Params parameters, bool reverse)
     {
+        // VT400 and up, with the rest of the family; see RectangularEditingAvailable.
+        if (!RectangularEditingAvailable)
+            return;
+
+        Span<AreaAttributeOp> ops = stackalloc AreaAttributeOp[5];
+        if (!ReadAreaAttributeOps(parameters, 4, ops, reverse))
+            return;
+
         if (!TryReadRectangle(parameters, 0, out var top, out var left, out var bottom, out var right))
             return;
 
@@ -215,71 +268,114 @@ public partial class InputHandler
             for (var col = from; col <= to && col < line.Length; col++)
             {
                 var cell = line[col];
-                ApplyAreaAttributes(parameters, 4, ref cell.Attributes, reverse);
-                line.SetCell(col, ref cell);
+                ApplyAreaAttributeOps(ops, ref cell.Attributes);
+
+                // The indexer, NOT SetCell: see the remarks. SetCell is the text-write path and
+                // splits this line's placements, so a rendition change over a picture would punch
+                // a hole in it.
+                line[col] = cell;
             }
         }
     }
 
     /// <summary>
-    /// Applies the DECCARA/DECRARA attribute list starting at <paramref name="first"/> to one
-    /// cell's rendition.
+    /// Reads the DECCARA/DECRARA parameter list into one operation per attribute.
     /// </summary>
-    private static void ApplyAreaAttributes(Params parameters, int first, ref AttributeData attributes, bool reverse)
+    /// <remarks>
+    /// Composing rather than appending is what keeps one pass faithful to the list's order: a later
+    /// parameter overrides an earlier one for the same attribute, and a toggle applied to a pending
+    /// toggle cancels it -- exactly as xterm's per-cell XOR does when the same bit is named twice.
+    /// </remarks>
+    /// <returns>False when the list would change nothing, so the caller can touch no cells at all.</returns>
+    private static bool ReadAreaAttributeOps(Params parameters, int first, Span<AreaAttributeOp> ops, bool reverse)
     {
+        var on = reverse ? AreaAttributeOp.Toggle : AreaAttributeOp.Set;
+        var off = reverse ? AreaAttributeOp.Toggle : AreaAttributeOp.Clear;
+
         for (var i = first; i < parameters.Length; i++)
         {
             switch (parameters.GetParam(i, 0))
             {
                 case 0:
-                    if (reverse)
-                    {
-                        attributes.SetBold(!attributes.IsBold());
-                        attributes.SetUnderline(!attributes.IsUnderline());
-                        attributes.SetBlink(!attributes.IsBlink());
-                        attributes.SetInverse(!attributes.IsInverse());
-                    }
-                    else
-                    {
-                        attributes.SetBold(false);
-                        attributes.SetUnderline(false);
-                        attributes.SetBlink(false);
-                        attributes.SetInverse(false);
-                    }
+                    // xterm's SGR_MASK: bold, underline, blink and inverse -- not invisible, which
+                    // has its own 8 and 28.
+                    Note(ops, AreaBold, off);
+                    Note(ops, AreaUnderline, off);
+                    Note(ops, AreaBlink, off);
+                    Note(ops, AreaInverse, off);
                     break;
-                case 1:
-                    attributes.SetBold(reverse ? !attributes.IsBold() : true);
-                    break;
-                case 4:
-                    attributes.SetUnderline(reverse ? !attributes.IsUnderline() : true);
-                    break;
-                case 5:
-                    attributes.SetBlink(reverse ? !attributes.IsBlink() : true);
-                    break;
-                case 7:
-                    attributes.SetInverse(reverse ? !attributes.IsInverse() : true);
-                    break;
-                case 8:
-                    attributes.SetInvisible(reverse ? !attributes.IsInvisible() : true);
-                    break;
+                case 1: Note(ops, AreaBold, on); break;
+                case 4: Note(ops, AreaUnderline, on); break;
+                case 5: Note(ops, AreaBlink, on); break;
+                case 7: Note(ops, AreaInverse, on); break;
+                case 8: Note(ops, AreaInvisible, on); break;
                 // The resets have no meaning under DECRARA -- reversing an attribute already says
                 // both directions -- so xterm reads them only when setting, and so does this.
-                case 22 when !reverse:
-                    attributes.SetBold(false);
-                    break;
-                case 24 when !reverse:
-                    attributes.SetUnderline(false);
-                    break;
-                case 25 when !reverse:
-                    attributes.SetBlink(false);
-                    break;
-                case 27 when !reverse:
-                    attributes.SetInverse(false);
-                    break;
-                case 28 when !reverse:
-                    attributes.SetInvisible(false);
-                    break;
+                case 22 when !reverse: Note(ops, AreaBold, AreaAttributeOp.Clear); break;
+                case 24 when !reverse: Note(ops, AreaUnderline, AreaAttributeOp.Clear); break;
+                case 25 when !reverse: Note(ops, AreaBlink, AreaAttributeOp.Clear); break;
+                case 27 when !reverse: Note(ops, AreaInverse, AreaAttributeOp.Clear); break;
+                case 28 when !reverse: Note(ops, AreaInvisible, AreaAttributeOp.Clear); break;
             }
+        }
+
+        foreach (var op in ops)
+        {
+            if (op != AreaAttributeOp.None)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Folds one parameter's request into what is already asked of that attribute.</summary>
+    private static void Note(Span<AreaAttributeOp> ops, int attribute, AreaAttributeOp op) =>
+        ops[attribute] = op is not AreaAttributeOp.Toggle
+            ? op
+            : ops[attribute] switch
+            {
+                AreaAttributeOp.None => AreaAttributeOp.Toggle,
+                AreaAttributeOp.Toggle => AreaAttributeOp.None,
+                AreaAttributeOp.Set => AreaAttributeOp.Clear,
+                _ => AreaAttributeOp.Set,
+            };
+
+    /// <summary>Applies the ops read by <see cref="ReadAreaAttributeOps"/> to one cell's rendition.</summary>
+    private static void ApplyAreaAttributeOps(ReadOnlySpan<AreaAttributeOp> ops, ref AttributeData attributes)
+    {
+        switch (ops[AreaBold])
+        {
+            case AreaAttributeOp.Set: attributes.SetBold(true); break;
+            case AreaAttributeOp.Clear: attributes.SetBold(false); break;
+            case AreaAttributeOp.Toggle: attributes.SetBold(!attributes.IsBold()); break;
+        }
+
+        switch (ops[AreaUnderline])
+        {
+            case AreaAttributeOp.Set: attributes.SetUnderline(true); break;
+            case AreaAttributeOp.Clear: attributes.SetUnderline(false); break;
+            case AreaAttributeOp.Toggle: attributes.SetUnderline(!attributes.IsUnderline()); break;
+        }
+
+        switch (ops[AreaBlink])
+        {
+            case AreaAttributeOp.Set: attributes.SetBlink(true); break;
+            case AreaAttributeOp.Clear: attributes.SetBlink(false); break;
+            case AreaAttributeOp.Toggle: attributes.SetBlink(!attributes.IsBlink()); break;
+        }
+
+        switch (ops[AreaInverse])
+        {
+            case AreaAttributeOp.Set: attributes.SetInverse(true); break;
+            case AreaAttributeOp.Clear: attributes.SetInverse(false); break;
+            case AreaAttributeOp.Toggle: attributes.SetInverse(!attributes.IsInverse()); break;
+        }
+
+        switch (ops[AreaInvisible])
+        {
+            case AreaAttributeOp.Set: attributes.SetInvisible(true); break;
+            case AreaAttributeOp.Clear: attributes.SetInvisible(false); break;
+            case AreaAttributeOp.Toggle: attributes.SetInvisible(!attributes.IsInvisible()); break;
         }
     }
 }
