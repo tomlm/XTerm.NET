@@ -1609,9 +1609,9 @@ public partial class InputHandler
         // which set is selected, so saving _currentCharset alone restored a pointer to a table
         // the program had since replaced: a TUI that saved the cursor mid-border finished the box
         // in letters.
-        var designations = _buffer.SavedCursorState.Designations ??= new Dictionary<char, string>?[4];
+        var designations = _buffer.SavedCursorState.Designations ??= new (string, bool)[4];
         for (var slot = 0; slot < designations.Length; slot++)
-            designations[slot] = _charsets.GetValueOrDefault((CharsetMode)slot);
+            designations[slot] = DesignationOf((CharsetMode)slot);
         _buffer.SavedCursorState.OriginMode = _terminal.OriginMode;
         _buffer.SavedCursorState.PendingWrap = _buffer.PendingWrap;
     }
@@ -1632,7 +1632,7 @@ public partial class InputHandler
         if (designations is not null)
         {
             for (var slot = 0; slot < designations.Length; slot++)
-                _charsets[(CharsetMode)slot] = designations[slot];
+                RestoreDesignation((CharsetMode)slot, designations[slot]);
         }
 
         _currentCharset = _buffer.SavedCursorState.Charset;

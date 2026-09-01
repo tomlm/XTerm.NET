@@ -41,11 +41,19 @@ public partial class InputHandler
 
     /// <summary>What each G-set was DESIGNATED as, by its escape identifier.</summary>
     /// <remarks>
-    /// Kept alongside the resolved tables because a designation outlives its resolution: a
+    /// <para>Kept alongside the resolved tables because a designation outlives its resolution: a
     /// national set resolves to ASCII while DECNRCM is reset and to itself once it is set, and
-    /// the program that designated it does not designate again when the mode changes.
+    /// the program that designated it does not designate again when the mode changes.</para>
+    ///
+    /// <para>All four slots are always present, seeded to US ASCII, so a designation is a value
+    /// rather than a value-or-absent. DECSC, DECRC and DECNRCM each walk every slot, and "never
+    /// designated" and "designated B" mean the same thing to all three.</para>
     /// </remarks>
     private readonly Dictionary<CharsetMode, string> _charsetIds = new();
+
+    /// <summary>The four G-sets, for the walks that touch all of them.</summary>
+    private static readonly CharsetMode[] GSets =
+        [CharsetMode.G0, CharsetMode.G1, CharsetMode.G2, CharsetMode.G3];
 
     /// <summary>Which G-sets were designated as 96-character sets.</summary>
     /// <remarks>
@@ -117,8 +125,8 @@ public partial class InputHandler
             { CharsetMode.G3, Charsets.ASCII }
         };
 
-        _currentCharset = CharsetMode.G0; // G0 is active by default
-        RefreshActiveCharset();
+        // And the designations behind them, which ResetCharsets seeds alongside the tables.
+        ResetCharsets();
     }
 
     /// <summary>

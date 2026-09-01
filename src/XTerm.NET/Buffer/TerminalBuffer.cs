@@ -136,10 +136,17 @@ public class TerminalBuffer
         /// and reused after: DECSC is not rare -- a full-screen program saves and restores the
         /// cursor on every redraw -- and copying a dictionary allocated once per save. There are
         /// exactly four G-slots and the enum numbers them from zero, so the save is four
-        /// reference writes. Null means DECSC has not run on this screen, which is what tells
-        /// DECRC to leave the designations alone.
+        /// writes. Null means DECSC has not run on this screen, which is what tells DECRC to
+        /// leave the designations alone.
+        ///
+        /// The DESIGNATION each slot held, not the table it had resolved to. The two differ once
+        /// a mode moves under them: DECNRCM re-resolves every designation, so a slot restored as
+        /// a table carries whatever identifier was designated AFTER the save, and the next
+        /// DECNRCM re-resolves the restored slot into that instead. The identifier carries the
+        /// space it came from for the same reason -- 'A' is the United Kingdom set in the 94-set
+        /// space and ISO Latin-1 in the 96-set one.
         /// </summary>
-        public Dictionary<char, string>?[]? Designations { get; set; }
+        public (string Id, bool NinetySix)[]? Designations { get; set; }
 
         public SavedCursor()
         {
