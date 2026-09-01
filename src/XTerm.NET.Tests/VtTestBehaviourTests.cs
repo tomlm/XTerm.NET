@@ -432,5 +432,21 @@ public class VtTestBehaviourTests
         immediate.Write($"{Esc})0{Esc}7{Esc})R{Esc}8");
         immediate.Write($"{ShiftOut}qqq{ShiftIn}");
         Assert.Equal("───", immediate.GetLine(0));
+
+        // DECNRCM moving BETWEEN the save and the restore, both directions. This is the half the
+        // doc comment claims and the three cases above do not reach: they move the mode after the
+        // DECRC, so replaying a saved TABLE would satisfy them. Here the table saved and the table
+        // wanted are different, and only re-resolving the designation produces the second one.
+        var modeOnAfterSave = Sized(30, 3);
+        modeOnAfterSave.Write($"{Esc})R{Esc}7");              // French designated with NRC OFF
+        modeOnAfterSave.Write($"{Esc}[?42h{Esc}8");           // NRC on, then restore
+        modeOnAfterSave.Write($"{ShiftOut}@{ShiftIn}");
+        Assert.Equal("à", modeOnAfterSave.GetLine(0));        // French, not the ASCII it saved
+
+        var modeOffAfterSave = Sized(30, 3);
+        modeOffAfterSave.Write($"{Esc}[?42h{Esc})R{Esc}7");   // French designated with NRC ON
+        modeOffAfterSave.Write($"{Esc}[?42l{Esc}8");          // NRC off, then restore
+        modeOffAfterSave.Write($"{ShiftOut}@{ShiftIn}");
+        Assert.Equal("@", modeOffAfterSave.GetLine(0));       // ASCII, not the French it saved
     }
 }

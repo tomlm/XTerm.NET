@@ -145,8 +145,14 @@ public class TerminalBuffer
         /// DECNRCM re-resolves the restored slot into that instead. The identifier carries the
         /// space it came from for the same reason -- 'A' is the United Kingdom set in the 94-set
         /// space and ISO Latin-1 in the 96-set one.
+        ///
+        /// Internal, unlike the rest of this class: it is DECSC scratch that a consumer cannot do
+        /// anything with, and it was public only by having been written that way. Narrowing it now
+        /// costs nothing -- the property arrived in #93, after v1.2, so no released package has
+        /// ever carried it -- and it stops the shape of an internal detail being an API question
+        /// every time DECSC learns something new.
         /// </summary>
-        public (string Id, bool NinetySix)[]? Designations { get; set; }
+        internal (string Id, bool NinetySix)[]? Designations { get; set; }
 
         public SavedCursor()
         {
