@@ -16,6 +16,20 @@ public enum PlacementKind
     /// the placement at all.
     /// </summary>
     Kitty = 1,
+
+    /// <summary>
+    /// Kitty graphics shown by Unicode placeholder cells: the cell IS the picture, so a write into
+    /// it takes the tile with it, exactly as Sixel content behaves.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="Kitty"/> because the two protocols disagree about what a write
+    /// means. A classic placement is an overlay and survives text; a placeholder tile exists
+    /// BECAUSE the cell holds the placeholder character, so a client erases a picture by
+    /// overwriting its cells and nothing else — there is no escape sequence for "remove the tile
+    /// at this cell". Left as an overlay, a dialog drawn across a picture kept the picture on top
+    /// of it, permanently.
+    /// </remarks>
+    Placeholder = 2,
 }
 
 /// <summary>

@@ -957,12 +957,14 @@ public class BufferLine : IEnumerable<BufferCell>
     /// Splits any Sixel run covering <paramref name="column"/> around the text just written there.
     /// </summary>
     /// <remarks>
-    /// <para>Sixel semantics: printing replaces that part of the picture. With tiles in cells this
+    /// <para>Content semantics: printing replaces that part of the picture. With tiles in cells this
     /// happened for free, because the write overwrote the cell; with runs it has to be done on
     /// purpose. The run becomes the fragments either side, each with its source rectangle narrowed
-    /// to match, so the rest of the picture survives a character landing in the middle of it.</para>
-    /// <para>Kitty runs are left alone — there the z-index decides what is on top, and text never
-    /// modifies a placement.</para>
+    /// to match, so the rest of the picture survives a character landing in the middle of it. Sixel
+    /// is content, and so is a placeholder tile — it exists because its cell holds the placeholder
+    /// character, and overwriting the cell is the only way the protocol offers to remove it.</para>
+    /// <para>Classic Kitty runs are left alone — there the z-index decides what is on top, and text
+    /// never modifies a placement.</para>
     /// <para>Guarded on a null field at every call site, so a line without pictures — which is
     /// nearly every line — pays a single test.</para>
     /// </remarks>
@@ -977,10 +979,10 @@ public class BufferLine : IEnumerable<BufferCell>
             if (!placement.Covers(column))
                 continue;
 
-            // Printing only splits a Sixel, because only a Sixel is content. ERASING splits both:
-            // a cleared cell is blank, and a picture still showing through one would be a leak
-            // whichever protocol put it there.
-            if (!includeOverlays && placement.Kind != Graphics.PlacementKind.Sixel)
+            // Printing splits content — Sixel, and placeholder tiles — and leaves classic Kitty
+            // overlays alone. ERASING splits all of them: a cleared cell is blank, and a picture
+            // still showing through one would be a leak whichever protocol put it there.
+            if (!includeOverlays && placement.Kind == Graphics.PlacementKind.Kitty)
                 continue;
 
             _placements.RemoveAt(i);

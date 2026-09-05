@@ -331,24 +331,55 @@ public class KittyPlaceholderTests
         Assert.False(ImageAssertions.IsImageAt(terminal, 0, 0));
     }
 
-    /// <summary>Placeholder cells are cells, so everything that happens to text happens to them.</summary>
+    /// <summary>
+    /// A placeholder tile is CONTENT: the picture is there because the cell holds the placeholder
+    /// character, so printing over the cell takes that tile with it and leaves the rest.
+    /// </summary>
+    /// <remarks>
+    /// This test used to assert the opposite — that the picture survived the write — because the
+    /// tile was stored as a classic Kitty overlay. That reading leaves no way to ever remove a
+    /// tile: the protocol has no "delete the tile at this cell" command precisely because
+    /// overwriting the cell IS the deletion. It is how kitty itself behaves and what image.nvim
+    /// relies on when it redraws. Stored as an overlay, an application that drew a dialog across a
+    /// picture kept the picture on top of the dialog, permanently.
+    /// </remarks>
     [Fact]
-    public void A_placeholder_picture_is_an_overlay_rather_than_content()
+    public void Printing_over_a_placeholder_cell_removes_that_tile()
     {
         var terminal = WithStoredImage(5);
         terminal.Write(SelectImageId(5) + Placeholder + Placeholder);
 
         terminal.Write($"{Esc}[1;1H{Esc}[39mX");
 
-        // The character lands and the picture stays: a placeholder places a Kitty run, and a Kitty
-        // run is an overlay rather than content.
+        // The character lands and only its own tile goes; the neighbour keeps showing.
         Assert.Equal("X", Cell(terminal, 0, 0).Content);
-        Assert.True(ImageAssertions.IsImageAt(terminal, 0, 0));
+        Assert.False(ImageAssertions.IsImageAt(terminal, 0, 0));
         Assert.True(ImageAssertions.IsImageAt(terminal, 1, 0));
 
-        // Erasing takes both.
+        // Erasing takes the rest.
         terminal.Write($"{Esc}[2J");
-        Assert.False(ImageAssertions.IsImageAt(terminal, 0, 0));
         Assert.False(ImageAssertions.IsImageAt(terminal, 1, 0));
+    }
+
+    /// <summary>
+    /// The other direction of the split: writing one placeholder cell of a NEW picture over one
+    /// cell of an old one replaces exactly that tile.
+    /// </summary>
+    [Fact]
+    public void A_new_placeholder_over_an_old_tile_replaces_it()
+    {
+        var terminal = WithStoredImage(5);
+        terminal.Write($"{Esc}_Ga=t,i=7,f=32,s=4,v=6,q=2;{SolidRgba(4, 6, 30)}{St}");
+        terminal.Write(SelectImageId(5) + Placeholder + Placeholder);
+
+        var oldImage = ImageAssertions.ImageAt(terminal, 0, 0);
+
+        terminal.Write($"{Esc}[1;1H" + SelectImageId(7) + Placeholder);
+
+        var newImage = ImageAssertions.ImageAt(terminal, 0, 0);
+        Assert.NotNull(newImage);
+        Assert.False(ReferenceEquals(oldImage, newImage), "the tile should now show the new picture");
+        Assert.True(ReferenceEquals(oldImage, ImageAssertions.ImageAt(terminal, 1, 0)),
+                    "the neighbouring tile still belongs to the old picture");
     }
 }
