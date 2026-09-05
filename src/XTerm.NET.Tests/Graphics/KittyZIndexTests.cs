@@ -55,6 +55,23 @@ public class KittyZIndexTests
 
     // ---- ordering between pictures ----------------------------------------------------------------
 
+    /// <summary>
+    /// Printing over a classic placement leaves it whole — the z-index decides what shows.
+    /// Pinned here because placeholder tiles took the OPPOSITE behaviour (they are content and a
+    /// write removes the tile), and the split that implements that must not reach these.
+    /// </summary>
+    [Fact]
+    public void Text_printed_over_a_classic_placement_leaves_it_whole()
+    {
+        var terminal = WithTwoImages();
+        PlaceAt(terminal, 1, 0, 0, z: 0);
+
+        terminal.Write($"{Esc}[1;1HX");
+
+        Assert.Equal("X", Content(terminal, 0, 0));
+        Assert.Single(ImageAssertions.StackAt(terminal, 0, 0));
+    }
+
     /// <summary>The stack at a cell is ordered by z, front first.</summary>
     [Fact]
     public void The_higher_z_picture_is_in_front()

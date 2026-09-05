@@ -157,7 +157,8 @@ public partial class InputHandler
             return false;
 
         // The cell keeps the placeholder character it was printed with; the picture is beside it
-        // rather than in it. Written before the run so SetCell's Sixel split cannot see it.
+        // rather than in it. Written before the run so SetCell's content split cannot see it --
+        // and so that the split clears any stale tile another picture left at this cell.
         var cell = new BufferCell(" ", 1, _curAttr);
         line.SetCell(col, ref cell);
 
@@ -169,7 +170,7 @@ public partial class InputHandler
             new Graphics.LinePlacement(
                 image.Id, col, 1,
                 srcX: srcX, srcY: srcY, srcWidth: srcWidth, srcHeight: srcHeight,
-                kind: Graphics.PlacementKind.Kitty,
+                kind: Graphics.PlacementKind.Placeholder,
                 serial: serial),
             image);
         return true;
