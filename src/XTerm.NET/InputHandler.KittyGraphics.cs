@@ -698,6 +698,18 @@ public partial class InputHandler
         if (cropWidth <= 0 || cropHeight <= 0)
             return;
 
+        // A placement id that this image already has names the SAME appearance, so placing it
+        // again replaces the one that is there rather than adding a second. This is how a client
+        // moves a picture: notcurses re-places with the same i= and p= on every step and never
+        // sends a delete, so without this each step leaves a copy behind and a sprite crossing
+        // the screen becomes a trail of them. A placement with no id (p=0) is anonymous and
+        // accumulates, which is what lets one image be shown many times.
+        //
+        // After the crop check, deliberately: a command refused above places nothing, and taking
+        // the old appearance away for a placement that never arrives would blank the picture.
+        if (command.PlacementId != 0)
+            _terminal.DropPlacements(p => p.ImageId == image.Id && p.PlacementId == command.PlacementId);
+
         // c and r name a box to fill, which is a stretch. Without them the picture keeps its own
         // size and the edge tiles are clipped, which is a different calculation entirely.
         var stretched = command.Cols > 0 || command.Rows > 0;
