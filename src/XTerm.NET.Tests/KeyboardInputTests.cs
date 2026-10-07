@@ -201,6 +201,27 @@ public class KeyboardInputTests
     }
 
     [Fact]
+    public void Backspace_WithAlt_PrefixesEscape()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+
+        // Act & Assert
+        Assert.Equal("\x1B\x7F", terminal.GenerateKeyInput(Key.Backspace, KeyModifiers.Alt));
+    }
+
+    [Fact]
+    public void Backspace_WithControl_GeneratesBS()
+    {
+        // Arrange
+        var terminal = CreateTerminal();
+
+        // Act & Assert
+        Assert.Equal("\b", terminal.GenerateKeyInput(Key.Backspace, KeyModifiers.Control));
+        Assert.Equal("\x1B\b", terminal.GenerateKeyInput(Key.Backspace, KeyModifiers.Control | KeyModifiers.Alt));
+    }
+
+    [Fact]
     public void Tab_WithShift_GeneratesBackTab()
     {
         // Arrange

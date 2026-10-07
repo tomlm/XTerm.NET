@@ -33,7 +33,7 @@ public class KeyboardInputGenerator
             // Control keys
             Key.Enter => "\r",
             Key.Tab => (modifiers & KeyModifiers.Shift) != 0 ? "\u001b[Z" : "\t",
-            Key.Backspace => "\u007f", // DEL (127)
+            Key.Backspace => GetBackspace(modifiers),
             // Escape sends ESC whatever the modifiers. CSI 27 ; mod ~ is not a sequence xterm
             // emits -- it belongs to the modifyOtherKeys and Kitty protocols, which an application
             // opts into. Sending it unasked meant a program that reads a bare ESC (vim leaving
@@ -159,6 +159,14 @@ public class KeyboardInputGenerator
             // Arrow keys are handled by GetArrowKey which already supports all modifiers
             _ => null
         };
+    }
+
+    // xterm.js sends BS for Ctrl+Backspace and DEL otherwise, with an ESC prefix when Alt is
+    // held, which is how Alt+Backspace reaches a shell as backward-kill-word.
+    private static string GetBackspace(KeyModifiers modifiers)
+    {
+        var key = (modifiers & KeyModifiers.Control) != 0 ? "\b" : "\u007f";
+        return (modifiers & KeyModifiers.Alt) != 0 ? "\u001b" + key : key;
     }
 
     private string GetArrowKey(char direction, KeyModifiers modifiers)
