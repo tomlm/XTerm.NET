@@ -563,6 +563,21 @@ public class Terminal : IDisposable
     public event EventHandler<TerminalEvents.LineFeedEventArgs>? LineFed;
 
     /// <summary>
+    /// Fired synchronously before a line leaves the active viewport.
+    /// </summary>
+    /// <remarks>
+    /// Consumers that need the row contents must snapshot them during the callback because the
+    /// underlying line may be recycled as soon as the handler returns.
+    /// </remarks>
+    public event EventHandler<TerminalEvents.LineExitedViewportEventArgs>? LineExitedViewport;
+
+    /// <summary>
+    /// Fired synchronously when an absolute home or a non-selective full display erase can begin a redraw.
+    /// </summary>
+    /// <remarks>Snapshot the buffer during the callback, before its contents change.</remarks>
+    public event EventHandler? ViewportRedrawStarting;
+
+    /// <summary>
     /// Fired when the current directory changes.
     /// </summary>
     public event EventHandler<TerminalEvents.DirectoryChangeEventArgs>? DirectoryChanged;
@@ -760,6 +775,8 @@ public class Terminal : IDisposable
         // Initialize buffers
         _normalBuffer = new Buffer.TerminalBuffer(Cols, Rows, Options.Scrollback);
         _altBuffer = new Buffer.TerminalBuffer(Cols, Rows, 0, hasScrollback: false);
+        _normalBuffer.LineExitedViewport += line => RaiseLineExitedViewport(line, BufferType.Normal, LineExitReason.Scrolled);
+        _altBuffer.LineExitedViewport += line => RaiseLineExitedViewport(line, BufferType.Alternate, LineExitReason.Scrolled);
         _buffer = _normalBuffer;
         _usingAltBuffer = false;
 
@@ -1169,6 +1186,8 @@ public class Terminal : IDisposable
         // Reset to normal buffer
         if (_usingAltBuffer)
         {
+            if (LineExitedViewport is not null)
+                RaiseBufferDeactivatedLines(_altBuffer!);
             _buffer = _normalBuffer!;
             _usingAltBuffer = false;
             _inputHandler.SetBuffer(_buffer);
@@ -2020,6 +2039,8 @@ public class Terminal : IDisposable
         if (_statusLineActive)
             SetActiveStatusDisplay(0);
 
+        if (LineExitedViewport is not null)
+            RaiseBufferDeactivatedLines(_normalBuffer!);
         var x = _buffer.X;
         var y = _buffer.Y;
         _buffer = _altBuffer!;
@@ -2056,6 +2077,8 @@ public class Terminal : IDisposable
         if (_statusLineActive)
             SetActiveStatusDisplay(0);
 
+        if (LineExitedViewport is not null)
+            RaiseBufferDeactivatedLines(_altBuffer!);
         var x = _buffer.X;
         var y = _buffer.Y;
         _buffer = _normalBuffer!;
@@ -2159,6 +2182,34 @@ public class Terminal : IDisposable
         LineFed?.Invoke(this, new TerminalEvents.LineFeedEventArgs("\n"));
     }
 
+    /// <summary>Raises a synchronous snapshot opportunity before a row leaves the viewport.</summary>
+    private void RaiseLineExitedViewport(BufferLine line, BufferType buffer, LineExitReason reason)
+    {
+        LineExitedViewport?.Invoke(this, new TerminalEvents.LineExitedViewportEventArgs(line, buffer, reason));
+    }
+
+    /// <summary>Raises the synchronous snapshot opportunity at a potential redraw boundary.</summary>
+    internal void RaiseViewportRedrawStarting()
+    {
+        ViewportRedrawStarting?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Raises exit events for the meaningful rows of a buffer before deactivation.</summary>
+    private void RaiseBufferDeactivatedLines(Buffer.TerminalBuffer buffer)
+    {
+        var firstLine = buffer.BaseY;
+        var lastLine = Math.Min(firstLine + Rows, buffer.Lines.Length) - 1;
+        while (lastLine >= firstLine && buffer.Lines[lastLine]?.HasSnapshotContent() == false)
+            lastLine--;
+
+        for (int i = firstLine; i <= lastLine; i++)
+        {
+            var line = buffer.Lines[i];
+            if (line is not null)
+                RaiseLineExitedViewport(line, ReferenceEquals(buffer, _altBuffer) ? BufferType.Alternate : BufferType.Normal, LineExitReason.BufferDeactivated);
+        }
+    }
+
     /// <summary>Whether <see cref="Dispose"/> has run. A disposed terminal accepts no writes.</summary>
     private bool _disposed;
 
@@ -2215,6 +2266,8 @@ public class Terminal : IDisposable
         Resized = null;
         Scrolled = null;
         LineFed = null;
+        LineExitedViewport = null;
+        ViewportRedrawStarting = null;
         DirectoryChanged = null;
         HyperlinkChanged = null;
         ShellIntegrationMarkReceived = null;

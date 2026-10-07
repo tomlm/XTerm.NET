@@ -371,12 +371,17 @@ public partial class InputHandler
         var col = Math.Max(parameters.GetParam(1, 1), 1) - 1;
         row = GetAbsoluteCursorRow(row);
         col = GetAbsoluteCursorCol(col);
+        if (row == 0 && col == 0)
+            _terminal.RaiseViewportRedrawStarting();
         _buffer.SetCursor(col, row);
     }
 
     private void EraseInDisplay(Params parameters, bool selective = false)
     {
         var mode = parameters.GetParam(0, 0);
+
+        if (!selective && (mode == 2 || (mode == 0 && _buffer.X == 0 && _buffer.Y == 0)))
+            _terminal.RaiseViewportRedrawStarting();
 
         var hasBlocks = _buffer.HasMultiRowSizedRuns;
 

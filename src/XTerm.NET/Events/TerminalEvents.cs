@@ -1,3 +1,4 @@
+using XTerm.Buffer;
 using XTerm.Common;
 
 namespace XTerm.Events;
@@ -201,6 +202,23 @@ public static class TerminalEvents
         public LineFeedEventArgs(string data)
         {
             Data = data;
+        }
+    }
+
+    /// <summary>
+    /// Line exit event - fired before a line leaves the active viewport.
+    /// </summary>
+    public class LineExitedViewportEventArgs : EventArgs
+    {
+        public BufferLine Line { get; }
+        public BufferType Buffer { get; }
+        public LineExitReason Reason { get; }
+
+        public LineExitedViewportEventArgs(BufferLine line, BufferType buffer, LineExitReason reason)
+        {
+            Line = line;
+            Buffer = buffer;
+            Reason = reason;
         }
     }
 

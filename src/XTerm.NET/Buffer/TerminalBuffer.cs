@@ -91,6 +91,11 @@ public class TerminalBuffer
     public event Action<int>? Trimmed;
 
     /// <summary>
+    /// Fired synchronously before a line scrolls out of the active viewport and can be recycled.
+    /// </summary>
+    internal event Action<BufferLine>? LineExitedViewport;
+
+    /// <summary>
     /// Whether scrolling reuses the scrollback line it is about to discard instead of allocating a
     /// new one. On by default. Turn it off if a consumer holds <see cref="BufferLine"/> references
     /// across writes; see the invariant documented in <c>ScrollUp</c>.
@@ -256,6 +261,10 @@ public class TerminalBuffer
 
         for (int i = 0; i < lines; i++)
         {
+            var exitingLine = _lines[_yBase + _scrollTop];
+            if (exitingLine is not null)
+                LineExitedViewport?.Invoke(exitingLine);
+
             BufferLine newLine;
 
             // Only the full-screen scroll region contributes to scrollback.
@@ -370,6 +379,10 @@ public class TerminalBuffer
 
             if (HasMultiRowSizedRuns)
                 EraseSizedRunsSplitBy(scrollRegionStart, scrollRegionEnd);
+
+            var exitingLine = _lines[scrollRegionEnd];
+            if (exitingLine is not null)
+                LineExitedViewport?.Invoke(exitingLine);
 
             // Remove line from scroll region bottom
             _lines.Splice(scrollRegionEnd, 1);

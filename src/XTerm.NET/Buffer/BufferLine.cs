@@ -1060,6 +1060,37 @@ public class BufferLine : IEnumerable<BufferCell>
     }
 
     /// <summary>
+    /// Whether a viewport exit snapshot would carry text, rendition or line metadata.
+    /// Unlike text trimming, styled blanks and metadata-only rows must survive deactivation.
+    /// </summary>
+    internal bool HasSnapshotContent()
+    {
+        var defaultAttributes = AttributeData.Default;
+        for (var i = _length - 1; i >= 0; i--)
+        {
+            ref var cell = ref _cells[i];
+            if ((!cell.IsSpace() && !cell.IsEmpty())
+                || cell.Attributes != defaultAttributes || cell.Width > 1)
+                return true;
+
+            // IsSpace/IsEmpty only inspect the base codepoint. A combining mark on a space
+            // still carries text; resolve clusters only for otherwise ordinary blank cells.
+            if (cell.ClusterId != Common.ClusterTable.None)
+            {
+                foreach (var character in Common.ClusterTable.Get(cell.ClusterId))
+                {
+                    if (character != ' ' && character != '\0')
+                        return true;
+                }
+            }
+        }
+
+        // Cache and HasWideCells describe rendering/history, not the current contents.
+        return IsWrapped || LineAttribute != LineAttribute.Normal
+            || HasImages || HasMarks || HasLinks || HasSizedRuns;
+    }
+
+    /// <summary>
     /// Refills this line in place, as if it had just been constructed with <paramref name="fillCell"/>.
     ///
     /// The cell array is reused rather than reallocated, which is the entire point: scrolling a full
