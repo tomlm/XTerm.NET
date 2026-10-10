@@ -300,12 +300,15 @@ public class TerminalOptions : ICloneable
     public bool PointerShapesEnabled { get; set; } = true;
 
     /// <summary>
-    /// Budget for images held by client id but not currently on screen, in bytes.
+    /// Budget for images held by client id but not currently on screen, in bytes. A floor: the
+    /// terminal always holds at least three screens' worth of pixels, so a program that tiles a
+    /// full-screen picture can keep a few screens of tiles to show again without resending them.
     /// </summary>
     /// <remarks>
     /// Kitty transmits a picture once and may show it later, so an image can be live with no cell
     /// referencing it. Cell references cannot account for those, and without a ceiling a program
-    /// could transmit without ever placing and never be collected. Oldest goes first.
+    /// could transmit without ever placing and never be collected. Oldest goes first. Zero or less
+    /// means no limit.
     /// </remarks>
     public long MaxImageRegistryBytes { get; set; } = 32L * 1024 * 1024;
 
