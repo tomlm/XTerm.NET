@@ -14,6 +14,31 @@ namespace XTerm;
 /// </summary>
 public partial class InputHandler
 {
+    /// <summary>
+    /// What the kitty image registry may hold: <see cref="TerminalOptions.MaxImageRegistryBytes"/>,
+    /// or three screens of pixels when the screen is larger than that allows.
+    /// </summary>
+    /// <remarks>
+    /// A client that tiles a full-screen picture (Consolonia does) keeps a few screens' worth of
+    /// tiles in the terminal, by id, to show them again without resending. A registry too small for
+    /// that drops tiles the client still counts on, and placing one again then shows nothing. The
+    /// option stays the floor, so a configured budget larger than three screens still applies; zero
+    /// or less still means no limit.
+    /// </remarks>
+    private long KittyRegistryBudget
+    {
+        get
+        {
+            long configured = _terminal.Options.MaxImageRegistryBytes;
+            if (configured <= 0)
+                return configured;
+
+            long screen = 4L * _terminal.Cols * _terminal.Options.CellWidthPixels
+                             * _terminal.Rows * _terminal.Options.CellHeightPixels;
+            return Math.Max(configured, 3 * screen);
+        }
+    }
+
     private void NoteAnimated(Graphics.TerminalImage image)
     {
         foreach (var known in AnimatedImages)
@@ -407,7 +432,7 @@ public partial class InputHandler
 
         // A client that sent only a number gets an id chosen here, and is told what it was.
         var id = command.ImageId != 0 ? command.ImageId : _kittyImages.NextAssignedId();
-        _kittyImages.Store(id, image, _terminal.Options.MaxImageRegistryBytes, command.ImageNumber);
+        _kittyImages.Store(id, image, KittyRegistryBudget, command.ImageNumber);
 
         if (command.Action == Graphics.KittyAction.TransmitAndDisplay)
             PlaceKittyImage(image, command, id);
@@ -482,7 +507,7 @@ public partial class InputHandler
             // Charged to the REGISTRY, not measured against this animation alone: several
             // animations could otherwise each grow to the whole budget, and the registry's counter
             // would still hold the size each image was first stored at.
-            if (!_kittyImages.TryCharge(frameBytes, _terminal.Options.MaxImageRegistryBytes))
+            if (!_kittyImages.TryCharge(frameBytes, KittyRegistryBudget))
             {
                 ReplyToKitty(command, Graphics.KittyError.TooLarge);
                 return;
