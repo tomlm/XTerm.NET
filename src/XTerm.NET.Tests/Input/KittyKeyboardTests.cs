@@ -399,6 +399,48 @@ public class KittyKeyboardTests
         Assert.Equal("\u001b[53:37;2u", KittyKeyboard.Evaluate(Ev("%", "Digit5", shift: true), AllKeys | Alternates));
     }
 
+    [Theory]
+    [InlineData("`", "~", "Backquote")]
+    [InlineData("-", "_", "Minus")]
+    [InlineData("=", "+", "Equal")]
+    [InlineData("[", "{", "BracketLeft")]
+    [InlineData("]", "}", "BracketRight")]
+    [InlineData("\\", "|", "Backslash")]
+    [InlineData(";", ":", "Semicolon")]
+    [InlineData("'", "\"", "Quote")]
+    [InlineData(",", "<", "Comma")]
+    [InlineData(".", ">", "Period")]
+    [InlineData("/", "?", "Slash")]
+    public void Shifted_punctuation_appears_as_a_sub_parameter(string unshiftedKey, string shiftedKey, string code)
+    {
+        var expected = $"\u001b[{(int)unshiftedKey[0]}:{(int)shiftedKey[0]};2u";
+        Assert.Equal(expected, KittyKeyboard.Evaluate(Ev(shiftedKey, code, shift: true), AllKeys | Alternates));
+    }
+
+    [Theory]
+    [InlineData("+", "Equal", "\u001b[61;2u")]
+    [InlineData(":", "Semicolon", "\u001b[59;2u")]
+    [InlineData("_", "Minus", "\u001b[45;2u")]
+    [InlineData("?", "Slash", "\u001b[47;2u")]
+    public void Shifted_punctuation_unwinds_under_ReportAllKeys(string shiftedKey, string code, string expected)
+    {
+        Assert.Equal(expected, KittyKeyboard.Evaluate(Ev(shiftedKey, code, shift: true), AllKeys | Disambiguate));
+    }
+
+    [Theory]
+    [InlineData("+", "Equal", "\u001b[61:43;6u", "\u001b[61;6u")]
+    [InlineData(":", "Semicolon", "\u001b[59:58;6u", "\u001b[59;6u")]
+    [InlineData("_", "Minus", "\u001b[45:95;6u", "\u001b[45;6u")]
+    [InlineData("?", "Slash", "\u001b[47:63;6u", "\u001b[47;6u")]
+    public void Ctrl_Shift_punctuation_unwinds_to_base_key_code(
+        string shiftedKey, string code, string expectedWithAlternates, string expectedDisambiguate)
+    {
+        Assert.Equal(expectedWithAlternates,
+            KittyKeyboard.Evaluate(Ev(shiftedKey, code, ctrl: true, shift: true), Disambiguate | Alternates));
+        Assert.Equal(expectedDisambiguate,
+            KittyKeyboard.Evaluate(Ev(shiftedKey, code, ctrl: true, shift: true), Disambiguate));
+    }
+
     [Fact]
     public void Unshifted_and_functional_keys_have_no_alternate()
     {

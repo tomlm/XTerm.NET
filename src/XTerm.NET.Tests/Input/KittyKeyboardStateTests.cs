@@ -347,6 +347,15 @@ public class KittyKeyboardStateTests
         Assert.Equal("\u001b[102;3u", t.GenerateKittyKeyInput(ev));
     }
 
+    [Fact]
+    public void GenerateKittyKeyInput_unwinds_shifted_punctuation()
+    {
+        var t = NewTerminal();
+        t.Write("\u001b[=9u"); // AllKeys | Disambiguate
+        var ev = new KeyEvent { Key = "+", Code = "Equal", ShiftKey = true };
+        Assert.Equal("\u001b[61;2u", t.GenerateKittyKeyInput(ev));
+    }
+
     [Theory]
     [InlineData("Escape", "", "\u001b")]
     [InlineData("F13", "", "\u001b[25~")]

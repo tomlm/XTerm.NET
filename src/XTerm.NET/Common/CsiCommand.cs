@@ -220,6 +220,12 @@ public enum CsiCommand
     /// <summary>Reset title modes (CSI &gt; Pm T).</summary>
     ResetTitleModes,
 
+    /// <summary>
+    /// XTSHIFTESCAPE -- CSI &gt; Ps s. 0 lets Shift override mouse tracking (the default); 1 asks
+    /// for Shift+mouse to be reported to the application instead.
+    /// </summary>
+    SetShiftEscape,
+
     /// <summary>DECIC -- insert columns at the cursor (CSI Pn ' }).</summary>
     InsertColumns,
 

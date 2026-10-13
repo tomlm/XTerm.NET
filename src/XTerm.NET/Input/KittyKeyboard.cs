@@ -240,6 +240,24 @@ public static class KittyKeyboard
             }
             if (ev.Code.StartsWith("Key", StringComparison.Ordinal) && ev.Code.Length == 4)
                 return char.ToLowerInvariant(ev.Code[3]);
+
+            if (ev.ShiftKey)
+            {
+                switch (ev.Code)
+                {
+                    case "Backquote": return '`';
+                    case "Minus": return '-';
+                    case "Equal": return '=';
+                    case "BracketLeft": return '[';
+                    case "BracketRight": return ']';
+                    case "Backslash": return '\\';
+                    case "Semicolon": return ';';
+                    case "Quote": return '\'';
+                    case "Comma": return ',';
+                    case "Period": return '.';
+                    case "Slash": return '/';
+                }
+            }
         }
 
         if (ev.Key.Length == 1)

@@ -51,7 +51,11 @@ internal sealed class ImageRegistry
     /// Stores an image under an id, replacing anything already there.
     /// </summary>
     /// <param name="number">The client's image number, or 0 if it named none.</param>
-    public void Store(uint id, TerminalImage image, long budget, uint number = 0)
+    /// <param name="shown">
+    /// Whether an image is on screen, for trimming to leave those alone; null trims by recency alone.
+    /// </param>
+    public void Store(uint id, TerminalImage image, long budget, uint number = 0,
+                      Func<TerminalImage, bool>? shown = null)
     {
         Remove(id);
 
@@ -62,7 +66,7 @@ internal sealed class ImageRegistry
         if (number != 0)
             _idByNumber[number] = id;
 
-        Trim(budget);
+        Trim(budget, shown, justStored: id);
     }
 
     /// <summary>
@@ -82,11 +86,28 @@ internal sealed class ImageRegistry
             return false;
 
         _bytes += delta;
-        Trim(budget);
+        Trim(budget, null, justStored: 0);
         return true;
     }
 
-    public bool TryGet(uint id, out TerminalImage image) => _byId.TryGetValue(id, out image!);
+    /// <summary>
+    /// The image under an id, which becomes the most recently used: trimming takes the least
+    /// recently used first, so an image a client keeps placing outlives ones it sent later and
+    /// never named again.
+    /// </summary>
+    public bool TryGet(uint id, out TerminalImage image)
+    {
+        if (!_byId.TryGetValue(id, out image!))
+            return false;
+
+        if (_nodes.TryGetValue(id, out var node) && node.List == _order)
+        {
+            _order.Remove(node);
+            _order.AddLast(node);
+        }
+
+        return true;
+    }
 
     /// <summary>Resolves a client image number to the newest image stored under it.</summary>
     public bool TryGetByNumber(uint number, out uint id, out TerminalImage image)
@@ -161,19 +182,35 @@ internal sealed class ImageRegistry
     }
 
     /// <summary>
-    /// Drops the oldest images until the total fits the budget.
+    /// Drops the least recently used images until the total fits the budget, leaving alone the ones
+    /// on screen and the one just stored.
     /// </summary>
     /// <remarks>
-    /// Dropping an id does not destroy the picture: cells showing it hold their own reference, so
-    /// what is lost is the ability to place it again, not what is already on screen.
+    /// <para>Dropping an id does not destroy the picture: cells showing it hold their own reference,
+    /// so what is lost is the ability to place it again, not what is already on screen.</para>
+    /// <para>That is exactly why an image on screen is not dropped. A client that shows a picture in
+    /// pieces (Consolonia places a picture as blocks and crops them around whatever covers it) must
+    /// place a piece again when it is uncovered, and names the id it transmitted; dropping that id
+    /// behind its back makes the next placement show nothing. Dragging a dialog across pictures
+    /// sent a new block for every block along its edges every frame, turned the registry over in
+    /// seconds, and left holes along the drag wherever a block had to be placed again. So the
+    /// budget bounds what is held on the client's promise alone; what is on screen is held by the
+    /// screen, and the total may exceed the budget by that much.</para>
     /// </remarks>
-    private void Trim(long budget)
+    private void Trim(long budget, Func<TerminalImage, bool>? shown, uint justStored)
     {
-        if (budget <= 0)
+        if (budget <= 0 || _bytes <= budget)
             return;
 
-        while (_bytes > budget && _order.First is { } oldest)
-            Remove(oldest.Value);
+        var node = _order.First;
+        while (_bytes > budget && node is not null)
+        {
+            var next = node.Next;
+            var id = node.Value;
+            if (id != justStored && (shown is null || !shown(_byId[id])))
+                Remove(id);
+            node = next;
+        }
     }
 
     /// <summary>

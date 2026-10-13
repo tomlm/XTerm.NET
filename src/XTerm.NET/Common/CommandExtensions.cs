@@ -69,6 +69,7 @@ public static class CsiCommandExtensions
         { ">T", CsiCommand.ResetTitleModes },    // XTRMTITLE
         { "?s", CsiCommand.XtermSaveMode },      // XTSAVE
         { "?r", CsiCommand.XtermRestoreMode },   // XTRESTORE
+        { ">s", CsiCommand.SetShiftEscape },     // XTSHIFTESCAPE - not SCOSC or DECSLRM
         { "r", CsiCommand.SetScrollRegion },
         { "s", CsiCommand.SaveCursorAnsi },
         { "t", CsiCommand.WindowManipulation },
