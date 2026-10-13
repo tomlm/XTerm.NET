@@ -1040,6 +1040,15 @@ public partial class InputHandler
             if (line is null)
                 break;
 
+            // Sixel is content, so a picture landing on cells that already show one replaces that
+            // part of it, exactly as printing a character there does. Without this every Sixel a
+            // program draws over an earlier one is kept beneath it: a line in the alternate screen
+            // never dies, so an application repainting small regions (a cursor, a hover highlight)
+            // grew an unbounded stack of runs per line, each drawn every frame and each pinning its
+            // picture in memory. Kitty placements are overlays ordered by z-index and are left alone.
+            if (kind == Graphics.PlacementKind.Sixel)
+                line.SplitPlacementsOver(startCol, placement.Cols);
+
             // One run per line. Cols is the picture's NATURAL width — deliberately NOT clipped to
             // the terminal, so a window widened later reveals more of the picture rather than
             // having lost it.

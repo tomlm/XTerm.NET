@@ -61,6 +61,62 @@ public class ImageCellLifetimeTests
     }
 
     [Fact]
+    public void Sixel_over_a_sixel_replaces_the_runs_it_covers()
+    {
+        var terminal = Fresh();
+        WriteSixel(terminal);
+        var first = ImageAssertions.ImageAt(terminal, 0, 0);
+
+        // The same picture drawn again at the same place: one run per row, not two
+        terminal.Write($"{Esc}[1;1H");
+        WriteSixel(terminal);
+
+        var line = terminal.Buffer.Lines[terminal.Buffer.YBase]!;
+        Assert.Single(line.Placements);
+        Assert.Single(line.Images);
+        Assert.NotSame(first, ImageAssertions.ImageAt(terminal, 0, 0));
+        Assert.Equal(8, ImageCellCount(terminal));
+    }
+
+    [Fact]
+    public void Sixel_over_part_of_a_sixel_keeps_the_rest_of_it()
+    {
+        var terminal = Fresh();
+        WriteSixel(terminal);
+        var first = ImageAssertions.ImageAt(terminal, 0, 0);
+
+        // A one-cell-wide picture on the second column, over the right half of the first one
+        terminal.Write($"{Esc}[1;2H");
+        WriteSixel(terminal, "#0;2;0;100;0!2~-!2~");
+
+        var line = terminal.Buffer.Lines[terminal.Buffer.YBase]!;
+        Assert.Equal(2, line.Placements.Count);
+        Assert.Same(first, ImageAssertions.ImageAt(terminal, 0, 0));
+        Assert.NotSame(first, ImageAssertions.ImageAt(terminal, 1, 0));
+        Assert.Equal(8, ImageCellCount(terminal));
+    }
+
+    [Fact]
+    public void Repainting_a_cell_many_times_does_not_accumulate_runs()
+    {
+        var terminal = Fresh();
+        WriteSixel(terminal);
+
+        for (int i = 0; i < 50; i++)
+        {
+            terminal.Write($"{Esc}[1;2H");
+            WriteSixel(terminal, "#0;2;0;0;100!2~-!2~");
+        }
+
+        for (int row = 0; row < 4; row++)
+        {
+            var line = terminal.Buffer.Lines[terminal.Buffer.YBase + row]!;
+            Assert.Equal(2, line.Placements.Count);
+            Assert.Equal(2, line.Images.Count);
+        }
+    }
+
+    [Fact]
     public void Printing_over_a_tile_replaces_it_with_the_character()
     {
         var terminal = Fresh();
