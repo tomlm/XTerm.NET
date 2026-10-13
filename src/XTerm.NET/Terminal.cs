@@ -1197,6 +1197,9 @@ public class Terminal : IDisposable
         TitleSetHex = false;
         TitleQueryHex = false;
 
+        // Shift goes back to the host: a program that claimed it is gone.
+        ShiftEscape = false;
+
         // Reset parser
         _parser.Reset();
         _inputHandler.ResetAttributes();
@@ -1454,6 +1457,36 @@ public class Terminal : IDisposable
         }
 
         return found;
+    }
+
+    /// <summary>
+    /// Whether any placement in either buffer, on screen or in the scrollback, shows the image.
+    /// </summary>
+    /// <remarks>
+    /// What the image registry asks before trimming an image: one that is shown is held by the
+    /// cells regardless, and a client that placed it will name its id again when it has to place
+    /// it anew, so dropping the id would make that placement show nothing.
+    /// </remarks>
+    internal bool ShowsImage(Graphics.TerminalImage image)
+        => ShowsImage(_normalBuffer, image) || ShowsImage(_altBuffer, image);
+
+    private static bool ShowsImage(Buffer.TerminalBuffer? buffer, Graphics.TerminalImage image)
+    {
+        if (buffer is null)
+            return false;
+
+        for (int i = 0; i < buffer.Lines.Length; i++)
+        {
+            var line = buffer.Lines[i];
+            if (line is null || !line.HasImages)
+                continue;
+
+            foreach (var placement in line.Placements)
+                if (placement.ImageId == image.Id)
+                    return true;
+        }
+
+        return false;
     }
 
     private static void DropPlacements(Buffer.TerminalBuffer? buffer,
@@ -1759,6 +1792,19 @@ public class Terminal : IDisposable
     /// Gets the current mouse tracking mode.
     /// </summary>
     public MouseTrackingMode MouseTrackingMode => _mouseTracker.TrackingMode;
+
+    /// <summary>
+    /// True when the application has asked, with XTSHIFTESCAPE (CSI &gt; 1 s), for Shift+mouse to
+    /// be reported to it rather than taken by the host for selection. A host that offers Shift
+    /// as its override of mouse tracking should consult this before claiming the gesture.
+    /// </summary>
+    /// <remarks>
+    /// Programs that use Shift as a drawing or editing modifier -- constrain a shape, extend a
+    /// selection of their own -- otherwise never see it, because every terminal that follows
+    /// xterm turns Shift+drag into a text selection. CSI &gt; 0 s (or CSI &gt; s) and RIS hand
+    /// Shift back to the host.
+    /// </remarks>
+    public bool ShiftEscape { get; internal set; }
 
     /// <summary>
     /// Gets the current mouse encoding format.

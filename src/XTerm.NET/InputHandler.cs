@@ -752,6 +752,16 @@ public partial class InputHandler
                 SetTitleModes(parameters, enable: false);
                 break;
 
+            case CsiCommand.SetShiftEscape:
+                // A missing parameter is 0, xterm's default: Shift belongs to the host again.
+                // Anything other than 0 or 1 is left alone rather than guessed at.
+                switch (parameters.GetParam(0, 0))
+                {
+                    case 0: _terminal.ShiftEscape = false; break;
+                    case 1: _terminal.ShiftEscape = true; break;
+                }
+                break;
+
             case CsiCommand.InsertColumns:
                 InsertColumns(parameters);
                 break;

@@ -40,15 +40,24 @@ public class KittyRegistryBudgetTests
         Assert.True(ImageAssertions.IsImageAt(terminal, 0, 0), "the image was still in the registry to place");
     }
 
+    /// <summary>
+    /// The floor is still a budget. The registry never trims the image just stored or one on screen,
+    /// so what goes past three screens is an older image nothing shows.
+    /// </summary>
     [Fact]
-    public void An_image_beyond_three_screens_is_still_dropped_under_a_small_budget()
+    public void An_older_unshown_image_is_trimmed_once_three_screens_are_exceeded()
     {
         var terminal = Fresh(registryBytes: 1);
 
-        terminal.Write(Apc("a=t,i=8,f=32,s=100,v=100,q=2", SolidRgba(100, 100)));   // 40,000 bytes
-        terminal.Write(Apc("a=p,i=8,q=2"));
+        terminal.Write(Apc("a=t,i=7,f=32,s=4,v=6,q=2", SolidRgba(4, 6)));          // 96 bytes, never placed
+        terminal.Write(Apc("a=t,i=8,f=32,s=100,v=100,q=2", SolidRgba(100, 100)));  // 40,000 bytes: over 25,920
 
-        Assert.False(ImageAssertions.IsImageAt(terminal, 0, 0), "three screens are 25,920 bytes; it did not fit");
+        terminal.Write(Apc("a=p,i=7,q=2"));
+        Assert.False(ImageAssertions.IsImageAt(terminal, 0, 0), "three screens are 25,920 bytes; the older image nothing showed went");
+
+        terminal.Write($"{Esc}[1;20H");
+        terminal.Write(Apc("a=p,i=8,q=2"));
+        Assert.True(ImageAssertions.IsImageAt(terminal, 19, 0), "the image just stored is never the one trimmed");
     }
 
     [Fact]
