@@ -7,8 +7,8 @@
     <RootNamespace>XTerm</RootNamespace>
   </PropertyGroup>
 <PropertyGroup>
-    <Version>2.0.6</Version>
-    <AssemblyVersion>2.0.5.0</AssemblyVersion>
+    <Version>2.0.7</Version>
+    <AssemblyVersion>2.0.7.0</AssemblyVersion>
     <Description>Dotnet port of xterm.js, giving you ability to host console applications, with Sixel and Kitty graphics.</Description>
     <Company>Iciclecreek</Company>
     <Authors>Tom Laird-McConnell</Authors>

@@ -10,6 +10,15 @@ public enum BufferType
 }
 
 /// <summary>
+/// Identifies why a terminal line left the active viewport.
+/// </summary>
+public enum LineExitReason
+{
+    Scrolled,
+    BufferDeactivated
+}
+
+/// <summary>
 /// Cursor style for the terminal.
 /// </summary>
 public enum CursorStyle
