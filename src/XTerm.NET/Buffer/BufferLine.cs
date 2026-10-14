@@ -47,6 +47,22 @@ public class BufferLine : IEnumerable<BufferCell>
     /// with no eviction pass and nothing to keep in step with a buffer that scrolls.
     /// </summary>
     private List<Graphics.TerminalImage>? _images;
+
+    /// <summary>
+    /// The Sixel pixels this line shows, or null -- which is every line no Sixel has landed on.
+    /// </summary>
+    /// <remarks>
+    /// Sixel is kept as the pixels it painted rather than as pictures: see
+    /// <see cref="Graphics.SixelStrip"/>. Kitty pictures are overlays with identities and z-order and
+    /// stay as runs in <see cref="_placements"/>.
+    /// </remarks>
+    private Graphics.SixelStrip? _sixel;
+
+    /// <summary>
+    /// Whether <see cref="_sixel"/> is shared with a copy of this line, so the next write must take a
+    /// private copy first. Set on both sides by <see cref="Clone"/> and <see cref="CopyFrom"/>.
+    /// </summary>
+    private bool _sixelShared;
     private int _length;
     private bool _isWrapped;
     private LineAttribute _lineAttribute;
@@ -179,6 +195,10 @@ public class BufferLine : IEnumerable<BufferCell>
             if (_placements is not null)
                 SplitPlacementsAt(index);
 
+            // And the Sixel pixels in that cell, the same rule.
+            if (_sixel is not null)
+                ClearSixel(index, 1);
+
             Cache = null;
         }
     }
@@ -214,6 +234,8 @@ public class BufferLine : IEnumerable<BufferCell>
         // One field test on a line with no pictures, which is nearly every line.
         if (_placements is not null)
             SplitPlacementsOver(index, text.Length);
+        if (_sixel is not null)
+            ClearSixel(index, text.Length);
 
         Cache = null;
     }
@@ -240,6 +262,8 @@ public class BufferLine : IEnumerable<BufferCell>
         // treatment SetCell gives them.
         if (_placements is not null)
             SplitPlacementsOver(index, ascii.Length);
+        if (_sixel is not null)
+            ClearSixel(index, ascii.Length);
 
         Cache = null;
     }
@@ -324,6 +348,8 @@ public class BufferLine : IEnumerable<BufferCell>
         if (_placements is not null)
             SplitPlacementsOver(startCol, Math.Max(0, Math.Min(endCol, _length) - startCol),
                                 includeOverlays: true);
+        if (_sixel is not null)
+            ClearSixel(startCol, Math.Max(0, Math.Min(endCol, _length) - startCol));
 
         // And a LINK, unlike a mark. A mark records a position in the history and survives the
         // shell redrawing its prompt; a link is a property of its text, and text that has been
@@ -381,7 +407,31 @@ public class BufferLine : IEnumerable<BufferCell>
                 }
             }
         }
+
+        // The Sixel pixels follow their cells: an insert, a delete or a margin scroll that moved the
+        // text moved the picture it sits in. Kitty runs are anchored overlays and stay put.
+        if (src._sixel is not null || _sixel is not null)
+            CopySixelCells(src, srcCol, destCol, length);
+
         Cache = null;
+    }
+
+    private void CopySixelCells(BufferLine src, int srcCol, int destCol, int length)
+    {
+        var count = Math.Min(length, Math.Min(_length - destCol, src._length - srcCol));
+        if (count <= 0 || destCol < 0 || srcCol < 0)
+            return;
+
+        // Blanks onto a line with no pixels there: nothing to do, and nothing to allocate.
+        if (src._sixel is null && !SixelPaintedIn(destCol, count))
+            return;
+
+        var strip = WritableSixel(src._sixel);
+        var source = ReferenceEquals(src, this) ? strip : src._sixel;
+        strip.CopyCells(source, srcCol, destCol, count);
+
+        if (strip.IsEmpty)
+            DropSixel();
     }
 
     /// <summary>
@@ -454,21 +504,101 @@ public class BufferLine : IEnumerable<BufferCell>
     /// <returns>True if the line held any, which is also the signal that it needs repainting.</returns>
     public bool ClearImages()
     {
-        if (_placements is null && _images is null)
+        if (_placements is null && _images is null && _sixel is null)
             return false;
 
         // Nothing to clean up in the cells — they never held anything. Releasing the strong
         // references is what actually frees the pixels.
         _placements = null;
         _images = null;
+        _sixel = null;
+        _sixelShared = false;
         Cache = null;
         return true;
     }
 
     /// <summary>
-    /// Whether this line shows any part of a picture. One field test — a renderer can ask per row.
+    /// Whether this line shows any part of a picture -- a Kitty run or Sixel pixels. One field test
+    /// each, so a renderer can ask per row.
     /// </summary>
-    public bool HasImages => _placements is { Count: > 0 };
+    public bool HasImages => _placements is { Count: > 0 } || _sixel is not null;
+
+    /// <summary>The Sixel pixels this line shows, or null. See <see cref="Graphics.SixelStrip"/>.</summary>
+    public Graphics.SixelStrip? Sixel => _sixel;
+
+    /// <summary>
+    /// Paints one cell-row of a Sixel (or an inline image) into this line, from
+    /// <paramref name="column"/> on. The band of the picture painted starts at pixel row
+    /// <paramref name="sourceY"/>.
+    /// </summary>
+    internal void PaintSixel(Graphics.TerminalImage image, int sourceY, int column)
+    {
+        var strip = WritableSixel(null, image.CellWidth, image.CellHeight);
+        strip.Paint(image, sourceY, column);
+        Cache = null;
+    }
+
+    /// <summary>Drops this line's Sixel pixels altogether. What the image budget reclaims through.</summary>
+    /// <returns>The bytes released, or zero when there were none.</returns>
+    internal long DropSixel()
+    {
+        if (_sixel is null)
+            return 0;
+
+        var bytes = _sixel.ByteCount;
+        _sixel = null;
+        _sixelShared = false;
+        Cache = null;
+        return bytes;
+    }
+
+    /// <summary>Clears the Sixel pixels in a span of cells: something printed or erased there replaced them.</summary>
+    private void ClearSixel(int column, int count)
+    {
+        if (_sixel is null || count <= 0 || !SixelPaintedIn(column, count))
+            return;
+
+        var strip = WritableSixel(null);
+        strip.Clear(column, count);
+        if (strip.IsEmpty)
+            DropSixel();
+    }
+
+    private bool SixelPaintedIn(int column, int count)
+    {
+        if (_sixel is null)
+            return false;
+
+        var end = Math.Min(_sixel.Columns, column + count);
+        for (var c = Math.Max(0, column); c < end; c++)
+        {
+            if (_sixel.HasPixelsAt(c))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// This line's strip, made private if it was shared and created if there was none -- at the cell
+    /// size of <paramref name="like"/>, or the one given.
+    /// </summary>
+    private Graphics.SixelStrip WritableSixel(Graphics.SixelStrip? like, int cellWidth = 0, int cellHeight = 0)
+    {
+        if (_sixel is null)
+        {
+            _sixel = Graphics.SixelStrip.Create(
+                like?.CellWidth ?? cellWidth, like?.CellHeight ?? cellHeight, _length);
+            _sixelShared = false;
+        }
+        else if (_sixelShared)
+        {
+            _sixel = _sixel.Copy();
+            _sixelShared = false;
+        }
+
+        return _sixel;
+    }
 
     /// <summary>Whether this line carries any shell-integration mark.</summary>
     public bool HasMarks => _marks is { Count: > 0 };
@@ -1139,6 +1269,14 @@ public class BufferLine : IEnumerable<BufferCell>
             newLine._placements = new List<Graphics.LinePlacement>(_placements);
             newLine._images = _images is null ? null : new List<Graphics.TerminalImage>(_images);
         }
+
+        // Shared, not copied: whichever of the two writes first takes its own copy.
+        if (_sixel is not null)
+        {
+            newLine._sixel = _sixel;
+            newLine._sixelShared = true;
+            _sixelShared = true;
+        }
         for (int i = 0; i < _length; i++)
         {
             newLine._cells[i] = _cells[i];
@@ -1177,6 +1315,12 @@ public class BufferLine : IEnumerable<BufferCell>
         _images = line._images is null
             ? null
             : new List<Graphics.TerminalImage>(line._images);
+
+        // Shared with the source until one of them writes, as in Clone.
+        _sixel = line._sixel;
+        _sixelShared = _sixel is not null;
+        if (_sixel is not null)
+            line._sixelShared = true;
 
         // Assigned, not OR-ed: this REPLACES the line's contents rather than adding to them, so
         // the latch belongs to the incoming cells. A recycled scrollback line that once held a

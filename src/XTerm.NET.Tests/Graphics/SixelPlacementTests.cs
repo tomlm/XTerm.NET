@@ -19,6 +19,22 @@ public class SixelPlacementTests
     /// <summary>Four pixels wide, twelve tall: two cells across, four down.</summary>
     private const string TwoByFourCells = "#0;2;100;0;0!4~-!4~";
 
+    /// <summary>
+    /// The same size, with each cell row its own colour -- red, green, blue, yellow from the top --
+    /// so the colour a screen row shows says which band of the picture landed there. 'F' sets a
+    /// sixel's top three pixels and 'w' its bottom three; a cell is three pixels tall.
+    /// </summary>
+    private const string Striped = "#0;2;100;0;0!4F$#1;2;0;100;0!4w-#2;2;0;0;100!4F$#3;2;100;100;0!4w";
+
+    private static readonly (byte R, byte G, byte B, byte A)[] Stripes =
+    {
+        (255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255), (255, 255, 0, 255),
+    };
+
+    /// <summary>Which stripe of <see cref="Striped"/> a screen position shows, or -1 for none.</summary>
+    private static int StripeOn(Terminal terminal, int col, int screenRow)
+        => ImageAssertions.SixelPixel(terminal, col, screenRow) is { } pixel ? Array.IndexOf(Stripes, pixel) : -1;
+
     private static Terminal Fresh(int rows = 10, Action<TerminalOptions>? configure = null)
     {
         var options = new TerminalOptions
@@ -39,30 +55,21 @@ public class SixelPlacementTests
         => terminal.Buffer.Lines[terminal.Buffer.YBase + screenRow]![col];
 
     [Fact]
-    public void An_image_covers_one_cell_per_tile()
+    public void An_image_paints_each_cell_it_covers_with_its_own_band()
     {
         var terminal = Fresh();
-        WriteSixel(terminal);
+        WriteSixel(terminal, Striped);
 
-        var image = ImageAssertions.ImageAt(terminal, 0, 0);
-        Assert.NotNull(image);
-        Assert.Equal(2, image!.Cols);
-        Assert.Equal(4, image.Rows);
-
-        // One run per line, each covering the picture's full width and carrying its own slice of
-        // the source — which is what the per-cell tile grid said, expressed once per row instead of
-        // once per cell.
+        // Two columns by four rows, each row showing the band of the picture that belongs there,
+        // and every line's strip at the cell size the picture was laid out against.
         for (int row = 0; row < 4; row++)
         {
-            var placement = ImageAssertions.PlacementAt(terminal, 0, row);
-            Assert.NotNull(placement);
-            Assert.True(ReferenceEquals(ImageAssertions.ImageAt(terminal, 0, row), image),
-                $"row {row} should show part of the image");
+            for (int col = 0; col < 2; col++)
+                Assert.Equal(row, StripeOn(terminal, col, row));
 
-            Assert.Equal(0, placement!.Value.Column);
-            Assert.Equal(2, placement.Value.Cols);
-            Assert.Equal(0, placement.Value.SrcX);
-            Assert.Equal(row * terminal.Options.CellHeightPixels, placement.Value.SrcY);
+            var strip = ImageAssertions.StripOn(terminal, row)!;
+            Assert.Equal(terminal.Options.CellWidthPixels, strip.CellWidth);
+            Assert.Equal(terminal.Options.CellHeightPixels, strip.CellHeight);
         }
     }
 
@@ -72,8 +79,9 @@ public class SixelPlacementTests
         var terminal = Fresh();
         WriteSixel(terminal);
 
-        Assert.Null(ImageAssertions.ImageAt(terminal, 2, 0));
-        Assert.Null(ImageAssertions.ImageAt(terminal, 0, 4));
+        Assert.False(ImageAssertions.IsSixelAt(terminal, 2, 0));
+        Assert.False(ImageAssertions.IsSixelAt(terminal, 0, 4));
+        Assert.Null(ImageAssertions.StripOn(terminal, 4));
     }
 
     [Fact]
@@ -83,9 +91,9 @@ public class SixelPlacementTests
         terminal.Write($"{Esc}[3;6H"); // row 3, column 6, one-based
         WriteSixel(terminal);
 
-        Assert.True(ReferenceEquals(ImageAssertions.ImageAt(terminal, 5, 2), ImageAssertions.ImageAt(terminal, 6, 2)));
-        Assert.NotNull(ImageAssertions.ImageAt(terminal, 5, 2));
-        Assert.Null(ImageAssertions.ImageAt(terminal, 4, 2));
+        Assert.True(ImageAssertions.IsSixelAt(terminal, 5, 2));
+        Assert.True(ImageAssertions.IsSixelAt(terminal, 6, 2));
+        Assert.False(ImageAssertions.IsSixelAt(terminal, 4, 2));
     }
 
     [Fact]
@@ -133,8 +141,8 @@ public class SixelPlacementTests
         terminal.Write($"{Esc}[3;6H");
         WriteSixel(terminal);
 
-        Assert.NotNull(ImageAssertions.ImageAt(terminal, 0, 0));
-        Assert.Null(ImageAssertions.ImageAt(terminal, 5, 2));
+        Assert.True(ImageAssertions.IsSixelAt(terminal, 0, 0));
+        Assert.False(ImageAssertions.IsSixelAt(terminal, 5, 2));
         Assert.Equal(5, terminal.Buffer.X);
         Assert.Equal(2, terminal.Buffer.Y);
     }
@@ -148,7 +156,7 @@ public class SixelPlacementTests
         terminal.Write($"{Esc}[3;6H");
         WriteSixel(terminal);
 
-        Assert.NotNull(ImageAssertions.ImageAt(terminal, 5, 2));
+        Assert.True(ImageAssertions.IsSixelAt(terminal, 5, 2));
     }
 
     /// <summary>
@@ -159,15 +167,11 @@ public class SixelPlacementTests
     {
         var terminal = Fresh(rows: 5);
         terminal.Write($"{Esc}[4;1H"); // last-but-one row
-        WriteSixel(terminal);
+        WriteSixel(terminal, Striped);
 
         // Four image rows plus the cursor's own row need five: the screen scrolled until they fit.
         for (int row = 0; row < 4; row++)
-        {
-            var placement = ImageAssertions.PlacementAt(terminal, 0, row);
-            Assert.NotNull(placement);
-            Assert.Equal(row * terminal.Options.CellHeightPixels, placement!.Value.SrcY);
-        }
+            Assert.Equal(row, StripeOn(terminal, 0, row));
 
         Assert.Equal(0, terminal.Buffer.X);
         Assert.Equal(4, terminal.Buffer.Y);
@@ -177,12 +181,12 @@ public class SixelPlacementTests
     public void An_image_taller_than_the_screen_keeps_its_last_rows()
     {
         var terminal = Fresh(rows: 3);
-        WriteSixel(terminal);
+        WriteSixel(terminal, Striped);
 
         // Three rows of screen, four of image, and the cursor still needs a row of its own below
         // it -- so the picture scrolled up until its last two rows and the cursor fit.
-        Assert.Equal(2 * terminal.Options.CellHeightPixels, ImageAssertions.PlacementAt(terminal, 0, 0)!.Value.SrcY);
-        Assert.Equal(3 * terminal.Options.CellHeightPixels, ImageAssertions.PlacementAt(terminal, 0, 1)!.Value.SrcY);
+        Assert.Equal(2, StripeOn(terminal, 0, 0));
+        Assert.Equal(3, StripeOn(terminal, 0, 1));
         Assert.Equal(2, terminal.Buffer.Y);
     }
 
@@ -191,11 +195,11 @@ public class SixelPlacementTests
     {
         var terminal = Fresh(rows: 3);
         terminal.Write($"{Esc}[?80h");
-        WriteSixel(terminal);
+        WriteSixel(terminal, Striped);
 
         // Pinned at the top, so the first rows are the ones that survive.
-        Assert.Equal(0 * terminal.Options.CellHeightPixels, ImageAssertions.PlacementAt(terminal, 0, 0)!.Value.SrcY);
-        Assert.Equal(2 * terminal.Options.CellHeightPixels, ImageAssertions.PlacementAt(terminal, 0, 2)!.Value.SrcY);
+        Assert.Equal(0, StripeOn(terminal, 0, 0));
+        Assert.Equal(2, StripeOn(terminal, 0, 2));
     }
 
     [Fact]
@@ -203,10 +207,13 @@ public class SixelPlacementTests
     {
         var terminal = Fresh(configure: o => o.Cols = 6);
         terminal.Write($"{Esc}[1;6H"); // one column from the right edge
-        WriteSixel(terminal);
+        WriteSixel(terminal, Striped);
 
-        Assert.NotNull(ImageAssertions.ImageAt(terminal, 5, 0));
-        Assert.Equal(0 * terminal.Options.CellWidthPixels, ImageAssertions.PlacementAt(terminal, 5, 0)!.Value.SrcX);
+        // The picture's first column lands in the last cell; the rest runs past the edge, kept at
+        // its natural width for a wider window but not shown on this one.
+        Assert.True(ImageAssertions.IsSixelAt(terminal, 5, 0));
+        Assert.Equal(0, StripeOn(terminal, 5, 0));
+        Assert.False(ImageAssertions.IsSixelAt(terminal, 6, 0));
     }
 
     /// <summary>
@@ -243,18 +250,18 @@ public class SixelPlacementTests
     }
 
     [Fact]
-    public void Two_images_do_not_share_tiles()
+    public void A_second_image_paints_below_the_first_and_leaves_it_alone()
     {
         var terminal = Fresh();
-        WriteSixel(terminal);
-        WriteSixel(terminal);
+        WriteSixel(terminal, Striped);
+        WriteSixel(terminal, Striped);
 
-        var first = ImageAssertions.ImageAt(terminal, 0, 0);
-        var second = ImageAssertions.ImageAt(terminal, 0, 4);
-
-        Assert.NotNull(first);
-        Assert.NotNull(second);
-        Assert.False(ReferenceEquals(first, second));
-        Assert.NotEqual(first!.Id, second!.Id);
+        // The first picture's rows are untouched by the second, which starts where the cursor
+        // was left: the row below the first.
+        for (int row = 0; row < 4; row++)
+        {
+            Assert.Equal(row, StripeOn(terminal, 0, row));
+            Assert.Equal(row, StripeOn(terminal, 0, row + 4));
+        }
     }
 }

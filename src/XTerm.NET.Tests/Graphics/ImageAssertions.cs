@@ -94,6 +94,53 @@ internal static class ImageAssertions
         return (source.X / image.CellWidth, source.Y / image.CellHeight);
     }
 
+    /// <summary>The Sixel pixels on a screen row, or null when no Sixel has painted it.</summary>
+    public static SixelStrip? StripOn(Terminal terminal, int screenRow)
+        => terminal.Buffer.Lines[terminal.Buffer.YBase + screenRow]?.Sixel;
+
+    /// <summary>
+    /// Whether a screen position shows Sixel pixels -- the question <see cref="IsImageAt"/> asks of a
+    /// Kitty run, asked of the pixels Sixel paints instead.
+    /// </summary>
+    public static bool IsSixelAt(Terminal terminal, int col, int screenRow)
+    {
+        var line = terminal.Buffer.Lines[terminal.Buffer.YBase + screenRow];
+        return line?.Sixel is { } strip && col < line.Length && strip.HasPixelsAt(col);
+    }
+
+    /// <summary>
+    /// The Sixel pixel at (<paramref name="x"/>, <paramref name="y"/>) inside a cell, as RGBA, or null
+    /// when the cell shows none.
+    /// </summary>
+    public static (byte R, byte G, byte B, byte A)? SixelPixel(Terminal terminal, int col, int screenRow, int x = 0, int y = 0)
+    {
+        if (!IsSixelAt(terminal, col, screenRow))
+            return null;
+
+        var strip = StripOn(terminal, screenRow)!;
+        var offset = y * strip.Stride + (col * strip.CellWidth + x) * TerminalImage.BytesPerPixel;
+        var p = strip.Pixels.Span;
+        return (p[offset + 2], p[offset + 1], p[offset], p[offset + 3]);
+    }
+
+    /// <summary>How many cells of the buffer show Sixel pixels, clipped to each line's width.</summary>
+    public static int VisibleSixelCells(Terminal terminal)
+    {
+        var count = 0;
+        for (var i = 0; i < terminal.Buffer.Lines.Length; i++)
+        {
+            var line = terminal.Buffer.Lines[i];
+            if (line?.Sixel is not { } strip)
+                continue;
+
+            for (var c = 0; c < System.Math.Min(strip.Columns, line.Length); c++)
+                if (strip.HasPixelsAt(c))
+                    count++;
+        }
+
+        return count;
+    }
+
     /// <summary>Every run on a screen row, in the order they were placed.</summary>
     public static IReadOnlyList<LinePlacement> PlacementsOn(Terminal terminal, int screenRow)
     {

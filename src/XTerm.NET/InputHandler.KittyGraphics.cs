@@ -989,19 +989,19 @@ public partial class InputHandler
     }
 
     /// <summary>
-    /// Writes an image into the buffer as one run per line.
+    /// Writes an image into the buffer, a cell-row at a time: Sixel as pixels painted into each
+    /// line's strip, Kitty as one run per line.
     /// </summary>
     /// <remarks>
-    /// <para>A picture spanning several rows becomes several <see cref="Graphics.LinePlacement"/>s,
-    /// one per line, each carrying its own slice of the source. The line owns the run and the image,
-    /// so scrolling, scrollback eviction and ownership all keep working without anything being
-    /// written into cells — and a resize does nothing to a picture at all.</para>
-    /// <para>Cells are not touched. That is the whole difference between the two protocols here:
-    /// Sixel is CONTENT, so printing over it replaces that part of the picture and
-    /// <see cref="BufferLine.SplitPlacementsAt"/> does it explicitly; Kitty is an OVERLAY the
-    /// z-index orders against the text, so a picture placed over a character hides it while it is
-    /// there and reveals it again when it is deleted. Blanking the cell would make that
-    /// irreversible.</para>
+    /// <para>The two protocols differ in what a picture IS. Sixel is CONTENT: it paints the cells it
+    /// lands on, a later Sixel paints over it, and printing over a cell replaces that part -- so each
+    /// line keeps the pixels themselves, in a <see cref="Graphics.SixelStrip"/>, and the picture that
+    /// delivered them is not kept at all. Kitty is an OVERLAY with an identity and a z-index: a
+    /// picture placed over a character hides it while it is there and reveals it again when it is
+    /// deleted, so it is kept as several <see cref="Graphics.LinePlacement"/>s, one per line, each
+    /// carrying its own slice of the source.</para>
+    /// <para>Either way the line owns what it shows, so scrolling, scrollback eviction and ownership
+    /// keep working without anything written into cells, and a resize does nothing to a picture.</para>
     /// </remarks>
     private void PlaceImage(Graphics.ImagePlacement placement,
                             Graphics.PlacementKind kind,
@@ -1018,6 +1018,9 @@ public partial class InputHandler
         var row = scrolling ? _buffer.Y : 0;
 
         var lastRowDrawn = row;
+
+        if (kind == Graphics.PlacementKind.Sixel)
+            _terminal.NoteSixelPlaced(placement.Image);
 
         // One serial for the placement, shared by every row of it, so a delete aimed at any one
         // cell can find and remove the whole picture.
@@ -1040,14 +1043,21 @@ public partial class InputHandler
             if (line is null)
                 break;
 
-            // Sixel is content, so a picture landing on cells that already show one replaces that
-            // part of it, exactly as printing a character there does. Without this every Sixel a
-            // program draws over an earlier one is kept beneath it: a line in the alternate screen
-            // never dies, so an application repainting small regions (a cursor, a hover highlight)
-            // grew an unbounded stack of runs per line, each drawn every frame and each pinning its
-            // picture in memory. Kitty placements are overlays ordered by z-index and are left alone.
+            // Sixel is content: its pixels are painted into the line, over whatever Sixel was there,
+            // and nothing about the picture is kept. Keeping pictures and splitting the ones
+            // underneath grew thousands of fragments per screen under a program that repaints small
+            // regions, every one of them its own draw.
             if (kind == Graphics.PlacementKind.Sixel)
-                line.SplitPlacementsOver(startCol, placement.Cols);
+            {
+                if (placement.TryGetTileLayout(0, tileRow, out _, out var sixelY, out _, out _,
+                                               out _, out _, out _, out _))
+                    line.PaintSixel(placement.Image, sixelY, startCol);
+
+                lastRowDrawn = row;
+                if (tileRow < placement.Rows - 1)
+                    row++;
+                continue;
+            }
 
             // One run per line. Cols is the picture's NATURAL width — deliberately NOT clipped to
             // the terminal, so a window widened later reveals more of the picture rather than

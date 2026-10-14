@@ -8,11 +8,11 @@ A .NET terminal emulator library inspired by [xterm.js](https://github.com/xterm
 XTerm.NET provides a headless terminal emulator that parses and processes VT100/ANSI escape sequences,
 making it easy to host console applications in your .NET applications.
 
-**Sixel and Kitty graphics are supported.** A picture is held as a run on the line it appears on, so
-it scrolls with that line, is cleared by `ED`/`EL`, and is freed when the line falls out of the
-scrollback — and a resize does nothing to it at all. Sixel is *content*, so printing over it replaces
-that part of the picture; Kitty is an *overlay* ordered against the text by its z-index. See
-[Images](#images).
+**Sixel and Kitty graphics are supported.** Sixel is *content*: each line keeps the pixels Sixel
+painted on it, a later Sixel paints over them, and printing over a cell replaces its pixels. Kitty is
+an *overlay*: a picture is held as a run on the line it appears on, ordered against the text by its
+z-index. Either way a picture scrolls with its line, is cleared by `ED`/`EL`, and is freed when the
+line falls out of the scrollback — and a resize does nothing to it at all. See [Images](#images).
 
 ## Features
 
@@ -31,8 +31,10 @@ that part of the picture; Kitty is an *overlay* ordered against the text by its 
 - **Left and Right Margins** — `DECSLRM` under `DECLRMM`, so text and scrolling stay inside a pane
 - **Shell Integration** — `OSC 133` prompt marks survive reflow, `OSC 8` hyperlinks, `OSC 52`
   clipboard, and desktop notifications (`OSC 9`/`99`/`777`)
-- **Sixel Graphics** — Decodes Sixel images (`ESC P … q`) and holds them as runs on the lines they
-  appear on, so `img2sixel`, `chafa`, `lsix` and `timg` work against a host that renders them
+- **Sixel Graphics** — Decodes Sixel images (`ESC P … q`) and paints them into the lines they land
+  on, so `img2sixel`, `chafa`, `lsix` and `timg` work against a host that renders them — and a
+  program repainting small regions over and over costs one strip of pixels per line, however many
+  Sixels it sends
 - **Kitty Graphics** — Decodes the Kitty protocol (`ESC _ G …`), including chunked transmission, PNG,
   transmit-once/place-many by image id, animation, and U+10EEEE Unicode placeholders, so `icat`,
   `chafa -f kitty`, `timg -pk`, `yazi` and `image.nvim` work the same way
@@ -44,6 +46,53 @@ that part of the picture; Kitty is an *overlay* ordered against the text by its 
 
 ## Compliance
 ![Compliance](https://raw.githubusercontent.com/tomlm/Iciclecreek.Avalonia.Terminal/main/compliance.png)
+
+## Upgrading to 3.0
+
+**3.0 changes how Sixel is stored.** If you only host a terminal and draw text, or draw only Kitty
+pictures, nothing changes. If you draw Sixel, you draw it from a new place.
+
+In 2.x a Sixel was a picture: a `TerminalImage` and one `LinePlacement` per row, split wherever
+printing or a later Sixel covered part of it. A program that repaints small regions — a cursor, a
+hover highlight, a diffing framebuffer such as SixelBuffer — left a patchwork behind: thousands of
+fragments per screen, each still pinning its whole picture and each its own draw. Sixel is content,
+so in 3.0 a line keeps the *pixels* Sixel painted on it, in a `SixelStrip`, and the picture that
+painted them is not kept at all.
+
+**What changed.**
+
+| 2.x | 3.0 |
+| --- | --- |
+| A Sixel appears in `line.Placements` and `line.Images` | It is painted into `line.Sixel`; `Placements` and `Images` hold Kitty pictures only |
+| `PlacementKind.Sixel` runs | Never created. The value remains so code that compares against it still compiles |
+| `TryGetPlacementAt` / `TryGetImageAt` find Sixel | They find Kitty pictures; ask `line.Sixel?.HasPixelsAt(column)` |
+| A later Sixel splits the one under it | It paints over it: opaque pixels replace, unset pixels (background select 1) leave what was there |
+| `ICH`/`DCH`, insert mode and margin scrolls left Sixel behind | Its pixels move with their cells |
+| Kitty deletes by position or z-index also removed Sixel runs | They no longer touch Sixel; `a=d,d=a` still clears everything |
+| `MaxImageBytes` counted pictures | It counts pictures and strips; scrollback strips go first, oldest line first, and what is on screen is never taken |
+| iTerm2 inline images were Sixel placements | They are painted into strips, as Sixel is |
+
+`line.HasImages` is true for a line with a strip as well as one with Kitty runs.
+
+**What a renderer does now.** Per line: Kitty pictures behind the text (negative `ZIndex`), then the
+text, then the line's Sixel strip, then Kitty pictures in front. The strip is one blit:
+
+```csharp
+if (line.Sixel is { } strip)
+{
+    // BGRA8888, straight alpha, top row first: PaintedColumns cells of CellWidth x CellHeight pixels.
+    // Cache the upload against the strip and upload again when strip.Version changes.
+    var cols = Math.Min(strip.PaintedColumns, line.Length);
+    DrawImage(bitmapFor(strip),
+        source: (0, 0, cols * strip.CellWidth, strip.CellHeight),
+        dest: (0, row * cellHeight, cols * cellWidth, cellHeight));
+}
+```
+
+A strip is painted at the cell size in force when its Sixels arrived, so after a font change it is
+stretched onto the new grid, as a picture is. A strip can be painted by the thread writing to the
+terminal while you read it: read `Version` before copying and again after, and treat a copy whose
+version moved as stale.
 
 ## Upgrading to 2.0
 
@@ -434,15 +483,21 @@ are reported honestly either way.
 ### Images
 
 Two graphics protocols are decoded — Sixel (`ESC P … q … ESC \`) and Kitty
-(`ESC _ G … ESC \`) — and both end up in the same place: a **run held by the line** the picture
-appears on. Nothing about a picture is written into cells, which is what makes it survive a resize:
-a run keeps its natural width, so narrowing a window shows less of a picture instead of destroying
-it. The run scrolls with its line, is cleared by `ED`/`EL`, and is freed when the line falls out of
-the scrollback.
+(`ESC _ G … ESC \`) — and both end up held by the **line** the picture appears on. Nothing about a
+picture is written into cells, which is what makes it survive a resize: what a line holds keeps its
+natural width, so narrowing a window shows less of a picture instead of destroying it. It scrolls
+with its line, is cleared by `ED`/`EL`, and is freed when the line falls out of the scrollback.
 
-A **placement** is one appearance of a picture: which image it draws, which rectangle of that image
-it takes, and how many cells it fills. Sixel makes one placement per image. Kitty can transmit a
-picture once and place it many times, so several placements may share one `TerminalImage`.
+The two protocols differ in what a picture *is*:
+
+- **Sixel is content.** Each line keeps the pixels Sixel painted on it, in a `SixelStrip`
+  (`line.Sixel`): one cell tall, as wide as anything painted. A later Sixel paints over it, printing
+  or erasing over a cell clears that cell's pixels, and an insert or delete moves them with their
+  cells. The picture that painted them is not kept.
+- **Kitty is an overlay.** A **placement** is one appearance of a picture: which image it draws,
+  which rectangle of that image it takes, and how many cells it fills. It is held as one run per line
+  in `line.Placements`. Kitty can transmit a picture once and place it many times, so several
+  placements may share one `TerminalImage`.
 
 **Tell the terminal your cell size.** XTerm.NET is headless and cannot measure a font, so it cannot
 work out how many columns an image covers unless you say. Set these from your renderer's metrics,
@@ -477,7 +532,11 @@ up to a whole row of the control's height belongs to no row at all. An applicati
 figure by the row count is told the terminal is taller than it is, sizes a picture to fill it, and the
 surplus runs off the bottom and scrolls the screen.
 
-**Drawing the runs.** This is per *line*, not per cell — a run is one blit, not a row of tiles:
+**Drawing a line's Sixel pixels.** One blit per line, after the text and before Kitty pictures in
+front of it — see [Upgrading to 3.0](#upgrading-to-30) for the code. `strip.PaintedColumns` is how far
+anything is painted, so a narrow picture on a wide line does not draw the rest of the row.
+
+**Drawing the Kitty runs.** This is per *line*, not per cell — a run is one blit, not a row of tiles:
 
 ```csharp
 var line = buffer.Lines[buffer.YDisp + row];
@@ -535,12 +594,13 @@ ordinary case of one picture at a time — a renderer handling overlapping pictu
 | `KittyGraphicsEnabled` | `true` | Decode Kitty graphics sequences and answer their queries |
 | `CellWidthPixels` / `CellHeightPixels` | `10` / `20` | Cell size images are laid out against |
 | `MaxSixelPixels` | `4_000_000` | Largest single image accepted |
-| `MaxImageBytes` | `64 MB` | Budget for image data live in the buffer; oldest are dropped past it |
+| `MaxImageBytes` | `64 MB` | Budget for image data live in the buffer — Kitty pictures and Sixel strips; past it, scrollback strips go first, then the oldest pictures |
 | `MaxImageRegistryBytes` | `32 MB` | Budget for transmitted-but-unplaced Kitty images, evicted oldest first |
 
-Images are dropped when the terminal is resized to a different **column** count, because reflow
-re-wraps lines by copying ranges of cells and the pieces would reassemble in the wrong places. A
-change of row count alone keeps them.
+A change of column count keeps pictures: narrowing shows less of them and widening shows more. Only
+lines that are part of a wrap chain drop theirs, because reflow re-wraps those by copying ranges of
+cells between lines and the pieces would reassemble in the wrong places. A change of row count alone
+keeps everything.
 
 #### Kitty graphics
 

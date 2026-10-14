@@ -269,7 +269,7 @@ public class XtGetTcapTests
         terminal.Write($"{Esc}P0;1;0q{SixelImage}{St}");
 
         Assert.Empty(replies);
-        Assert.NotNull(ImageAssertions.ImageAt(terminal, 0, 0));
+        Assert.True(ImageAssertions.IsSixelAt(terminal, 0, 0));
     }
 
     [Fact]
@@ -292,6 +292,6 @@ public class XtGetTcapTests
 
         terminal.Write($"{Esc}P0;1;0q{SixelImage}{St}");
 
-        Assert.NotNull(ImageAssertions.ImageAt(terminal, 0, 0));
+        Assert.True(ImageAssertions.IsSixelAt(terminal, 0, 0));
     }
 }

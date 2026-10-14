@@ -23,12 +23,25 @@ public class SixelDecoderTests
     /// <summary>Background select 0: pixels left unset take the terminal background.</summary>
     private const int OpaqueBackground = 0;
 
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Terminal, List<TerminalImage>> Seen = new();
+
     private static Terminal Fresh(Action<TerminalOptions>? configure = null)
     {
         var options = new TerminalOptions { Cols = 40, Rows = 10 };
         configure?.Invoke(options);
-        return new Terminal(options);
+        var terminal = new Terminal(options);
+
+        // The buffer keeps a Sixel's pixels, not the picture, so the decoded picture is caught as
+        // it is placed.
+        var seen = new List<TerminalImage>();
+        terminal.SixelPlaced += seen.Add;
+        Seen.Add(terminal, seen);
+        return terminal;
     }
+
+    /// <summary>The last picture a Sixel placed, or null if none reached the buffer.</summary>
+    private static TerminalImage? Placed(Terminal terminal)
+        => Seen.TryGetValue(terminal, out var seen) && seen.Count > 0 ? seen[^1] : null;
 
     private static void WriteSixel(Terminal terminal, string body, int backgroundSelect = Transparent)
         => terminal.Write($"{Esc}P0;{backgroundSelect};0q{body}{St}");
@@ -38,7 +51,7 @@ public class SixelDecoderTests
     {
         var terminal = Fresh(configure);
         WriteSixel(terminal, body, backgroundSelect);
-        return (terminal.Buffer.Lines[0]!.TryGetImageAt(0, out var __i1) ? __i1 : null);
+        return Placed(terminal);
     }
 
     private static TerminalImage Decode(string body, int backgroundSelect = Transparent,
@@ -232,7 +245,7 @@ public class SixelDecoderTests
         // CAN mid-payload: the sequence is dropped rather than terminated.
         terminal.Write($"{Esc}P0;1;0q#0;2;100;0;0!20~\u0018");
 
-        Assert.Null((terminal.Buffer.Lines[0]!.TryGetImageAt(0, out var __i2) ? __i2 : null));
+        Assert.Null(Placed(terminal));
     }
 
     [Fact]
@@ -241,7 +254,7 @@ public class SixelDecoderTests
         var terminal = Fresh();
         terminal.Write($"{Esc}P0;1;0q{St}");
 
-        Assert.Null((terminal.Buffer.Lines[0]!.TryGetImageAt(0, out var __i3) ? __i3 : null));
+        Assert.Null(Placed(terminal));
     }
 
     /// <summary>
@@ -283,8 +296,8 @@ public class SixelDecoderTests
         split.Write("0;0;0!4~-#1;2;0");
         split.Write($";0;100!4~{St}");
 
-        var a = whole.Buffer.Lines[0]!.TryGetImageAt(0, out var wholeImage) ? wholeImage : null;
-        var b = split.Buffer.Lines[0]!.TryGetImageAt(0, out var splitImage) ? splitImage : null;
+        var a = Placed(whole);
+        var b = Placed(split);
 
         Assert.NotNull(a);
         Assert.NotNull(b);
@@ -300,7 +313,7 @@ public class SixelDecoderTests
         var terminal = Fresh(o => o.SixelEnabled = false);
         WriteSixel(terminal, "#0;2;100;0;0~");
 
-        Assert.Null((terminal.Buffer.Lines[0]!.TryGetImageAt(0, out var __i4) ? __i4 : null));
+        Assert.Null(Placed(terminal));
     }
 
     [Fact]

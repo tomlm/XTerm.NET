@@ -1367,6 +1367,18 @@ public class Terminal : IDisposable
     /// picture. What that trades away is exactness: the buffer can sit up to one budget over before the
     /// sweep, which is a ceiling on overshoot rather than an unbounded one.
     /// </remarks>
+    /// <summary>
+    /// Raised with each Sixel or inline image as it is painted into the buffer.
+    /// </summary>
+    /// <remarks>
+    /// The buffer keeps what a Sixel painted, not the picture that painted it (see
+    /// <see cref="Graphics.SixelStrip"/>), so this is the one place the decoded picture can be seen
+    /// whole -- which is what the decoder's tests need to see.
+    /// </remarks>
+    internal event Action<Graphics.TerminalImage>? SixelPlaced;
+
+    internal void NoteSixelPlaced(Graphics.TerminalImage image) => SixelPlaced?.Invoke(image);
+
     internal void NoteImagePlaced(Graphics.TerminalImage image)
     {
         if (Options.MaxImageBytes <= 0)
@@ -1584,10 +1596,17 @@ public class Terminal : IDisposable
             return;
 
         var live = CollectLiveImages();
-        long total = 0;
+        long total = SixelBytes(_normalBuffer) + SixelBytes(_altBuffer);
         foreach (var image in live)
             total += image.ByteCount;
 
+        if (total <= budget)
+            return;
+
+        // Sixel pixels in the scrollback go first, oldest line first: they are the history furthest
+        // from the screen, and a strip has no picture behind it to keep. What is on either screen is
+        // never taken here -- it is at most one screen of pixels.
+        total -= DropScrollbackSixels(_normalBuffer, total - budget);
         if (total <= budget)
             return;
 
@@ -1605,6 +1624,36 @@ public class Terminal : IDisposable
 
         DropImages(_normalBuffer, doomed);
         DropImages(_altBuffer, doomed);
+    }
+
+    /// <summary>The bytes of Sixel pixels a buffer holds, scrollback and screen.</summary>
+    private static long SixelBytes(Buffer.TerminalBuffer? buffer)
+    {
+        if (buffer is null)
+            return 0;
+
+        long bytes = 0;
+        for (int i = 0; i < buffer.Lines.Length; i++)
+        {
+            if (buffer.Lines[i]?.Sixel is { } strip)
+                bytes += strip.ByteCount;
+        }
+
+        return bytes;
+    }
+
+    /// <summary>Drops scrollback Sixel strips, oldest first, until <paramref name="excess"/> bytes are freed.</summary>
+    /// <returns>The bytes freed.</returns>
+    private static long DropScrollbackSixels(Buffer.TerminalBuffer? buffer, long excess)
+    {
+        if (buffer is null)
+            return 0;
+
+        long freed = 0;
+        for (int i = 0; i < buffer.YBase && i < buffer.Lines.Length && freed < excess; i++)
+            freed += buffer.Lines[i]?.DropSixel() ?? 0;
+
+        return freed;
     }
 
     private HashSet<Graphics.TerminalImage> CollectLiveImages()

@@ -21,12 +21,16 @@ public class ITerm2OscTests
     public void File_InlinePng_IsDecodedAndPlaced()
     {
         var terminal = CreateTerminal();
+        XTerm.Graphics.TerminalImage? image = null;
+        terminal.SixelPlaced += placed => image = placed;
+
         terminal.Write(Osc($"File=inline=1:{Png}"));
 
-        var image = ImageAssertions.ImageAt(terminal, 0, 0);
+        // An inline image is content, as a Sixel is: decoded, then painted into the line.
         Assert.NotNull(image);
         Assert.Equal(5, image!.PixelWidth);
         Assert.Equal(3, image.PixelHeight);
+        Assert.True(ImageAssertions.IsSixelAt(terminal, 0, 0));
     }
 
     [Fact]
