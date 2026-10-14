@@ -1393,7 +1393,17 @@ public class Terminal : IDisposable
     /// </remarks>
     internal event Action<Graphics.TerminalImage>? SixelPlaced;
 
-    internal void NoteSixelPlaced(Graphics.TerminalImage image) => SixelPlaced?.Invoke(image);
+    internal void NoteSixelPlaced(Graphics.TerminalImage image)
+    {
+        if (SixelPlaced is not { } handler)
+            return;
+
+        // A copy: the decoded picture lives in the decoder's reusable canvas, which the next Sixel
+        // overwrites, and whoever is listening is keeping it.
+        var bytes = image.PixelWidth * image.PixelHeight * Graphics.TerminalImage.BytesPerPixel;
+        var pixels = image.Pixels.Span[..bytes].ToArray();
+        handler(new Graphics.TerminalImage(pixels, image.PixelWidth, image.PixelHeight, image.CellWidth, image.CellHeight));
+    }
 
     internal void NoteImagePlaced(Graphics.TerminalImage image)
     {

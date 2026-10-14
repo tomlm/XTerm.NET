@@ -261,6 +261,25 @@ public class SixelDecoderTests
     }
 
     /// <summary>
+    /// A picture that fits the budget is kept even when the canvas's doubling would not. Drawn in
+    /// pieces, the canvas doubles ahead of the picture -- 300 wide on a 512-wide canvas here -- and
+    /// the retry kept that whole capacity, failed the budget, and threw the picture away. VT DOOM at
+    /// 307x75 cells lost every frame that grew that way: data arriving, nothing on screen.
+    /// </summary>
+    [Fact]
+    public void A_picture_inside_the_budget_survives_the_canvas_doubling_past_it()
+    {
+        // Three runs make it 300 wide by doubling to 512; ten bands make it 60 tall.
+        var body = "#0;2;100;0;0!100~!100~!100~" + string.Concat(Enumerable.Repeat("-!300~", 9));
+        var image = TryDecode(body, configure: o => o.MaxSixelPixels = 300 * 60 * 13 / 10);
+
+        Assert.NotNull(image);
+        Assert.Equal(300, image!.PixelWidth);
+        Assert.Equal(60, image.PixelHeight);
+        Assert.Equal(Red, Pixel(image, 299, 59));
+    }
+
+    /// <summary>
     /// The raster attribute's Pan;Pad is the pixel aspect ratio: each sixel row is Pan/Pad pixel
     /// rows tall. VT DOOM scales its picture vertically this way (and horizontally with repeat
     /// counts); ignoring it drew the game squashed to a fifth of its height.
@@ -335,6 +354,25 @@ public class SixelDecoderTests
         WriteSixel(terminal, "#200!2~");
 
         Assert.NotEqual(Green, Pixel(Placed(terminal)!, 0, 0));
+    }
+
+    /// <summary>
+    /// The decoder reuses its canvas from one picture to the next, so a smaller, transparent picture
+    /// after a large opaque one must start from clear pixels rather than the last picture's.
+    /// </summary>
+    [Fact]
+    public void A_reused_canvas_does_not_show_the_previous_picture()
+    {
+        var terminal = Fresh();
+        WriteSixel(terminal, "#0;2;100;0;0!40~-!40~-!40~", OpaqueBackground);
+        WriteSixel(terminal, "#1;2;0;100;0!2@");
+
+        var second = Placed(terminal)!;
+        Assert.Equal(2, second.PixelWidth);
+        Assert.Equal(6, second.PixelHeight);
+        Assert.Equal(Green, Pixel(second, 0, 0));
+        Assert.Equal((byte)0, Pixel(second, 0, 1).A);   // unset, so transparent -- not the red before it
+        Assert.Equal((byte)0, Pixel(second, 1, 5).A);
     }
 
     [Fact]

@@ -13,6 +13,50 @@ namespace XTerm.Graphics;
 /// are all things that happen, and the answer to each is a null image rather than an exception
 /// escaping into the parser.</para>
 /// </remarks>
+/// <summary>
+/// The decoder's working buffers, kept between images.
+/// </summary>
+/// <remarks>
+/// <para>A Sixel picture is thrown away the moment its pixels are painted into the lines it lands on,
+/// so the canvas it was decoded into can be the next picture's canvas. Allocating one per picture --
+/// and again each time it grew, and once more for the exactly sized copy -- put several
+/// large-object-heap arrays per frame on a program that streams frames: VT DOOM at 1600x1000 drove
+/// two dozen full garbage collections a second, every one of them stopping the UI thread, and the
+/// game's keyboard input arrived in bursts.</para>
+/// <para>Two buffers, because growing copies the old canvas into the new one. One per terminal, used
+/// only from the thread writing to it. The image a decode returns points into one of them and is
+/// valid until the next Sixel arrives -- which is longer than anything that reads it.</para>
+/// </remarks>
+internal sealed class SixelCanvas
+{
+    private byte[] _first = Array.Empty<byte>();
+    private byte[] _second = Array.Empty<byte>();
+
+    /// <summary>
+    /// The size of the last picture decoded, which the next one starts its canvas at. A program
+    /// streaming frames sends the same size every time, so after the first it never grows.
+    /// </summary>
+    public int LastWidth { get; set; }
+
+    /// <inheritdoc cref="LastWidth"/>
+    public int LastHeight { get; set; }
+
+    /// <summary>A buffer of at least <paramref name="bytes"/>, never <paramref name="inUse"/>. Its contents are stale.</summary>
+    public byte[] Take(long bytes, byte[] inUse)
+    {
+        if (ReferenceEquals(_first, inUse))
+        {
+            if (_second.LongLength < bytes)
+                _second = new byte[bytes];
+            return _second;
+        }
+
+        if (_first.LongLength < bytes)
+            _first = new byte[bytes];
+        return _first;
+    }
+}
+
 internal sealed class SixelDecoder
 {
     /// <summary>Rows of pixels a single Sixel character covers.</summary>
@@ -47,6 +91,7 @@ internal sealed class SixelDecoder
     private readonly int _cellHeight;
     private readonly long _maxPixels;
     private readonly SixelPalette _palette;
+    private readonly SixelCanvas? _canvas;
 
     /// <summary>
     /// What an unset pixel becomes: transparent, or the terminal background. Background select 1
@@ -101,9 +146,11 @@ internal sealed class SixelDecoder
     /// The colour registers to draw from. Pass a fresh one for private registers (mode 1070 set,
     /// the default) or a shared one to let images inherit each other's colours the way a VT340 did.
     /// </param>
+    /// <param name="canvas">Buffers to decode into and reuse, or null to allocate. See <see cref="SixelCanvas"/>.</param>
     public SixelDecoder(int p1, int p2, int p3, int cellWidth, int cellHeight, int maxPixels,
-                        uint backgroundBgra, SixelPalette palette)
+                        uint backgroundBgra, SixelPalette palette, SixelCanvas? canvas = null)
     {
+        _canvas = canvas;
         _ = p1;
         _ = p3;
         _cellWidth = Math.Max(1, cellWidth);
@@ -152,10 +199,24 @@ internal sealed class SixelDecoder
         {
             exact = _pixels;
         }
+        else if (_canvas is not null)
+        {
+            // In place: the image is no wider and no taller than the canvas, so each row moves to
+            // an offset at or before its own, and copying top to bottom never overwrites a row it
+            // has yet to move. The image is the first width*height pixels of the buffer, which a
+            // TerminalImage is allowed to be.
+            int rowBytes = width * TerminalImage.BytesPerPixel;
+            for (int y = 0; y < height; y++)
+            {
+                System.Buffer.BlockCopy(_pixels, y * _capWidth * TerminalImage.BytesPerPixel,
+                                 _pixels, y * rowBytes, rowBytes);
+            }
+            exact = _pixels;
+        }
         else
         {
             exact = new byte[(long)width * height * TerminalImage.BytesPerPixel];
-            Prefill(exact);
+            Prefill(exact, exact.LongLength);
             int copyBytes = Math.Min(width, _capWidth) * TerminalImage.BytesPerPixel;
             int copyRows = Math.Min(height, _capHeight);
             for (int y = 0; y < copyRows; y++)
@@ -163,6 +224,12 @@ internal sealed class SixelDecoder
                 Array.Copy(_pixels, (long)y * _capWidth * TerminalImage.BytesPerPixel,
                            exact, (long)y * width * TerminalImage.BytesPerPixel, copyBytes);
             }
+        }
+
+        if (_canvas is not null)
+        {
+            _canvas.LastWidth = width;
+            _canvas.LastHeight = height;
         }
 
         return new TerminalImage(exact, width, height, _cellWidth, _cellHeight);
@@ -376,9 +443,11 @@ internal sealed class SixelDecoder
         // once per column. Only the dimension that is short doubles: doubling the width of a wide
         // picture every time it grew another band taller ran it into the budget long before its
         // pixels did.
-        int width = _capWidth == 0 ? Math.Max(needWidth, 256)
+        // A first canvas starts at the last picture's size when there was one (see SixelCanvas):
+        // frames of one size then need no growing at all.
+        int width = _capWidth == 0 ? Math.Max(needWidth, Math.Max(256, _canvas?.LastWidth ?? 0))
                   : needWidth > _capWidth ? Math.Max(needWidth, _capWidth * 2) : _capWidth;
-        int height = _capHeight == 0 ? Math.Max(needHeight, BandHeight)
+        int height = _capHeight == 0 ? Math.Max(needHeight, Math.Max(BandHeight, _canvas?.LastHeight ?? 0))
                    : needHeight > _capHeight ? Math.Max(needHeight, _capHeight * 2) : _capHeight;
 
         if ((long)width * height > _maxPixels)
@@ -389,8 +458,14 @@ internal sealed class SixelDecoder
             // was short, so needWidth is less than the width already allocated -- had that copy run
             // off the end of the new buffer. The exception escaped Terminal.Write and took the
             // host's read loop with it: a wide picture growing downwards (VT DOOM) froze the screen.
-            width = Math.Max(needWidth, _capWidth);
-            height = Math.Max(needHeight, _capHeight);
+            //
+            // Nor larger than what has actually been DRAWN, though: the canvas doubles, so its
+            // capacity runs ahead of the picture -- a 2,188-pixel-wide frame sits on a 4,096-wide
+            // canvas -- and keeping that whole capacity made the retry fail the budget too, for a
+            // picture well inside it. VT DOOM at 307x75 cells lost every frame that grew that way.
+            // Nothing lies past the drawn extent, so the copy below takes only that.
+            width = Math.Max(needWidth, Math.Min(_capWidth, _maxX));
+            height = Math.Max(needHeight, Math.Min(_capHeight, _maxBandBottom + 1));
             if ((long)width * height > _maxPixels)
             {
                 _failed = true;
@@ -398,16 +473,21 @@ internal sealed class SixelDecoder
             }
         }
 
-        var next = new byte[(long)width * height * TerminalImage.BytesPerPixel];
-        Prefill(next);
+        long bytes = (long)width * height * TerminalImage.BytesPerPixel;
+        var next = _canvas?.Take(bytes, _pixels) ?? new byte[bytes];
+        Prefill(next, bytes);
 
         if (_capWidth > 0 && _capHeight > 0)
         {
-            int rowBytes = _capWidth * TerminalImage.BytesPerPixel;
-            for (int y = 0; y < _capHeight; y++)
+            // The overlap of the two canvases: the new one can be narrower or shorter than the old
+            // one's capacity (see the retry above), never than what was drawn on it.
+            int sourceStride = _capWidth * TerminalImage.BytesPerPixel;
+            int copyBytes = Math.Min(_capWidth, width) * TerminalImage.BytesPerPixel;
+            int copyRows = Math.Min(_capHeight, height);
+            for (int y = 0; y < copyRows; y++)
             {
-                Array.Copy(_pixels, (long)y * rowBytes,
-                           next, (long)y * width * TerminalImage.BytesPerPixel, rowBytes);
+                Array.Copy(_pixels, (long)y * sourceStride,
+                           next, (long)y * width * TerminalImage.BytesPerPixel, copyBytes);
             }
         }
 
@@ -418,24 +498,30 @@ internal sealed class SixelDecoder
     }
 
     /// <summary>
-    /// Paints a fresh buffer with the background. Skipped entirely when the background is
-    /// transparent, because a new array is already all zeroes.
+    /// Paints the first <paramref name="length"/> bytes of a buffer with the background, or clears
+    /// them for a transparent one. A reused canvas holds the last picture, so even the transparent
+    /// case has to write.
     /// </summary>
-    private void Prefill(byte[] buffer)
+    private void Prefill(byte[] buffer, long length)
     {
         if (_fill == 0)
-            return;
-
-        byte b = (byte)_fill;
-        byte g = (byte)(_fill >> 8);
-        byte r = (byte)(_fill >> 16);
-        byte a = (byte)(_fill >> 24);
-        for (long i = 0; i < buffer.LongLength; i += TerminalImage.BytesPerPixel)
         {
-            buffer[i] = b;
-            buffer[i + 1] = g;
-            buffer[i + 2] = r;
-            buffer[i + 3] = a;
+            Array.Clear(buffer, 0, (int)length);
+            return;
         }
+
+        // _fill packs B, G, R, A from the low byte up, which is the order a little-endian uint
+        // lays them out in memory -- so a pixel is one uint store.
+        if (!BitConverter.IsLittleEndian)
+        {
+            byte b = (byte)_fill, g = (byte)(_fill >> 8), r = (byte)(_fill >> 16), a = (byte)(_fill >> 24);
+            for (long i = 0; i < length; i += TerminalImage.BytesPerPixel)
+            {
+                buffer[i] = b; buffer[i + 1] = g; buffer[i + 2] = r; buffer[i + 3] = a;
+            }
+            return;
+        }
+
+        System.Runtime.InteropServices.MemoryMarshal.Cast<byte, uint>(buffer.AsSpan(0, (int)length)).Fill(_fill);
     }
 }

@@ -63,7 +63,7 @@ painted them is not kept at all.
 
 | 2.x | 3.0 |
 | --- | --- |
-| A Sixel appears in `line.Placements` and `line.Images` | It is painted into `line.Sixel`; `Placements` and `Images` hold Kitty pictures only |
+| A Sixel appears in `line.Placements` and `line.Images` | It is painted into `line.Sixel`, a `SixelStrip` read with `CopyPixelsTo`; `Placements` and `Images` hold Kitty pictures only |
 | `PlacementKind.Sixel` runs | Never created. The value remains so code that compares against it still compiles |
 | `TryGetPlacementAt` / `TryGetImageAt` find Sixel | They find Kitty pictures; ask `line.Sixel?.HasPixelsAt(column)` |
 | A later Sixel splits the one under it | It paints over it: opaque pixels replace, unset pixels (background select 1) leave what was there |
@@ -78,19 +78,25 @@ painted them is not kept at all.
 
 **What a renderer does now.** Per line: Kitty pictures behind the text (negative `ZIndex`), then the
 text, then the line's Sixel strip, then Kitty pictures in front — see [Images](#images) for the whole
-row. The strip is one blit:
+row. The strip is one blit, read out with `CopyPixelsTo`:
 
 ```csharp
 if (line.Sixel is { } strip)
 {
-    // BGRA8888, straight alpha, top row first: PaintedColumns cells of CellWidth x CellHeight pixels.
-    // Cache the upload against the strip and upload again when strip.Version changes.
+    // Up to the last painted cell, which is all the row shows. Cache the upload against the strip
+    // and upload again when strip.Version changes.
     var cols = Math.Min(strip.PaintedColumns, line.Length);
-    DrawImage(bitmapFor(strip),
-        source: (0, 0, cols * strip.CellWidth, strip.CellHeight),
+    var stride = cols * strip.CellWidth * 4;
+    var pixels = new byte[stride * strip.PixelHeight];   // or a pooled buffer
+    strip.CopyPixelsTo(pixels, stride, cols);            // BGRA8888, straight alpha, top row first
+    DrawImage(BitmapFrom(pixels, cols * strip.CellWidth, strip.PixelHeight, stride),
         dest: (0, row * cellHeight, cols * cellWidth, cellHeight));
 }
 ```
+
+The strip has no `Pixels` array to hand out: it is held in blocks of `SixelStrip.BlockColumns`
+cells, so that copying a line -- which a host capturing frames does many times a second -- and then
+painting it copies only the blocks the paint touches, and nothing lands on the large-object heap.
 
 A strip is painted at the cell size in force when its Sixels arrived, so after a font change it is
 stretched onto the new grid, as a picture is. A strip can be painted by the thread writing to the
@@ -607,11 +613,13 @@ void DrawKittyRun(BufferLine line, LinePlacement p, int row)
   it lets the bitmap die when the image does, with no eviction list to maintain, and two placements
   of one picture share the single upload. For animation draw `image.CurrentPixels` and upload again
   when `image.FrameSerial` changes.
-- A Sixel strip: cache against the `SixelStrip` and upload again when `strip.Version` changes. A
-  strip is painted by the thread writing to the terminal, so read `Version` before copying the
-  pixels and again after: a copy whose version moved may be torn, so draw it but do not keep it.
-  A line's copies (`Clone`, `CopyFrom`) share its strip until one of them is written, so a frame
-  captured for a renderer costs a reference rather than the pixels.
+- A Sixel strip: cache against the `SixelStrip` and upload again when `strip.Version` changes,
+  copying the pixels out with `strip.CopyPixelsTo(destination, stride, columns)` -- into a pooled
+  buffer if you upload every frame, so the upload is not itself a large allocation per frame. A
+  strip is painted by the thread writing to the terminal, so read `Version` before copying and again
+  after: a copy whose version moved may be torn, so draw it but do not keep it. A line's copies
+  (`Clone`, `CopyFrom`) share its strip, and writing to a shared strip copies only the blocks the
+  write touches, so a frame captured for a renderer costs references rather than pixels.
 
 Draws, not pixels, are what a busy screen costs. A program repainting small regions over and over
 leaves at most one strip per row however many Sixels it sends, and a Kitty client that tiles the

@@ -351,11 +351,14 @@ public class ImageCellLifetimeTests
     [Fact]
     public void Scrollback_pixels_are_dropped_first_when_the_budget_is_exceeded()
     {
-        // Each painted line is a 20-cell strip of 2x3 BGRA cells: 480 bytes. Two pictures of four
-        // lines are 3840; 2500 holds one of them.
-        var terminal = Fresh(o => o.MaxImageBytes = 2500);
+        var terminal = Fresh();
         WriteSixel(terminal);
         var oldest = terminal.Buffer.Lines[terminal.Buffer.YBase]!;
+
+        // Two pictures of four painted lines each are eight strips; a budget of five and a half
+        // holds one picture and part of the other.
+        var lineBytes = oldest.Sixel!.ByteCount;
+        terminal.Options.MaxImageBytes = (int)(lineBytes * 11 / 2);
 
         // Scroll the first picture off the screen into the scrollback, then draw a second.
         terminal.Write($"{Esc}[10;1H" + string.Concat(Enumerable.Repeat("\r\n", 10)));
@@ -536,7 +539,7 @@ public class ImageCellLifetimeTests
         WriteSixel(terminal, BlueTwoByFour);
 
         Assert.NotSame(line.Sixel, clone.Sixel);
-        var pixels = clone.Sixel!.Pixels.Span;
+        var pixels = ImageAssertions.StripPixels(clone.Sixel!);
         Assert.Equal((byte)255, pixels[2]); // still red: B, G, R, A
         Assert.Equal((byte)0, pixels[0]);
     }

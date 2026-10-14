@@ -68,7 +68,8 @@ public partial class InputHandler
             Math.Max(1, _terminal.Options.CellHeightPixels),
             _terminal.Options.MaxSixelPixels,
             (uint)(0xFF000000 | (uint)(_terminal.Colors.Background & 0xFFFFFF)),
-            palette);
+            palette,
+            _sixelCanvas);
     }
 
     /// <summary>

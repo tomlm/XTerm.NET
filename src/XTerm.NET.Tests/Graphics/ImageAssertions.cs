@@ -118,9 +118,17 @@ internal static class ImageAssertions
             return null;
 
         var strip = StripOn(terminal, screenRow)!;
+        var p = StripPixels(strip);
         var offset = y * strip.Stride + (col * strip.CellWidth + x) * TerminalImage.BytesPerPixel;
-        var p = strip.Pixels.Span;
         return (p[offset + 2], p[offset + 1], p[offset], p[offset + 3]);
+    }
+
+    /// <summary>A strip's pixels laid out contiguously, BGRA, <see cref="SixelStrip.Stride"/> bytes a row.</summary>
+    public static byte[] StripPixels(SixelStrip strip)
+    {
+        var pixels = new byte[strip.Stride * strip.PixelHeight];
+        strip.CopyPixelsTo(pixels, strip.Stride, strip.Columns);
+        return pixels;
     }
 
     /// <summary>How many cells of the buffer show Sixel pixels, clipped to each line's width.</summary>
