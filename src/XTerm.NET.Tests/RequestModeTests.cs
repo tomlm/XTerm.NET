@@ -109,6 +109,7 @@ public class RequestModeTests
     [InlineData(1006)]  // SGR mouse encoding
     [InlineData(1016)]  // SGR-Pixels mouse encoding
     [InlineData(1049)]  // alternate buffer
+    [InlineData(1070)]  // private Sixel colour registers: shared by default, as on a VT340
     [InlineData(2004)]  // bracketed paste
     [InlineData(2026)]  // synchronized output
     public void Reports_an_untouched_mode_as_reset(int mode)
@@ -138,13 +139,11 @@ public class RequestModeTests
 
     /// <summary>
     /// Some modes start on, and reporting them as reset would cost an application the feature: it
-    /// would turn wraparound on that was already on, show a cursor it meant to leave alone, and
-    /// switch Sixel colour registers to shared when they were already private.
+    /// would turn wraparound on that was already on, or show a cursor it meant to leave alone.
     /// </summary>
     [Theory]
     [InlineData(7)]     // wraparound
     [InlineData(25)]    // cursor visible
-    [InlineData(1070)]  // private Sixel colour registers
     public void Reports_a_mode_that_starts_on_as_set(int mode)
     {
         var terminal = Fresh();

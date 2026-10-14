@@ -1071,6 +1071,9 @@ public partial class InputHandler
     /// </summary>
     private Graphics.SixelPalette? _sharedSixelPalette;
 
+    /// <summary>Returns the shared Sixel colour registers to their defaults (RIS).</summary>
+    internal void ResetSixelPalette() => _sharedSixelPalette = null;
+
     /// <summary>The XTGETTCAP request being read, if a DCS + q payload is currently arriving.</summary>
     private StringBuilder? _capabilityRequest;
 

@@ -71,6 +71,8 @@ painted them is not kept at all.
 | Kitty deletes by position or z-index also removed Sixel runs | They no longer touch Sixel; `a=d,d=a` still clears everything |
 | `MaxImageBytes` counted pictures | It counts pictures and strips; scrollback strips go first, oldest line first, and what is on screen is never taken |
 | iTerm2 inline images were Sixel placements | They are painted into strips, as Sixel is |
+| Sixel colour registers were private to each image (xterm's default) | They are shared between images, as on a VT340 and in Windows Terminal; `CSI ? 1070 h` asks for private registers, and RIS resets the shared ones |
+| The raster attribute's aspect ratio (`"Pan;Pad`) was ignored | Each sixel row is Pan/Pad pixels tall (capped at 16); P1 is still ignored |
 
 `line.HasImages` is true for a line with a strip as well as one with Kitty runs.
 

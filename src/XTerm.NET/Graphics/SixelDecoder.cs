@@ -24,6 +24,12 @@ internal sealed class SixelDecoder
     /// </summary>
     private const int MaxRepeat = 1 << 20;
 
+    /// <summary>
+    /// Ceiling on the pixel aspect ratio. A VT340 offered up to 5:1 through P1; anything past this
+    /// is a payload asking for a picture made of very tall pixels, which is a way to spend memory.
+    /// </summary>
+    private const int MaxAspect = 16;
+
     /// <summary>What the parser is in the middle of reading.</summary>
     private enum Mode
     {
@@ -65,12 +71,23 @@ internal sealed class SixelDecoder
     private int _rasterWidth;
     private int _rasterHeight;
 
+    /// <summary>
+    /// Pixel rows each sixel row covers: the raster attribute's pixel aspect ratio, Pan/Pad. One for
+    /// a square pixel, which is what nearly every encoder asks for; VT DOOM asks for its scale, and
+    /// scales horizontally with repeat counts to match.
+    /// </summary>
+    private int _aspect = 1;
+
+    /// <summary>Pixel rows one band of six sixel rows covers.</summary>
+    private int BandPixels => BandHeight * _aspect;
+
     private Mode _mode = Mode.Ground;
     private readonly int[] _params = new int[8];
     private int _paramCount;
     private int _param;
 
-    /// <param name="p1">Pixel aspect ratio. Superseded by the raster attribute and ignored.</param>
+    /// <param name="p1">Pixel aspect ratio. Ignored, as xterm ignores it; the raster attribute's
+    /// Pan;Pad states the aspect ratio when a picture wants one other than square.</param>
     /// <param name="p2">Background select. 1 leaves unset pixels transparent.</param>
     /// <param name="p3">Horizontal grid size. Unused by every implementation, including this one.</param>
     /// <param name="cellWidth">Cell width in pixels, which decides how many columns the image covers.</param>
@@ -194,8 +211,8 @@ internal sealed class SixelDecoder
             case '-': // graphics new line
                 _x = 0;
                 _repeat = 1;
-                if (_bandTop <= int.MaxValue - BandHeight)
-                    _bandTop += BandHeight;
+                if (_bandTop <= int.MaxValue - BandPixels)
+                    _bandTop += BandPixels;
                 return;
             default:
                 if (c >= '?' && c <= '~')
@@ -248,6 +265,10 @@ internal sealed class SixelDecoder
                 break;
 
             case Mode.Raster:
+                // "Pan;Pad;Ph;Pv. The aspect ratio is how many pixels tall a sixel row is for each
+                // pixel it is wide, rounded to a whole number of rows.
+                if (_paramCount >= 2 && _params[0] > 0 && _params[1] > 0)
+                    _aspect = Math.Clamp((_params[0] + _params[1] / 2) / _params[1], 1, MaxAspect);
                 if (_paramCount >= 4)
                     ApplyRaster(_params[2], _params[3]);
                 break;
@@ -287,7 +308,7 @@ internal sealed class SixelDecoder
         if (repeat <= 0)
             repeat = 1;
 
-        int bandBottom = _bandTop + BandHeight - 1;
+        int bandBottom = _bandTop + BandPixels - 1;
         if (bandBottom > _maxBandBottom)
             _maxBandBottom = bandBottom;
 
@@ -317,18 +338,22 @@ internal sealed class SixelDecoder
             if ((bits & (1 << row)) == 0)
                 continue;
 
-            int y = _bandTop + row;
-            if (_rasterHeight > 0 && y >= _rasterHeight)
-                continue;
-
-            int offset = (y * _capWidth + startX) * TerminalImage.BytesPerPixel;
-            for (int i = startX; i < endX; i++)
+            // A sixel row is _aspect pixel rows tall.
+            for (int k = 0; k < _aspect; k++)
             {
-                _pixels[offset] = (byte)_color;             // B
-                _pixels[offset + 1] = (byte)(_color >> 8);  // G
-                _pixels[offset + 2] = (byte)(_color >> 16); // R
-                _pixels[offset + 3] = (byte)(_color >> 24); // A
-                offset += TerminalImage.BytesPerPixel;
+                int y = _bandTop + row * _aspect + k;
+                if (_rasterHeight > 0 && y >= _rasterHeight)
+                    continue;
+
+                int offset = (y * _capWidth + startX) * TerminalImage.BytesPerPixel;
+                for (int i = startX; i < endX; i++)
+                {
+                    _pixels[offset] = (byte)_color;             // B
+                    _pixels[offset + 1] = (byte)(_color >> 8);  // G
+                    _pixels[offset + 2] = (byte)(_color >> 16); // R
+                    _pixels[offset + 3] = (byte)(_color >> 24); // A
+                    offset += TerminalImage.BytesPerPixel;
+                }
             }
         }
     }
@@ -348,15 +373,24 @@ internal sealed class SixelDecoder
 
         // An image without raster attributes reveals its size only by being drawn, so the canvas
         // doubles rather than growing to fit -- otherwise a wide image re-strides its whole buffer
-        // once per column.
-        int width = _capWidth == 0 ? Math.Max(needWidth, 256) : Math.Max(needWidth, _capWidth * 2);
-        int height = _capHeight == 0 ? Math.Max(needHeight, BandHeight) : Math.Max(needHeight, _capHeight * 2);
+        // once per column. Only the dimension that is short doubles: doubling the width of a wide
+        // picture every time it grew another band taller ran it into the budget long before its
+        // pixels did.
+        int width = _capWidth == 0 ? Math.Max(needWidth, 256)
+                  : needWidth > _capWidth ? Math.Max(needWidth, _capWidth * 2) : _capWidth;
+        int height = _capHeight == 0 ? Math.Max(needHeight, BandHeight)
+                   : needHeight > _capHeight ? Math.Max(needHeight, _capHeight * 2) : _capHeight;
 
         if ((long)width * height > _maxPixels)
         {
-            // Try once at exactly the size asked for; doubling may have been what overshot.
-            width = needWidth;
-            height = needHeight;
+            // Try once at exactly the size asked for; doubling may have been what overshot. Never
+            // SMALLER than the canvas already is in either dimension: what is drawn is copied across
+            // row by row at the old width, and a narrower canvas -- the case where only the height
+            // was short, so needWidth is less than the width already allocated -- had that copy run
+            // off the end of the new buffer. The exception escaped Terminal.Write and took the
+            // host's read loop with it: a wide picture growing downwards (VT DOOM) froze the screen.
+            width = Math.Max(needWidth, _capWidth);
+            height = Math.Max(needHeight, _capHeight);
             if ((long)width * height > _maxPixels)
             {
                 _failed = true;

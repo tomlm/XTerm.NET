@@ -63,7 +63,7 @@ public class ApiLifecycleTests
 
         terminal.Write($"{Esc}c");
         Assert.False(terminal.SixelDisplayMode);
-        Assert.True(terminal.SixelPrivateColorRegisters);
+        Assert.False(terminal.SixelPrivateColorRegisters);
     }
 
     [Fact]

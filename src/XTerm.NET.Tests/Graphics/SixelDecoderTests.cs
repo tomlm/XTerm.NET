@@ -237,6 +237,106 @@ public class SixelDecoderTests
         Assert.Null(image);
     }
 
+    /// <summary>
+    /// A wide picture that grows downwards near the budget keeps what it has drawn. Growing for a
+    /// taller band doubled the width as well, overshot the budget, and the retry at "exactly the
+    /// size asked for" took the narrow width the new band needed -- narrower than the canvas, so
+    /// copying the old rows across ran off the end of the buffer. The exception escaped
+    /// Terminal.Write and took the host's read loop with it: VT DOOM froze on its first frame.
+    /// </summary>
+    [Fact]
+    public void A_wide_image_growing_downwards_near_the_budget_keeps_its_rows()
+    {
+        // 300 wide, then a 10-wide second band: doubling both ways asks 600x12 = 7200 pixels.
+        TerminalImage? image = null;
+        var exception = Record.Exception(() =>
+            image = TryDecode("#0;2;100;0;0!300~-!10~", configure: o => o.MaxSixelPixels = 5000));
+
+        Assert.Null(exception);
+        Assert.NotNull(image);
+        Assert.Equal(300, image!.PixelWidth);
+        Assert.Equal(12, image.PixelHeight);
+        Assert.Equal(Red, Pixel(image, 299, 0));
+        Assert.Equal(Red, Pixel(image, 9, 6));
+    }
+
+    /// <summary>
+    /// The raster attribute's Pan;Pad is the pixel aspect ratio: each sixel row is Pan/Pad pixel
+    /// rows tall. VT DOOM scales its picture vertically this way (and horizontally with repeat
+    /// counts); ignoring it drew the game squashed to a fifth of its height.
+    /// </summary>
+    [Fact]
+    public void The_raster_aspect_ratio_makes_each_sixel_row_that_many_pixels_tall()
+    {
+        // 3:1, so one band of six sixel rows is eighteen pixels; '@' sets only the top sixel row.
+        var image = Decode("\"3;1#0;2;100;0;0!2@-!2~");
+
+        Assert.Equal(2, image.PixelWidth);
+        Assert.Equal(36, image.PixelHeight);
+        Assert.Equal(Red, Pixel(image, 0, 0));
+        Assert.Equal(Red, Pixel(image, 0, 2));            // still the first sixel row
+        Assert.Equal((byte)0, Pixel(image, 0, 3).A);     // the second sixel row was not set
+        Assert.Equal(Red, Pixel(image, 1, 18));           // the second band starts 18 rows down
+        Assert.Equal(Red, Pixel(image, 1, 35));
+    }
+
+    [Fact]
+    public void A_square_aspect_ratio_and_none_at_all_draw_the_same()
+    {
+        var square = Decode("\"1;1#0;2;100;0;0!3~-!3~");
+        var none = Decode("#0;2;100;0;0!3~-!3~");
+
+        Assert.Equal(none.PixelHeight, square.PixelHeight);
+        Assert.Equal(12, square.PixelHeight);
+        Assert.True(square.Pixels.Span.SequenceEqual(none.Pixels.Span));
+    }
+
+    [Fact]
+    public void An_absurd_aspect_ratio_is_capped()
+    {
+        var image = Decode("\"1000;1#0;2;100;0;0~");
+
+        Assert.Equal(16 * 6, image.PixelHeight);
+    }
+
+    /// <summary>
+    /// Colour registers are shared between images by default, as on a VT340 and in Windows
+    /// Terminal: a register one image defines is still defined for the next. VT DOOM sends its
+    /// palette only when it changes, and drew in a scatter of default colours on black without this.
+    /// </summary>
+    [Fact]
+    public void A_colour_defined_by_one_image_is_still_defined_for_the_next()
+    {
+        var terminal = Fresh();
+        WriteSixel(terminal, "#200;2;0;100;0#200!2~");
+        WriteSixel(terminal, "#200!2~");
+
+        Assert.Equal(Green, Pixel(Placed(terminal)!, 0, 0));
+    }
+
+    [Fact]
+    public void Private_registers_are_still_one_mode_away()
+    {
+        var terminal = Fresh();
+        terminal.Write($"{Esc}[?1070h");
+        WriteSixel(terminal, "#200;2;0;100;0#200!2~");
+        WriteSixel(terminal, "#200!2~");
+
+        // A fresh palette for the second image: register 200 is back to its default.
+        Assert.NotEqual(Green, Pixel(Placed(terminal)!, 0, 0));
+    }
+
+    [Fact]
+    public void A_full_reset_returns_the_shared_registers_to_their_defaults()
+    {
+        var terminal = Fresh();
+        WriteSixel(terminal, "#200;2;0;100;0#200!2~");
+        terminal.Write($"{Esc}c");
+        WriteSixel(terminal, "#200!2~");
+
+        Assert.NotEqual(Green, Pixel(Placed(terminal)!, 0, 0));
+    }
+
     [Fact]
     public void An_abandoned_payload_produces_no_image()
     {

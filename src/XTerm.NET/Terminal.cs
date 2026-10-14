@@ -348,9 +348,21 @@ public class Terminal : IDisposable
     public bool SixelDisplayMode { get; set; }
 
     /// <summary>
-    /// Whether each Sixel image gets its own colour registers (mode 1070). On by default.
+    /// Whether each Sixel image gets its own colour registers (mode 1070). Off by default: images
+    /// share one set, as on a VT340 and in Windows Terminal, so a colour defined by one image is
+    /// still defined for the next.
     /// </summary>
-    public bool SixelPrivateColorRegisters { get; set; } = true;
+    /// <remarks>
+    /// <para>Shared rather than xterm's private default because programs written against a VT340 or
+    /// Windows Terminal rely on it. VT DOOM sends its 256 colours only when DOOM's palette changes --
+    /// 29 frames in 496 -- and every other frame draws with registers an earlier image set. Given
+    /// private registers each of those started from the default palette, and the game drew as a
+    /// scatter of the sixteen defined colours on black.</para>
+    /// <para>A program that wants a fresh palette per image asks with <c>CSI ? 1070 h</c>; RIS
+    /// returns both the mode and the shared registers to their defaults, so one program's colours do
+    /// not carry into the next.</para>
+    /// </remarks>
+    public bool SixelPrivateColorRegisters { get; set; }
 
     /// <summary>
     /// Whether the cursor is left to the right of a Sixel image rather than below it (mode 8452).
@@ -1250,8 +1262,12 @@ public class Terminal : IDisposable
         // reset and the next image drew with the previous program's geometry. Their defaults are
         // not all false, which is why they are named rather than cleared in a loop.
         SixelDisplayMode = false;
-        SixelPrivateColorRegisters = true;
+        SixelPrivateColorRegisters = false;
         SixelCursorRight = false;
+
+        // And the shared colour registers themselves, as a VT340's reset does: registers left set
+        // by the last program would otherwise colour the next one's Sixels.
+        _inputHandler.ResetSixelPalette();
 
         // Same failure, two modes this change added. DECNCSM surviving RIS means the next
         // DECCOLM silently skips the clean slate DEC guarantees; DECNRCM surviving it means
