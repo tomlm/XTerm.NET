@@ -94,9 +94,9 @@ if (line.Sixel is { } strip)
 }
 ```
 
-The strip has no `Pixels` array to hand out: it is held in blocks of `SixelStrip.BlockColumns`
-cells, so that copying a line -- which a host capturing frames does many times a second -- and then
-painting it copies only the blocks the paint touches, and nothing lands on the large-object heap.
+A strip has no `Pixels` property to hand out its memory: it is stored so that copying a line -- which
+a host capturing frames does many times a second -- stays cheap, and `CopyPixelsTo` gives back an
+ordinary contiguous image.
 
 A strip is painted at the cell size in force when its Sixels arrived, so after a font change it is
 stretched onto the new grid, as a picture is. A strip can be painted by the thread writing to the
@@ -618,8 +618,8 @@ void DrawKittyRun(BufferLine line, LinePlacement p, int row)
   buffer if you upload every frame, so the upload is not itself a large allocation per frame. A
   strip is painted by the thread writing to the terminal, so read `Version` before copying and again
   after: a copy whose version moved may be torn, so draw it but do not keep it. A line's copies
-  (`Clone`, `CopyFrom`) share its strip, and writing to a shared strip copies only the blocks the
-  write touches, so a frame captured for a renderer costs references rather than pixels.
+  (`Clone`, `CopyFrom`) share its strip, and writing to a shared strip copies only the part the
+  write touches, so a frame captured for a renderer is cheap.
 
 Draws, not pixels, are what a busy screen costs. A program repainting small regions over and over
 leaves at most one strip per row however many Sixels it sends, and a Kitty client that tiles the

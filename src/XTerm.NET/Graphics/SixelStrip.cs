@@ -21,8 +21,9 @@ namespace XTerm.Graphics;
 /// <para><b>One scale per strip.</b> A Sixel is laid out against the cell size in force when it
 /// arrives. A strip painted at another size is resampled to the new one first, so every pixel in it
 /// agrees on how big a cell is and a renderer maps it to the grid with a single scale.</para>
-/// <para><b>Storage, and sharing.</b> The pixels are held in blocks of <see cref="BlockColumns"/>
-/// cells, each allocated only once something paints it. A copy of a line
+/// <para><b>Storage, and sharing.</b> The pixels are held in blocks of 16 cells, each allocated only
+/// once something paints it -- an implementation detail: <see cref="CopyPixelsTo"/> hands out an
+/// ordinary contiguous image whatever the storage. A copy of a line
 /// (<see cref="Buffer.BufferLine.Clone"/>, <see cref="Buffer.BufferLine.CopyFrom"/>) shares its strip,
 /// and writing to a shared strip copies only the blocks the write touches. A whole row in one array
 /// was past the large-object threshold at an ordinary width, and a host that captures frames copies
@@ -37,8 +38,8 @@ namespace XTerm.Graphics;
 /// </remarks>
 public sealed class SixelStrip
 {
-    /// <summary>Cells per storage block. See the remarks on the class.</summary>
-    public const int BlockColumns = 16;
+    /// <summary>Cells per storage block. See the remarks on the class; nothing outside depends on it.</summary>
+    private const int BlockColumns = 16;
 
     private static long _versionCounter;
 
