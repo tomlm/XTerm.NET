@@ -75,7 +75,8 @@ painted them is not kept at all.
 `line.HasImages` is true for a line with a strip as well as one with Kitty runs.
 
 **What a renderer does now.** Per line: Kitty pictures behind the text (negative `ZIndex`), then the
-text, then the line's Sixel strip, then Kitty pictures in front. The strip is one blit:
+text, then the line's Sixel strip, then Kitty pictures in front — see [Images](#images) for the whole
+row. The strip is one blit:
 
 ```csharp
 if (line.Sixel is { } strip)
@@ -532,59 +533,116 @@ up to a whole row of the control's height belongs to no row at all. An applicati
 figure by the row count is told the terminal is taller than it is, sizes a picture to fill it, and the
 surplus runs off the bottom and scrolls the screen.
 
-**Drawing a line's Sixel pixels.** One blit per line, after the text and before Kitty pictures in
-front of it — see [Upgrading to 3.0](#upgrading-to-30) for the code. `strip.PaintedColumns` is how far
-anything is painted, so a narrow picture on a wide line does not draw the rest of the row.
+**Say when the cell size changes.** A font change, a zoom, or the window moving to a monitor with
+another DPI changes how many pixels a cell is while the grid can stay the same — so `Resize` is not
+called and nothing tells the application. Update the options and then call
+`NotifyTextAreaPixelsChanged()`:
 
-**Drawing the Kitty runs.** This is per *line*, not per cell — a run is one blit, not a row of tiles:
+```csharp
+terminal.Options.CellWidthPixels  = newCellWidth;
+terminal.Options.CellHeightPixels = newCellHeight;
+terminal.NotifyTextAreaPixelsChanged();
+```
+
+That sends an in-band resize report (`CSI 48 ; rows ; cols ; height ; width t`) to any application
+that asked for one with mode 2048, and is a no-op otherwise, so it is safe to call whenever the
+metrics are recomputed. Without it an application that sizes its pictures from the cell size goes on
+drawing at the old one: after a move to a higher-DPI monitor every picture lands smaller than its
+cells, with gaps between them.
+
+**Drawing a row.** Per *line*, not per cell, in this order:
+
+1. Cell backgrounds — but not under a Kitty picture *behind* the text (negative `ZIndex`), which the
+   text sits on.
+2. Kitty pictures behind the text, back to front.
+3. The text.
+4. The line's Sixel pixels, if it has any — one blit for the whole line.
+5. Kitty pictures in front of the text (`ZIndex >= 0`), back to front.
 
 ```csharp
 var line = buffer.Lines[buffer.YDisp + row];
 
-// Back to front. A stable sort, so equal depths keep the order they were placed in, which is age.
-foreach (var p in line.Placements.OrderBy(p => p.ZIndex))
-{
-    // Pixels are BGRA8888 with straight (unpremultiplied) alpha, top row first.
-    // Cache your framework's bitmap against the TerminalImage — a ConditionalWeakTable keyed on it
-    // lets the bitmap die when the image does, with no eviction list to maintain, and two
-    // placements of one picture share the single upload.
-    // Matched by id rather than by column: two pictures may overlap the same columns, and a
-    // column lookup answers with whichever placement comes first, not necessarily this one.
-    var image = line.Images.FirstOrDefault(i => i.Id == p.ImageId);
-    if (image is null) continue;
-    var bitmap = _bitmaps.GetOrCreate(image);
+// Kitty runs, back to front. A stable sort, so equal depths keep the order they were placed in,
+// which is age.
+var kitty = line.Placements.OrderBy(p => p.ZIndex).ToList();
 
-    DrawImage(bitmap,
+DrawBackgrounds(line, row);                       // skipping cells under a negative-z picture
+foreach (var p in kitty.Where(p => p.ZIndex < 0))
+    DrawKittyRun(line, p, row);
+DrawText(line, row);
+
+if (line.Sixel is { } strip)
+{
+    // BGRA8888, straight alpha, top row first: cells of strip.CellWidth x strip.CellHeight pixels.
+    // PaintedColumns is how far anything is painted, so a narrow picture on a wide line does not
+    // draw the rest of the row; clip it to the line as well.
+    var cols = Math.Min(strip.PaintedColumns, line.Length);
+    DrawImage(StripBitmap(strip),
+        source: (0, 0, cols * strip.CellWidth, strip.CellHeight),
+        dest: (0, row * cellHeight, cols * cellWidth, cellHeight));
+}
+
+foreach (var p in kitty.Where(p => p.ZIndex >= 0))
+    DrawKittyRun(line, p, row);
+
+void DrawKittyRun(BufferLine line, LinePlacement p, int row)
+{
+    // Matched by id rather than by column: two pictures may overlap the same columns, and a column
+    // lookup answers with whichever placement comes first, not necessarily this one.
+    var image = line.Images.FirstOrDefault(i => i.Id == p.ImageId);
+    if (image is null) return;
+
+    DrawImage(PictureBitmap(image),
         source: (p.SrcX, p.SrcY, p.SrcWidth, p.SrcHeight),
         dest: ((p.Column * cellWidth) + p.OffsetX, (row * cellHeight) + p.OffsetY,
                p.Cols * cellWidth, cellHeight));
 }
 ```
 
-Clip the destination to the line's width and narrow the source by the same proportion — that is what
-makes a narrowed window show less of a picture rather than a squashed one. `OffsetX`/`OffsetY` are
-the sub-cell shift a Kitty placement asks for with `X=`/`Y=`; they are zero for Sixel and for most
-Kitty placements.
+**Upload once, and key the upload on what changes.**
 
-Paint each cell's own background once, underneath the runs, and from the bottom-most run covering it
-only — painting it again for a nearer run erases what is behind instead of letting it show through.
+- A Kitty picture: cache your bitmap against the `TerminalImage` — a `ConditionalWeakTable` keyed on
+  it lets the bitmap die when the image does, with no eviction list to maintain, and two placements
+  of one picture share the single upload. For animation draw `image.CurrentPixels` and upload again
+  when `image.FrameSerial` changes.
+- A Sixel strip: cache against the `SixelStrip` and upload again when `strip.Version` changes. A
+  strip is painted by the thread writing to the terminal, so read `Version` before copying the
+  pixels and again after: a copy whose version moved may be torn, so draw it but do not keep it.
+  A line's copies (`Clone`, `CopyFrom`) share its strip until one of them is written, so a frame
+  captured for a renderer costs a reference rather than the pixels.
 
-Text goes down *between* the negative z-indices and the rest: see [Draw order](#kitty-graphics)
-below for why a negative `ZIndex` means behind the text rather than merely further back.
+Draws, not pixels, are what a busy screen costs. A program repainting small regions over and over
+leaves at most one strip per row however many Sixels it sends, and a Kitty client that tiles the
+screen into blocks costs one draw per block per frame — keep pictures on the GPU between frames
+rather than handing the framework a fresh bitmap each time.
+
+**Mapping onto the grid.** A strip is painted at the cell size in force when its Sixels arrived, and
+a picture records the cell size it was laid out against (`image.CellWidth`/`CellHeight`). After a
+font or DPI change, stretch them onto the current grid — map cells to cells, as above, rather than
+pixels to pixels — so a picture stays locked to the text it was drawn among.
+
+For Kitty runs, clip the destination to the line's width and narrow the source by the same
+proportion — that is what makes a narrowed window show less of a picture rather than a squashed one.
+`OffsetX`/`OffsetY` are the sub-cell shift a placement asks for with `X=`/`Y=`; they are zero for most
+placements. Paint each cell's own background once, underneath the runs, and from the bottom-most run
+covering it only — painting it again for a nearer run erases what is behind instead of letting it
+show through. See [Draw order](#kitty-graphics) below for why a negative `ZIndex` means behind the
+text rather than merely further back.
 
 Cells under a picture hold `" "` as their content, so `TranslateToString` and selection copy yield
 blanks.
 
-To ask what covers one column rather than walking the list:
+To ask what covers one column rather than walking the line:
 
 ```csharp
-if (line.TryGetPlacementAt(col, out LinePlacement placement)) { … }
-if (line.TryGetImageAt(col, out TerminalImage image)) { … }
+if (line.Sixel?.HasPixelsAt(col) == true) { … }                    // Sixel pixels
+if (line.TryGetPlacementAt(col, out LinePlacement placement)) { … }  // a Kitty run
+if (line.TryGetImageAt(col, out TerminalImage image)) { … }         // the Kitty picture it shows
 ```
 
-Both answer with the *first* placement covering that column, so they are the convenient form for the
-ordinary case of one picture at a time — a renderer handling overlapping pictures should walk
-`line.Placements` and resolve through `line.Images` as above.
+The Kitty lookups answer with the *first* placement covering that column, so they are the convenient
+form for the ordinary case of one picture at a time — a renderer handling overlapping pictures should
+walk `line.Placements` and resolve through `line.Images` as above.
 
 **Options:**
 
