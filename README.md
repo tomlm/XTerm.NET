@@ -351,6 +351,29 @@ terminal.WindowMaximized += (sender, e) => Console.WriteLine("Maximize");
 terminal.WindowRestored += (sender, e) => Console.WriteLine("Restore");
 ```
 
+### Custom Sequence Handlers
+
+A host can take over how a control character, CSI sequence or ESC sequence is handled, the
+way xterm.js's `parser.registerCsiHandler` works. The newest handler for a sequence runs
+first. It returns `true` to consume the sequence, or `false` to pass it on, in the end to the
+built-in handling. Dispose the returned object to unregister.
+
+```csharp
+// Behind the Windows 10 ConPTY, SI is counted as a printed column: print a blank so the
+// cursors stay together. Print writes at the cursor without going through the parser, which
+// is what a handler must use -- Write would re-enter the parser mid-sequence.
+using var si = terminal.RegisterExecuteHandler(0x0F, () => { terminal.Print(" "); return true; });
+
+// CSI handlers are keyed by private marker and intermediates plus the final byte: "m", "?h", " q".
+using var sgr = terminal.RegisterCsiHandler("m", p => p.Length == 1 && p.GetParam(0) == 5);   // swallow a lone SGR 5 (blink)
+
+// ESC handlers are keyed by intermediates plus the final byte: "c", "7", "(0".
+using var ris = terminal.RegisterEscHandler("c", () => true);                // ignore full reset
+```
+
+A handler replaces what a sequence does, not how it is parsed: ESC still opens a sequence and
+CAN still abandons one whatever a handler returns.
+
 ### Rendering the Buffer
 
 XTerm.NET is headless — you provide the rendering logic for your UI framework (Console, WPF, MAUI, Avalonia, etc.). Walk over the terminal buffer and render each cell according to its content and attributes:
