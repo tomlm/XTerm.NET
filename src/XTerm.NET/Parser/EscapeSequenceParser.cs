@@ -1,8 +1,10 @@
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
 using XTerm.Common;
 using XTerm.Events.Parser;
 
@@ -175,6 +177,231 @@ public class EscapeSequenceParser
         _collect = new StringBuilder();
         _osc = new StringBuilder();
         _dcs = new StringBuilder();
+    }
+
+    // Custom handlers, in the shape of xterm.js's parser.registerCsiHandler and friends: the most
+    // recently registered handler for a sequence runs first, returns true to consume it or false to
+    // pass it on to the next, and the built-in handling runs only if every one declines.
+    //
+    // Each table is replaced whole on every change, never mutated in place. Registration is rare and
+    // dispatch is not, so the parse path reads a field and gets a table nobody will change under it,
+    // and a handler may unregister itself or another from inside its own call. Null while nothing is
+    // registered, which is all the hot path pays: one field read.
+    private readonly object _handlerLock = new();
+    private Func<bool>[]?[]? _executeHandlers;
+    private Dictionary<string, Func<Params, bool>[]>? _csiHandlers;
+    private Dictionary<string, Func<bool>[]>? _escHandlers;
+
+    /// <summary>One past the highest code <see cref="RegisterExecuteHandler"/> accepts: the end of C1.</summary>
+    private const int ExecuteCodeLimit = 0xA0;
+
+    /// <summary>
+    /// Registers a handler for a C0 or C1 control character, ahead of the built-in handling.
+    /// </summary>
+    /// <param name="code">The control: 0x00-0x1F, or 0x80-0x9F.</param>
+    /// <param name="handler">
+    /// Returns true to consume the control, so that neither older handlers nor the built-in
+    /// handling run; false to pass it on.
+    /// </param>
+    /// <returns>Dispose to unregister.</returns>
+    /// <remarks>
+    /// The handler replaces what the control <em>does</em>, not how it is parsed. ESC still opens an
+    /// escape sequence and CAN still abandons one whatever a handler returns, because those are state
+    /// transitions rather than actions. The <see cref="Execute"/> event still fires either way: it
+    /// reports what was parsed.
+    /// </remarks>
+    public IDisposable RegisterExecuteHandler(int code, Func<bool> handler)
+    {
+        if (code < 0 || code >= ExecuteCodeLimit || (code >= 0x20 && code < 0x80))
+            throw new ArgumentOutOfRangeException(nameof(code), code, "Not a C0 or C1 control character.");
+        ArgumentNullException.ThrowIfNull(handler);
+
+        lock (_handlerLock)
+        {
+            var table = _executeHandlers is null
+                ? new Func<bool>[]?[ExecuteCodeLimit]
+                : (Func<bool>[]?[])_executeHandlers.Clone();
+            table[code] = Append(table[code], handler);
+            _executeHandlers = table;
+        }
+
+        return new Registration(() =>
+        {
+            lock (_handlerLock)
+            {
+                if (_executeHandlers is null)
+                    return;
+
+                var table = (Func<bool>[]?[])_executeHandlers.Clone();
+                table[code] = Remove(table[code], handler);
+                _executeHandlers = Array.TrueForAll(table, h => h is null) ? null : table;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Registers a handler for a CSI sequence, ahead of the built-in handling.
+    /// </summary>
+    /// <param name="identifier">
+    /// The sequence's private marker and intermediates followed by its final character, as
+    /// <see cref="CsiEventArgs.Identifier"/> reports it: <c>"m"</c> for SGR, <c>"?h"</c> for DECSET,
+    /// <c>" q"</c> for DECSCUSR.
+    /// </param>
+    /// <param name="handler">
+    /// Receives the sequence's parameters and returns true to consume the sequence, or false to pass
+    /// it on. The parameters are the parser's own instance, reset once the sequence is dispatched:
+    /// read them during the call, and <see cref="Params.Clone"/> them to keep them. Changing them
+    /// changes what the handlers after this one see.
+    /// </param>
+    /// <returns>Dispose to unregister.</returns>
+    public IDisposable RegisterCsiHandler(string identifier, Func<Params, bool> handler)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(identifier);
+        ArgumentNullException.ThrowIfNull(handler);
+
+        lock (_handlerLock)
+            _csiHandlers = WithHandler(_csiHandlers, identifier, handler);
+
+        return new Registration(() =>
+        {
+            lock (_handlerLock)
+                _csiHandlers = WithoutHandler(_csiHandlers, identifier, handler);
+        });
+    }
+
+    /// <summary>
+    /// Registers a handler for an ESC sequence, ahead of the built-in handling.
+    /// </summary>
+    /// <param name="identifier">
+    /// The sequence's intermediates followed by its final character: <c>"7"</c> for DECSC,
+    /// <c>"(0"</c> for designating DEC line drawing into G0.
+    /// </param>
+    /// <param name="handler">Returns true to consume the sequence, or false to pass it on.</param>
+    /// <returns>Dispose to unregister.</returns>
+    public IDisposable RegisterEscHandler(string identifier, Func<bool> handler)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(identifier);
+        ArgumentNullException.ThrowIfNull(handler);
+
+        lock (_handlerLock)
+            _escHandlers = WithHandler(_escHandlers, identifier, handler);
+
+        return new Registration(() =>
+        {
+            lock (_handlerLock)
+                _escHandlers = WithoutHandler(_escHandlers, identifier, handler);
+        });
+    }
+
+    // Kept out of the On* methods so they stay small; reached only when something is registered.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static bool RunExecuteHandlers(Func<bool>[]?[] table, int code)
+    {
+        if ((uint)code >= ExecuteCodeLimit || table[code] is not { } handlers)
+            return false;
+
+        for (var k = handlers.Length - 1; k >= 0; k--)
+        {
+            if (handlers[k]())
+                return true;
+        }
+
+        return false;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static bool RunCsiHandlers(Dictionary<string, Func<Params, bool>[]> table, string identifier, Params parameters)
+    {
+        if (!table.TryGetValue(identifier, out var handlers))
+            return false;
+
+        for (var k = handlers.Length - 1; k >= 0; k--)
+        {
+            if (handlers[k](parameters))
+                return true;
+        }
+
+        return false;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static bool RunEscHandlers(Dictionary<string, Func<bool>[]> table, string identifier)
+    {
+        if (!table.TryGetValue(identifier, out var handlers))
+            return false;
+
+        for (var k = handlers.Length - 1; k >= 0; k--)
+        {
+            if (handlers[k]())
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>A copy of <paramref name="handlers"/> with <paramref name="handler"/> last, which is where dispatch starts.</summary>
+    private static T[] Append<T>(T[]? handlers, T handler)
+    {
+        if (handlers is null)
+            return [handler];
+
+        var result = new T[handlers.Length + 1];
+        handlers.CopyTo(result, 0);
+        result[^1] = handler;
+        return result;
+    }
+
+    /// <summary>
+    /// A copy of <paramref name="handlers"/> without the most recent registration of
+    /// <paramref name="handler"/>, or null when nothing is left. The same delegate registered twice
+    /// is two registrations, and disposing one removes one.
+    /// </summary>
+    private static T[]? Remove<T>(T[]? handlers, T handler) where T : Delegate
+    {
+        if (handlers is null)
+            return null;
+
+        var index = Array.LastIndexOf(handlers, handler);
+        if (index < 0)
+            return handlers;
+        if (handlers.Length == 1)
+            return null;
+
+        var result = new T[handlers.Length - 1];
+        Array.Copy(handlers, 0, result, 0, index);
+        Array.Copy(handlers, index + 1, result, index, handlers.Length - index - 1);
+        return result;
+    }
+
+    private static Dictionary<string, T[]> WithHandler<T>(Dictionary<string, T[]>? table, string identifier, T handler)
+    {
+        var result = table is null ? new Dictionary<string, T[]>(StringComparer.Ordinal) : new Dictionary<string, T[]>(table, StringComparer.Ordinal);
+        result[identifier] = Append(result.GetValueOrDefault(identifier), handler);
+        return result;
+    }
+
+    private static Dictionary<string, T[]>? WithoutHandler<T>(Dictionary<string, T[]>? table, string identifier, T handler) where T : Delegate
+    {
+        if (table is null || !table.TryGetValue(identifier, out var handlers))
+            return table;
+
+        var result = new Dictionary<string, T[]>(table, StringComparer.Ordinal);
+        if (Remove(handlers, handler) is { } remaining)
+            result[identifier] = remaining;
+        else
+            result.Remove(identifier);
+
+        return result.Count == 0 ? null : result;
+    }
+
+    /// <summary>Unregisters once, however many times it is disposed.</summary>
+    private sealed class Registration : IDisposable
+    {
+        private Action? _unregister;
+
+        public Registration(Action unregister) => _unregister = unregister;
+
+        public void Dispose() => Interlocked.Exchange(ref _unregister, null)?.Invoke();
     }
 
     /// <summary>
@@ -879,7 +1106,10 @@ public class EscapeSequenceParser
     /// </summary>
     protected virtual void OnExecute(int code)
     {
-        ExecuteFast?.Invoke(code);
+        // Guarded here at the call, so a stream with nothing registered pays one field read.
+        var custom = _executeHandlers;
+        if (custom is null || !RunExecuteHandlers(custom, code))
+            ExecuteFast?.Invoke(code);
 
         var handler = Execute;
         if (handler is not null)
@@ -986,7 +1216,9 @@ public class EscapeSequenceParser
         // dispatch, so there is nothing for a copy to protect against. Cloning here cost five
         // allocations per sequence (the Params, two Lists, and their backing arrays), which on
         // colour-heavy output was the single largest remaining source of garbage.
-        CsiFast?.Invoke(identifier, parameters);
+        var custom = _csiHandlers;
+        if (custom is null || !RunCsiHandlers(custom, identifier, parameters))
+            CsiFast?.Invoke(identifier, parameters);
 
         // An external subscriber is a different matter: it may hold on to what it is handed, and the
         // instance above is about to be reset underneath it. That one still gets its own copy.
@@ -1017,7 +1249,9 @@ public class EscapeSequenceParser
     /// </summary>
     protected virtual void OnEsc(string finalChar, string collected)
     {
-        EscFast?.Invoke(finalChar, collected);
+        var custom = _escHandlers;
+        if (custom is null || !RunEscHandlers(custom, collected.Length == 0 ? finalChar : collected + finalChar))
+            EscFast?.Invoke(finalChar, collected);
 
         var handler = Esc;
         if (handler is not null)
