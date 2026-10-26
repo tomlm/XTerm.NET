@@ -964,6 +964,68 @@ public class Terminal : IDisposable
     }
 
     /// <summary>
+    /// Registers a handler that runs ahead of the terminal's own for a C0 or C1 control character.
+    /// See <see cref="EscapeSequenceParser.RegisterExecuteHandler"/>.
+    /// </summary>
+    /// <example>
+    /// A host behind a ConPTY that counts SI as a printed column can keep the two cursors together:
+    /// <code>terminal.RegisterExecuteHandler(0x0F, () => { terminal.Print(" "); return true; });</code>
+    /// </example>
+    public IDisposable RegisterExecuteHandler(int code, Func<bool> handler)
+        => _parser.RegisterExecuteHandler(code, handler);
+
+    /// <summary>
+    /// Registers a handler that runs ahead of the terminal's own for a CSI sequence.
+    /// See <see cref="EscapeSequenceParser.RegisterCsiHandler"/>.
+    /// </summary>
+    public IDisposable RegisterCsiHandler(string identifier, Func<Params, bool> handler)
+        => _parser.RegisterCsiHandler(identifier, handler);
+
+    /// <summary>
+    /// Registers a handler that runs ahead of the terminal's own for an ESC sequence.
+    /// See <see cref="EscapeSequenceParser.RegisterEscHandler"/>.
+    /// </summary>
+    public IDisposable RegisterEscHandler(string identifier, Func<bool> handler)
+        => _parser.RegisterEscHandler(identifier, handler);
+
+    /// <summary>
+    /// Prints text at the cursor as though it had arrived as printable characters, with the current
+    /// attributes, wrapping and insert mode, without passing through the parser.
+    /// </summary>
+    /// <remarks>
+    /// This is what a handler registered with <see cref="RegisterExecuteHandler"/> and friends calls
+    /// to put something on screen. <see cref="Write(string)"/> cannot be used from there: it would
+    /// re-enter the parser part-way through the sequence being dispatched -- a control character can
+    /// arrive inside a CSI -- and parse the new text as part of it.
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="text"/> contains a control character.</exception>
+    public void Print(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        // Checked whole before anything is printed, so a rejected call leaves the screen alone.
+        foreach (var ch in text)
+        {
+            if (ch < 0x20 || (ch >= 0x7F && ch < 0xA0))
+                throw new ArgumentException("Print takes printable text; write control characters with Write.", nameof(text));
+        }
+
+        if (_disposed)
+            return;
+
+        for (var i = 0; i < text.Length; i++)
+        {
+            int codePoint = text[i];
+            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                codePoint = char.ConvertToUtf32(text[i], text[++i]);
+            else if (char.IsSurrogate(text[i]))
+                codePoint = 0xFFFD;   // unpaired, as the parser treats it
+
+            _inputHandler.Print(CodePointText.Get(codePoint));
+        }
+    }
+
+    /// <summary>
     /// The columns a tab lands on. Real stops rather than arithmetic, because HTS (ESC H) and TBC
     /// (CSI g) exist to change them: `tabs 4` writes its stops with HTS, and a terminal deriving
     /// them from a width could only ever ignore it. TBC used to acknowledge the request and do
