@@ -807,6 +807,12 @@ character and are dispatched apart on it.
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
+XTerm.NET is a port of [xterm.js](https://github.com/xtermjs/xterm.js) (MIT), and also incorporates
+character-width tables generated from [wcwidth](https://github.com/jquast/wcwidth) (MIT) and colour
+conversions ported from libX11 Xcms (Tektronix permissive licence). Their notices are reproduced in
+[THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt); ship it alongside [LICENSE](LICENSE). Both files
+are included in the NuGet package.
+
 ## Authors
 
 * Tom Laird-McConnell — [tomlm](https://github.com/tomlm)

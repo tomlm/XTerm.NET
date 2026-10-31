@@ -7,8 +7,8 @@
     <RootNamespace>XTerm</RootNamespace>
   </PropertyGroup>
 <PropertyGroup>
-    <Version>3.0.0</Version>
-    <AssemblyVersion>3.0.0.0</AssemblyVersion>
+    <Version>3.0.1</Version>
+    <AssemblyVersion>3.0.1.0</AssemblyVersion>
     <Description>Dotnet port of xterm.js, giving you ability to host console applications, with Sixel and Kitty graphics.</Description>
     <Company>Iciclecreek</Company>
     <Authors>Tom Laird-McConnell</Authors>
@@ -20,7 +20,7 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <RepositoryUrl>https://github.com/tomlm/XTerm.NET</RepositoryUrl>
-    <Copyright>Tom Laird-McConnell All Rights Reserved</Copyright>
+    <Copyright>Copyright (c) 2025 Tom Laird-McConnell. Licensed under the MIT License.</Copyright>
     <RootNamespace>XTerm.NET</RootNamespace>
     <ContentTargetFolders>content</ContentTargetFolders>
     <IncludeSymbols>true</IncludeSymbols>
@@ -31,6 +31,8 @@
   <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="" />
     <None Include="../../icon.png" Pack="true" PackagePath="" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="" />
+    <None Include="../../THIRD-PARTY-NOTICES.txt" Pack="true" PackagePath="" />
   </ItemGroup>
   <ItemGroup>
   </ItemGroup>
