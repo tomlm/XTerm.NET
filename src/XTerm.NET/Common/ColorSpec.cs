@@ -70,6 +70,26 @@ public static class ColorSpec
             $"rgb:{r:x2}{r:x2}/{g:x2}{g:x2}/{b:x2}{b:x2}");
     }
 
+    /// <summary>
+    /// Formats a colour in the given report format, or returns null for
+    /// <see cref="ColorReportFormat.None"/>, which means the query gets no reply.
+    /// </summary>
+    public static string? Format(int rgb, ColorReportFormat format)
+    {
+        switch (format)
+        {
+            case ColorReportFormat.SixteenBit:
+                return Format(rgb);
+            case ColorReportFormat.EightBit:
+                var r = (rgb >> 16) & 0xFF;
+                var g = (rgb >> 8) & 0xFF;
+                var b = rgb & 0xFF;
+                return string.Create(CultureInfo.InvariantCulture, $"rgb:{r:x2}/{g:x2}/{b:x2}");
+            default:
+                return null;
+        }
+    }
+
     private static bool TryParseRgbForm(string body, out int rgb)
     {
         rgb = 0;
@@ -185,4 +205,19 @@ public static class ColorSpec
         ["pink"] = 0xFFC0CB,
         ["brown"] = 0xA52A2A,
     };
+}
+
+/// <summary>
+/// How the terminal answers an OSC colour query (OSC 4, 5, 10, 11 and 12 with <c>?</c>).
+/// </summary>
+public enum ColorReportFormat
+{
+    /// <summary>Queries get no reply at all.</summary>
+    None,
+
+    /// <summary>Two hex digits per channel: <c>rgb:rr/gg/bb</c>.</summary>
+    EightBit,
+
+    /// <summary>Four hex digits per channel, <c>rgb:rrrr/gggg/bbbb</c>, as xterm answers.</summary>
+    SixteenBit,
 }

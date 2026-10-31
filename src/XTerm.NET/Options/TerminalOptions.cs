@@ -312,6 +312,18 @@ public class TerminalOptions : ICloneable
     public string EnquiryResponse { get; set; } = string.Empty;
 
     /// <summary>
+    /// How OSC colour queries (OSC 4, 5, 10, 11 and 12 with <c>?</c>) are answered.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ColorReportFormat.SixteenBit"/>, the default, is xterm's
+    /// <c>rgb:rrrr/gggg/bbbb</c> and what probing programs are written to read.
+    /// <see cref="ColorReportFormat.EightBit"/> answers <c>rgb:rr/gg/bb</c>, and
+    /// <see cref="ColorReportFormat.None"/> leaves queries unanswered, for a host that would rather
+    /// not reveal its colours. Setting colours is unaffected by any of them.
+    /// </remarks>
+    public ColorReportFormat ColorReportFormat { get; set; } = ColorReportFormat.SixteenBit;
+
+    /// <summary>
     /// Budget for images held by client id but not currently on screen, in bytes. A floor: the
     /// terminal always holds at least three screens' worth of pixels, so a program that tiles a
     /// full-screen picture can keep a few screens of tiles to show again without resending them.
@@ -500,6 +512,7 @@ public class TerminalOptions : ICloneable
         KittyKeyboardEnabled = other.KittyKeyboardEnabled;
         PointerShapesEnabled = other.PointerShapesEnabled;
         EnquiryResponse = other.EnquiryResponse;
+        ColorReportFormat = other.ColorReportFormat;
         MaxImageRegistryBytes = other.MaxImageRegistryBytes;
         MaxUserVariables = other.MaxUserVariables;
         MaxUserVariableBytes = other.MaxUserVariableBytes;
