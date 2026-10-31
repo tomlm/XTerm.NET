@@ -637,6 +637,35 @@ public class ColorPaletteTests
         Assert.Equal(snapshot[1], snapshot.ResolveForeground(Attr(1, bold: true), false));
     }
 
+    /// <summary>
+    /// Drives each foreground encoding through real SGR rather than hand-built attributes, so the
+    /// mode check in ResolveForeground is tested against what the parser actually stores.
+    /// </summary>
+    [Theory]
+    // default (SGR 39): colour 256, mode 0 -> the bold colour
+    [InlineData("1;39", 256, 0, 0xFFAA00)]
+    // palette-16 (SGR 31): colour 1, mode 0 -> brightened to index 9
+    [InlineData("1;31", 1, 0, 0xFF0000)]
+    // palette-256 (SGR 38;5;n): stored exactly like palette-16 -- index n, mode 0 -- so the
+    // two cannot be told apart; an index past 15 comes through as itself
+    [InlineData("1;38;5;100", 100, 0, 0x878700)]
+    [InlineData("1;38;5;1", 1, 0, 0xFF0000)]
+    // RGB (SGR 38;2): mode 1. 0x000100 is numerically 256, the default marker, and must
+    // still resolve as the colour the program named -- this is what the mode check is for.
+    [InlineData("1;38;2;0;1;0", 0x000100, 1, 0x000100)]
+    [InlineData("1;38;2;0;0;3", 0x000003, 1, 0x000003)]
+    public void ResolveForeground_EachSgrEncoding_IsReadByItsMode(string sgr, int color, int mode, int expected)
+    {
+        var terminal = CreateTerminal(new ThemeOptions { Foreground = "#010203", Bold = "#ffaa00" });
+        terminal.Write($"\x1B[{sgr}mX");
+
+        var attributes = terminal.Buffer.Lines[terminal.Buffer.YBase]![0].Attributes;
+        Assert.True(attributes.IsBold());
+        Assert.Equal(color, attributes.GetFgColor());
+        Assert.Equal(mode, attributes.GetFgColorMode());
+        Assert.Equal(expected, terminal.Colors.Take().ResolveForeground(attributes, true));
+    }
+
     [Fact]
     public void ThemeBold_IsLive_AssigningANewThemeChangesItAndRaisesColorChanged()
     {
