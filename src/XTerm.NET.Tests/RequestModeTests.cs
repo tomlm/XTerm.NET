@@ -301,6 +301,8 @@ public class RequestModeTests
     /// <summary>
     /// KAM, SRM and LNM are STORED now -- set, reset and read back like any tracked mode, because
     /// esctest (and the programs it stands in for) toggle them and expect the toggle reported.
+    /// KAM is reported whether or not the host lets it lock the keyboard -- see
+    /// KeyboardActionModeTests.
     /// </summary>
     [Theory]
     [InlineData(2)]   // keyboard action mode (KAM)
