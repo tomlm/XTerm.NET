@@ -33,6 +33,13 @@ public class Terminal : IDisposable
     /// </summary>
     public TerminalOptions Options { get; }
     public Buffer.TerminalBuffer Buffer => _buffer;
+
+    /// <summary>
+    /// The screen being shown — normal or alternate — even while <see cref="Buffer"/> is pointing at
+    /// the status line because a program is writing to it.
+    /// </summary>
+    internal Buffer.TerminalBuffer ScreenBuffer => _usingAltBuffer ? _altBuffer! : _normalBuffer!;
+
     public int Cols { get; private set; }
     public int Rows { get; private set; }
     public BufferType ActiveBuffer => _usingAltBuffer ? BufferType.Alternate : BufferType.Normal;
