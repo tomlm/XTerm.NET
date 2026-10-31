@@ -1,4 +1,5 @@
 using System.Threading;
+using XTerm.Buffer;
 using XTerm.Options;
 
 namespace XTerm.Common;
@@ -30,6 +31,9 @@ public class ColorPalette
     private int defaultForeground;
     private int defaultBackground;
     private int defaultCursor;
+
+    /// <summary>The theme's bold colour, or <see cref="ColorSnapshot.NoBold"/> when it sets none.</summary>
+    private int defaultBold = ColorSnapshot.NoBold;
 
     /// <summary>
     /// The live colours. Replaced wholesale for bulk changes, mutated in place for single ones.
@@ -90,6 +94,12 @@ public class ColorPalette
     public int Cursor => Volatile.Read(ref state).Cursor;
 
     /// <summary>
+    /// The colour for bold text with the default foreground, as 0xRRGGBB, or null when the theme
+    /// sets none. See <see cref="ThemeOptions.Bold"/>.
+    /// </summary>
+    public int? Bold => Volatile.Read(ref state).Bold;
+
+    /// <summary>
     /// Whether the background is light enough that a program should choose dark text.
     /// </summary>
     /// <remarks>
@@ -143,6 +153,7 @@ public class ColorPalette
             changed = live.Foreground != defaultForeground
                 || live.Background != defaultBackground
                 || live.Cursor != defaultCursor
+                || live.BoldOrNone != defaultBold
                 || !live.Colors.AsSpan().SequenceEqual(defaults);
 
             if (changed)
@@ -181,7 +192,7 @@ public class ColorPalette
             var colors = new int[Size];
             Array.Copy(live.Colors, colors, Size);
             colors[index] = rgb;
-            Volatile.Write(ref state, new ColorSnapshot(colors, live.Foreground, live.Background, live.Cursor));
+            Volatile.Write(ref state, new ColorSnapshot(colors, live.Foreground, live.Background, live.Cursor, live.BoldOrNone));
         }
 
         ColorChanged?.Invoke(this, new ColorChangedEventArgs(ColorTarget.Indexed, index, rgb));
@@ -226,7 +237,7 @@ public class ColorPalette
 
             var colors = new int[Size];
             Array.Copy(defaults, colors, Size);
-            Volatile.Write(ref state, new ColorSnapshot(colors, live.Foreground, live.Background, live.Cursor));
+            Volatile.Write(ref state, new ColorSnapshot(colors, live.Foreground, live.Background, live.Cursor, live.BoldOrNone));
         }
 
         ColorChanged?.Invoke(this, new ColorChangedEventArgs(ColorTarget.Indexed, -1, 0));
@@ -291,7 +302,7 @@ public class ColorPalette
                 default: return;
             }
 
-            Volatile.Write(ref state, new ColorSnapshot(live.Colors, foreground, background, cursor));
+            Volatile.Write(ref state, new ColorSnapshot(live.Colors, foreground, background, cursor, live.BoldOrNone));
         }
 
         ColorChanged?.Invoke(this, new ColorChangedEventArgs(target, -1, rgb));
@@ -304,7 +315,7 @@ public class ColorPalette
     {
         var colors = new int[Size];
         Array.Copy(defaults, colors, Size);
-        return new ColorSnapshot(colors, defaultForeground, defaultBackground, defaultCursor);
+        return new ColorSnapshot(colors, defaultForeground, defaultBackground, defaultCursor, defaultBold);
     }
 
     private void SeedDefaults(ThemeOptions? theme)
@@ -359,6 +370,7 @@ public class ColorPalette
         defaultForeground = ColorSpec.TryParse(theme?.Foreground, out var fg) ? fg : 0xFFFFFF;
         defaultBackground = ColorSpec.TryParse(theme?.Background, out var bg) ? bg : 0x000000;
         defaultCursor = ColorSpec.TryParse(theme?.Cursor, out var cur) ? cur : 0xFFFFFF;
+        defaultBold = ColorSpec.TryParse(theme?.Bold, out var bold) ? bold : ColorSnapshot.NoBold;
     }
 
 
@@ -373,11 +385,19 @@ public class ColorPalette
 /// </remarks>
 public sealed class ColorSnapshot
 {
+    /// <summary>Stands for "no bold colour" in <see cref="BoldOrNone"/>; no 0xRRGGBB value is negative.</summary>
+    internal const int NoBold = -1;
+
     private readonly int[] colors;
 
-    internal ColorSnapshot(int[] colors, int foreground, int background, int cursor)
+    /// <summary>The bold colour, or <see cref="NoBold"/>. An int rather than an int? so the
+    /// per-cell resolve reads one field.</summary>
+    private readonly int bold;
+
+    internal ColorSnapshot(int[] colors, int foreground, int background, int cursor, int bold)
     {
         this.colors = colors;
+        this.bold = bold;
         Foreground = foreground;
         Background = background;
         Cursor = cursor;
@@ -391,6 +411,47 @@ public sealed class ColorSnapshot
 
     /// <summary>Gets the cursor colour, as 0xRRGGBB.</summary>
     public int Cursor { get; }
+
+    /// <summary>
+    /// Gets the colour for bold text with the default foreground, as 0xRRGGBB, or null when the
+    /// theme sets none. See <see cref="ThemeOptions.Bold"/>.
+    /// </summary>
+    public int? Bold => bold == NoBold ? null : bold;
+
+    /// <summary>
+    /// Resolves the colour a cell's text is drawn in, from its foreground attribute, as 0xRRGGBB.
+    /// </summary>
+    /// <param name="attributes">The cell's attributes.</param>
+    /// <param name="drawBoldTextInBrightColors">
+    /// <see cref="TerminalOptions.DrawBoldTextInBrightColors"/>: whether a bold cell coloured with
+    /// palette index 0-7 is drawn with index 8-15 instead.
+    /// </param>
+    /// <remarks>
+    /// <para>The one place the bold rules live, so every host applies them alike: a bold cell
+    /// with the DEFAULT foreground takes <see cref="Bold"/> when the theme sets one; a bold cell
+    /// with palette index 0-7 moves to the bright half when
+    /// <paramref name="drawBoldTextInBrightColors"/> says so; every other colour -- 24-bit RGB, a
+    /// palette index from 8 up -- comes through as the program named it. A cell that is not
+    /// bold resolves exactly as it would with no bold settings at all.</para>
+    /// <para>It resolves the foreground ATTRIBUTE. Inverse, dim and invisible are the host's to
+    /// apply on top, since what each means depends on how the host paints.</para>
+    /// </remarks>
+    public int ResolveForeground(in AttributeData attributes, bool drawBoldTextInBrightColors)
+    {
+        if (attributes.GetFgColorMode() == 1)
+            return attributes.GetFgColor();
+
+        var color = attributes.GetFgColor();
+        if (color < ColorPalette.Size)
+        {
+            if (color < 8 && drawBoldTextInBrightColors && attributes.IsBold())
+                color += 8;
+            return colors[color];
+        }
+
+        // Default foreground. The bold colour is checked first because unset is one compare.
+        return bold != NoBold && attributes.IsBold() ? bold : Foreground;
+    }
 
     /// <summary>Gets whether the background is light enough that dark text belongs on it.</summary>
     public bool IsLightBackground => ColorPalette.IsLight(Background);
@@ -411,6 +472,8 @@ public sealed class ColorSnapshot
     }
 
     internal int[] Colors => colors;
+
+    internal int BoldOrNone => bold;
 }
 
 /// <summary>

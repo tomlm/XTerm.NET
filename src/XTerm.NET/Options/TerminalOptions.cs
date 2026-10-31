@@ -627,6 +627,30 @@ public class ThemeOptions : ICloneable
     public string? Foreground { get; set; }
     public string? Background { get; set; }
     public string? Cursor { get; set; }
+
+    /// <summary>
+    /// The colour bold text is drawn in when its foreground is the default, in any form
+    /// <see cref="XTerm.Common.ColorSpec"/> parses. Unset (null, or a spec that does not parse)
+    /// means bold text with the default foreground keeps the foreground colour, as before.
+    /// </summary>
+    /// <remarks>
+    /// <para>Only the DEFAULT foreground is replaced. A bold cell a program coloured itself -- a
+    /// palette index or 24-bit RGB -- keeps that colour; whether a palette index 0-7 moves to its
+    /// bright counterpart is <see cref="TerminalOptions.DrawBoldTextInBrightColors"/>'s business,
+    /// and that option is the equivalent of Ghostty's <c>bold-color = bright</c>.</para>
+    /// <para>Setting this does NOT switch palette brightening on, unlike Ghostty, where giving
+    /// <c>bold-color</c> a colour also brightens the other bold colours. The two stay independent
+    /// here so that each setting means one thing: a host that wants Ghostty's behaviour leaves
+    /// <see cref="TerminalOptions.DrawBoldTextInBrightColors"/> at its default of true, which is
+    /// already that combination; a host that wants a bold colour without brightening can have it.</para>
+    /// <para>A RENDERER colour: the library never draws it. It reaches hosts through
+    /// <see cref="XTerm.Common.ColorSnapshot.Bold"/> and
+    /// <see cref="XTerm.Common.ColorSnapshot.ResolveForeground"/>, and is what OSC 5;0 (xterm's
+    /// <c>colorBD</c>) reports until a program sets that slot itself. Live in the same way as the
+    /// rest of the theme: assign a new theme, or call <see cref="XTerm.Common.ColorPalette.ApplyTheme"/>.</para>
+    /// </remarks>
+    public string? Bold { get; set; }
+
     public string? CursorAccent { get; set; }
     public string? Selection { get; set; }
     public string? SelectionInactive { get; set; }
@@ -666,6 +690,7 @@ public class ThemeOptions : ICloneable
         Foreground = other.Foreground;
         Background = other.Background;
         Cursor = other.Cursor;
+        Bold = other.Bold;
         CursorAccent = other.CursorAccent;
         Selection = other.Selection;
         SelectionInactive = other.SelectionInactive;
