@@ -17,9 +17,19 @@ namespace XTerm.Search;
 /// back onto cells: the position IS the cursor, and a match that crosses a wrap simply produces two
 /// runs because the cursor changed row part way through.</para>
 ///
-/// <para><b>Call this on the thread that owns the terminal.</b> It reads the buffer directly and the
-/// emulator is not thread-safe, so a search running beside a write is a race. At 3.7 ms per search
-/// that is affordable inline; a much larger scrollback wants debouncing rather than a thread.</para>
+/// <para><b>Threading.</b> <see cref="Find"/> and <see cref="Scan"/> read the buffer directly and the
+/// emulator is not thread-safe, so call them under whatever serialises writes to the terminal. The
+/// results — <see cref="Count"/>, <see cref="HitsOnRow"/>, the moves, <see cref="Find"/>,
+/// <see cref="Apply(IEnumerable{SearchHit}, bool, long)"/> and <see cref="Clear"/> — belong to ONE
+/// reader thread, normally the UI's. <see cref="TerminalBuffer.Trimmed"/> may arrive on any thread at
+/// any time: a host raises it from its output thread, while the renderer is drawing from a span over
+/// the hits. So a trim only counts the lines dropped, and the reader thread shifts the results the
+/// next time it looks at them. A lock would cost every row of every frame, and could not cover the
+/// span anyway, which outlives the call that returned it.</para>
+///
+/// <para>A search can be split to keep it off the UI thread: <see cref="Scan"/> slices of the buffer
+/// on a worker, then hand the hits to <see cref="Apply(IEnumerable{SearchHit}, bool, long)"/> on the
+/// reader thread. <see cref="Find"/> is exactly that, done in one go.</para>
 /// </remarks>
 public sealed class BufferSearch : IDisposable
 {
@@ -38,23 +48,20 @@ public sealed class BufferSearch : IDisposable
     private readonly List<SearchHit> _hits = new();
 
     private string _needle = string.Empty;
-
-    /// <summary>
-    /// The needle as CODEPOINTS, folded for case. A cell stores a codepoint, and comparing it to
-    /// UTF-16 chars one at a time can never match anything outside the BMP -- an emoji in the
-    /// needle is two chars and neither equals the cell. Built once per Find.
-    /// </summary>
-    /// <remarks>
-    /// A cell whose text is a multi-codepoint cluster is compared by its LEADING codepoint, which
-    /// is all the cell stores inline. Matching the full cluster text would mean materialising it
-    /// per cell -- the same cost this class exists to avoid, and the same reason regular
-    /// expressions are not offered. The limitation is one-directional: base-character searches
-    /// still find cells that carry combining marks.
-    /// </remarks>
-    private int[] _pattern = Array.Empty<int>();
-    private SearchOptions _options;
     private int _current = -1;
     private bool _disposed;
+
+    /// <summary>
+    /// Lines the buffer has dropped off the top since this search was made. Written by
+    /// <see cref="OnTrimmed"/> on whatever thread raises it, and nothing else.
+    /// </summary>
+    private long _trimmed;
+
+    /// <summary>
+    /// The value of <see cref="_trimmed"/> that the rows in <see cref="_hits"/> are correct for.
+    /// Reader thread only; when it falls behind, the next read shifts the hits to catch up.
+    /// </summary>
+    private long _rebasedTo;
 
     public BufferSearch(Terminal terminal)
     {
@@ -63,58 +70,152 @@ public sealed class BufferSearch : IDisposable
     }
 
     /// <summary>How many runs are held. See <see cref="MaxHits"/>.</summary>
-    public int Count => _hits.Count;
+    public int Count
+    {
+        get
+        {
+            CatchUpWithTrims();
+            return _hits.Count;
+        }
+    }
 
     /// <summary>Whether the cap was reached and matches beyond it were not kept.</summary>
     public bool Truncated { get; private set; }
 
     /// <summary>Index of the current match within <see cref="Count"/>, or -1 before one is chosen.</summary>
-    public int CurrentIndex => _current;
+    public int CurrentIndex
+    {
+        get
+        {
+            CatchUpWithTrims();
+            return _current;
+        }
+    }
 
-    /// <summary>The term last searched for.</summary>
+    /// <summary>
+    /// The term last given to <see cref="Find"/>. <see cref="Apply(IEnumerable{SearchHit}, bool, long)"/>
+    /// is not told the needle and leaves this as it was.
+    /// </summary>
     public string Needle => _needle;
+
+    /// <summary>
+    /// How many lines the buffer has trimmed off the top since this search was made. Safe to read
+    /// from any thread.
+    /// </summary>
+    /// <remarks>
+    /// The mark that ties hits from <see cref="Scan"/> to a moment in the buffer's life. Read it at
+    /// the point the scanned rows are correct — under the terminal lock, when the last slice ends —
+    /// and pass it to <see cref="Apply(IEnumerable{SearchHit}, bool, long)"/>, which shifts the hits
+    /// by whatever was trimmed between then and now.
+    /// </remarks>
+    public long TrimMark => Volatile.Read(ref _trimmed);
 
     /// <summary>
     /// Searches the whole buffer, replacing any previous result.
     /// </summary>
+    /// <remarks>
+    /// <see cref="Scan"/> over every row and then <see cref="Apply(IEnumerable{SearchHit}, bool, long)"/>,
+    /// except that the scan writes straight into the result list rather than into one that is then
+    /// copied. Reads the buffer, so call it on the reader thread while holding the terminal lock.
+    /// </remarks>
     /// <returns>The number of runs found.</returns>
     public int Find(string needle, SearchOptions options = default)
     {
-        _hits.Clear();
-        _current = -1;
-        Truncated = false;
         _needle = needle ?? string.Empty;
-        _options = options;
 
-        if (_needle.Length == 0)
-            return 0;
+        var mark = TrimMark;
+        var truncated = false;
+        _hits.Clear();
 
-        _pattern = ToFoldedCodePoints(_needle, options.CaseSensitive);
-
-        var lines = _terminal.Buffer.Lines;
-        var matchId = 0;
-
-        // Logical lines, not physical ones: a match on long output usually straddles a wrap, and
-        // those are the matches worth finding. A run starts at any line not flagged IsWrapped.
-        for (var row = 0; row < lines.Length; row++)
+        if (_needle.Length > 0)
         {
-            if (lines[row] is null)
-                continue;
-
-            if (row > 0 && lines[row]!.IsWrapped)
-                continue;   // a continuation; it was searched as part of the run above
-
-            var end = row;
-            while (end + 1 < lines.Length && lines[end + 1] is { IsWrapped: true })
-                end++;
-
-            SearchRun(lines, row, end, ref matchId);
-
-            if (Truncated)
-                break;
+            var pattern = ToFoldedCodePoints(_needle, options.CaseSensitive);
+            truncated = ScanCore(_terminal.Buffer.Lines, 0, int.MaxValue, pattern, options, _hits).Truncated;
         }
 
+        Publish(truncated, mark);
         return _hits.Count;
+    }
+
+    /// <summary>
+    /// Searches the logical lines that START in rows [<paramref name="startRow"/>,
+    /// <paramref name="endRow"/>), appending what it finds to <paramref name="into"/>. Touches no
+    /// search's state, so it can run on any thread that holds the terminal lock.
+    /// </summary>
+    /// <param name="buffer">The buffer to read. Pass the same one for every slice of a search; if the
+    /// terminal switches screens part way, start again.</param>
+    /// <param name="startRow">First row, as an absolute index into <see cref="TerminalBuffer.Lines"/> —
+    /// the same coordinate as <see cref="SearchHit.BufferRow"/>, not relative to the viewport. Use 0,
+    /// or the previous slice's <see cref="SearchScan.NextRow"/>. A continuation row here is skipped:
+    /// it belongs to a run that starts above, which the slice before searched in full.</param>
+    /// <param name="endRow">One past the last row whose line may start a run. A run that starts
+    /// before it is followed to its end, past this row if it wraps.</param>
+    /// <param name="into">Where hits are appended, in row order. Match ids continue from the last hit
+    /// already in it, so appending slice after slice to one list gives the same hits as one scan of
+    /// the lot. <see cref="MaxHits"/> caps the list as a whole.</param>
+    /// <remarks>
+    /// Rows outside the buffer are clamped rather than refused: a slice boundary that has been shifted
+    /// for trims can fall off the top.
+    /// </remarks>
+    public static SearchScan Scan(TerminalBuffer buffer, int startRow, int endRow,
+                                  string needle, SearchOptions options, List<SearchHit> into)
+    {
+        ArgumentNullException.ThrowIfNull(buffer);
+        ArgumentNullException.ThrowIfNull(into);
+
+        if (string.IsNullOrEmpty(needle))
+            return new SearchScan(Math.Clamp(endRow, 0, buffer.Lines.Length), truncated: false);
+
+        return ScanCore(buffer.Lines, startRow, endRow, ToFoldedCodePoints(needle, options.CaseSensitive),
+                        options, into);
+    }
+
+    /// <summary>
+    /// Publishes hits whose rows are correct for the buffer as it stands now.
+    /// </summary>
+    /// <remarks>
+    /// Only right when no trim can land between the rows being correct and this call — that is,
+    /// while holding the terminal lock. Otherwise use the overload that takes a
+    /// <see cref="TrimMark"/>.
+    /// </remarks>
+    public void Apply(IEnumerable<SearchHit> hits, bool truncated) => Apply(hits, truncated, TrimMark);
+
+    /// <summary>
+    /// Replaces the results with <paramref name="hits"/>, as <see cref="Find"/> would have left them.
+    /// Call it on the reader thread.
+    /// </summary>
+    /// <param name="hits">Runs in row order with match ids that never decrease — what
+    /// <see cref="Scan"/> produces. Copied, so the caller may reuse the list.</param>
+    /// <param name="truncated">Whether the scan hit <see cref="MaxHits"/>; becomes
+    /// <see cref="Truncated"/>.</param>
+    /// <param name="trimMark">The <see cref="TrimMark"/> at which the hits' rows were correct. Lines
+    /// trimmed since are applied before the hits are next read, and hits that went with them are
+    /// dropped — so a trim racing this call, or the trip to the UI thread before it, costs nothing.</param>
+    public void Apply(IEnumerable<SearchHit> hits, bool truncated, long trimMark)
+    {
+        ArgumentNullException.ThrowIfNull(hits);
+
+        if (trimMark < 0 || trimMark > TrimMark)
+            throw new ArgumentOutOfRangeException(nameof(trimMark), trimMark,
+                "A trim mark is a value TrimMark has already returned.");
+
+        _hits.Clear();
+        _hits.AddRange(hits);
+
+        // HitsOnRow binary-searches by row and the moves step by id; out of order, both go quietly
+        // wrong. Checking costs one pass over at most MaxHits structs, once per search.
+        for (var i = 1; i < _hits.Count; i++)
+        {
+            if (_hits[i].BufferRow < _hits[i - 1].BufferRow || _hits[i].MatchId < _hits[i - 1].MatchId)
+            {
+                var message = $"Hits must be in row order with non-decreasing match ids; {_hits[i]} follows {_hits[i - 1]}.";
+                _hits.Clear();
+                Publish(truncated: false, TrimMark);
+                throw new ArgumentException(message, nameof(hits));
+            }
+        }
+
+        Publish(truncated, trimMark);
     }
 
     /// <summary>
@@ -123,10 +224,13 @@ public sealed class BufferSearch : IDisposable
     /// <remarks>
     /// A span rather than a list because this is asked once per row per frame, and the answer is
     /// usually nothing. Hits are produced in row order, so the row's block is found by binary search
-    /// and handed back in place.
+    /// and handed back in place. The span stays put until the next call into this search on the
+    /// reader thread; a trim on another thread does not move it.
     /// </remarks>
     public ReadOnlySpan<SearchHit> HitsOnRow(int bufferRow)
     {
+        CatchUpWithTrims();
+
         var all = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_hits);
 
         var lo = 0;
@@ -161,9 +265,8 @@ public sealed class BufferSearch : IDisposable
     public void Clear()
     {
         _hits.Clear();
-        _current = -1;
         _needle = string.Empty;
-        Truncated = false;
+        Publish(truncated: false, TrimMark);
     }
 
     public void Dispose()
@@ -175,9 +278,53 @@ public sealed class BufferSearch : IDisposable
         _terminal.Buffer.Trimmed -= OnTrimmed;
     }
 
+    private void Publish(bool truncated, long trimMark)
+    {
+        _current = -1;
+        Truncated = truncated;
+        _rebasedTo = trimMark;
+    }
+
     // ---- the walk ------------------------------------------------------------------------
 
-    private void SearchRun(CircularList<BufferLine> lines, int startRow, int endRow, ref int matchId)
+    private static SearchScan ScanCore(CircularList<BufferLine> lines, int startRow, int endRow,
+                                       int[] pattern, SearchOptions options, List<SearchHit> into)
+    {
+        var end = Math.Min(endRow, lines.Length);
+        var row = Math.Max(0, startRow);
+
+        if (into.Count >= MaxHits)
+            return new SearchScan(row, truncated: true);
+
+        var matchId = into.Count > 0 ? into[^1].MatchId + 1 : 0;
+
+        // Logical lines, not physical ones: a match on long output usually straddles a wrap, and
+        // those are the matches worth finding. A run starts at any line not flagged IsWrapped.
+        for (; row < end; row++)
+        {
+            if (lines[row] is null)
+                continue;
+
+            if (row > 0 && lines[row]!.IsWrapped)
+                continue;   // a continuation; it was searched as part of the run above
+
+            var runEnd = row;
+            while (runEnd + 1 < lines.Length && lines[runEnd + 1] is { IsWrapped: true })
+                runEnd++;
+
+            var truncated = SearchRun(lines, row, runEnd, pattern, options, into, ref matchId);
+            row = runEnd;
+
+            if (truncated)
+                return new SearchScan(row + 1, truncated: true);
+        }
+
+        return new SearchScan(Math.Max(row, end), truncated: false);
+    }
+
+    /// <returns>Whether the cap was reached.</returns>
+    private static bool SearchRun(CircularList<BufferLine> lines, int startRow, int endRow,
+                                  int[] pattern, SearchOptions options, List<SearchHit> into, ref int matchId)
     {
         for (var row = startRow; row <= endRow; row++)
         {
@@ -187,19 +334,16 @@ public sealed class BufferSearch : IDisposable
 
             for (var col = 0; col < line.Length; col++)
             {
-                if (!Matches(lines, endRow, row, col, out var afterRow, out var afterCol))
+                if (!Matches(lines, endRow, row, col, pattern, options.CaseSensitive, out var afterRow, out var afterCol))
                     continue;
 
-                if (_options.WholeWord && !IsWholeWord(lines, startRow, endRow, row, col, afterRow, afterCol))
+                if (options.WholeWord && !IsWholeWord(lines, startRow, endRow, row, col, afterRow, afterCol))
                     continue;
 
-                AddRuns(lines, matchId++, row, col, afterRow, afterCol);
+                AddRuns(lines, into, matchId++, row, col, afterRow, afterCol);
 
-                if (_hits.Count >= MaxHits)
-                {
-                    Truncated = true;
-                    return;
-                }
+                if (into.Count >= MaxHits)
+                    return true;
 
                 // Matches do not overlap. Step past this one, which may have ended on a later row.
                 if (afterRow != row)
@@ -207,7 +351,7 @@ public sealed class BufferSearch : IDisposable
                     row = afterRow;
                     line = lines[row];
                     if (line is null)
-                        return;
+                        return false;
                     col = afterCol - 1;
                 }
                 else
@@ -216,6 +360,8 @@ public sealed class BufferSearch : IDisposable
                 }
             }
         }
+
+        return false;
     }
 
     /// <summary>
@@ -227,8 +373,8 @@ public sealed class BufferSearch : IDisposable
     /// nothing to attach to. Comparing either would make a needle fail to match text that reads
     /// exactly like it.
     /// </remarks>
-    private bool Matches(CircularList<BufferLine> lines, int endRow, int row, int col,
-                         out int afterRow, out int afterCol)
+    private static bool Matches(CircularList<BufferLine> lines, int endRow, int row, int col,
+                                int[] pattern, bool caseSensitive, out int afterRow, out int afterCol)
     {
         afterRow = row;
         afterCol = col;
@@ -236,7 +382,7 @@ public sealed class BufferSearch : IDisposable
         var r = row;
         var c = col;
 
-        for (var i = 0; i < _pattern.Length; i++)
+        for (var i = 0; i < pattern.Length; i++)
         {
             if (!Advance(lines, endRow, ref r, ref c, skipZeroWidth: i > 0))
                 return false;
@@ -245,7 +391,7 @@ public sealed class BufferSearch : IDisposable
             if (cell.Width == 0)
                 return false;
 
-            if (Fold(cell.CodePoint, _options.CaseSensitive) != _pattern[i])
+            if (Fold(cell.CodePoint, caseSensitive) != pattern[i])
                 return false;
 
             afterRow = r;
@@ -288,6 +434,18 @@ public sealed class BufferSearch : IDisposable
         }
     }
 
+    /// <summary>
+    /// The needle as CODEPOINTS, folded for case. A cell stores a codepoint, and comparing it to
+    /// UTF-16 chars one at a time can never match anything outside the BMP -- an emoji in the
+    /// needle is two chars and neither equals the cell. Built once per search.
+    /// </summary>
+    /// <remarks>
+    /// A cell whose text is a multi-codepoint cluster is compared by its LEADING codepoint, which
+    /// is all the cell stores inline. Matching the full cluster text would mean materialising it
+    /// per cell -- the same cost this class exists to avoid, and the same reason regular
+    /// expressions are not offered. The limitation is one-directional: base-character searches
+    /// still find cells that carry combining marks.
+    /// </remarks>
     private static int[] ToFoldedCodePoints(string needle, bool caseSensitive)
     {
         var points = new List<int>(needle.Length);
@@ -315,8 +473,8 @@ public sealed class BufferSearch : IDisposable
     /// <summary>
     /// Splits a match into one run per row and records them under one id.
     /// </summary>
-    private void AddRuns(CircularList<BufferLine> lines, int matchId,
-                         int startRow, int startCol, int endRow, int endCol)
+    private static void AddRuns(CircularList<BufferLine> lines, List<SearchHit> into, int matchId,
+                                int startRow, int startCol, int endRow, int endCol)
     {
         for (var row = startRow; row <= endRow; row++)
         {
@@ -324,11 +482,11 @@ public sealed class BufferSearch : IDisposable
             var to = row == endRow ? endCol : (lines[row]?.Length ?? from);
 
             if (to > from)
-                _hits.Add(new SearchHit(row, from, to - from, matchId));
+                into.Add(new SearchHit(row, from, to - from, matchId));
         }
     }
 
-    private bool IsWholeWord(CircularList<BufferLine> lines, int startRow, int endRow,
+    private static bool IsWholeWord(CircularList<BufferLine> lines, int startRow, int endRow,
                              int row, int col, int afterRow, int afterCol)
     {
         return !IsWordCharacterBefore(lines, startRow, row, col)
@@ -381,6 +539,8 @@ public sealed class BufferSearch : IDisposable
 
     private bool TryMove(int direction, out SearchHit hit)
     {
+        CatchUpWithTrims();
+
         hit = default;
         if (_hits.Count == 0)
             return false;
@@ -409,16 +569,45 @@ public sealed class BufferSearch : IDisposable
     }
 
     /// <summary>
+    /// Counts the lines the ring drops off the top, and does nothing else.
+    /// </summary>
+    /// <remarks>
+    /// This runs on whichever thread wrote the output — a host's PTY reader, while the UI thread may
+    /// be holding a span over the hits — so it must not touch them. The reader thread shifts them
+    /// in <see cref="CatchUpWithTrims"/>.
+    /// </remarks>
+    private void OnTrimmed(int count)
+    {
+        if (count > 0)
+            Interlocked.Add(ref _trimmed, count);
+    }
+
+    /// <summary>
+    /// Applies any trims that arrived since the hits were last read. One volatile read when there
+    /// are none, which is every frame but the ones that follow a full scrollback scrolling.
+    /// </summary>
+    private void CatchUpWithTrims()
+    {
+        var trimmed = Volatile.Read(ref _trimmed);
+        if (trimmed != _rebasedTo)
+            Rebase(trimmed);
+    }
+
+    /// <summary>
     /// Shifts every result up as the ring drops lines off the top, and drops what fell off with them.
     /// </summary>
     /// <remarks>
     /// The same arrangement <c>SelectionManager</c> uses, and for the same reason: a row index that
     /// is not adjusted goes stale silently. Nothing about a wrong row looks wrong — the highlight
-    /// simply lands somewhere else while a build scrolls past.
+    /// simply lands somewhere else while a build scrolls past. Several trims are applied as one:
+    /// a row that fell off in the first is still below zero after all of them.
     /// </remarks>
-    private void OnTrimmed(int count)
+    private void Rebase(long trimmed)
     {
-        if (count <= 0 || _hits.Count == 0)
+        var count = trimmed - _rebasedTo;
+        _rebasedTo = trimmed;
+
+        if (_hits.Count == 0)
             return;
 
         var kept = 0;
@@ -429,7 +618,7 @@ public sealed class BufferSearch : IDisposable
             if (row < 0)
                 continue;
 
-            _hits[kept++] = new SearchHit(row, hit.Column, hit.Cols, hit.MatchId);
+            _hits[kept++] = new SearchHit((int)row, hit.Column, hit.Cols, hit.MatchId);
         }
 
         var dropped = _hits.Count - kept;
