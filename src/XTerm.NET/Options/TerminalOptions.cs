@@ -300,6 +300,64 @@ public class TerminalOptions : ICloneable
     public bool PointerShapesEnabled { get; set; } = true;
 
     /// <summary>
+    /// The answerback string sent in reply to ENQ (0x05). Empty, the default, sends nothing.
+    /// </summary>
+    /// <remarks>
+    /// <para>xterm's <c>answerbackString</c>, also empty by default there. The reply is the string
+    /// exactly as given, with no S8C1T conversion: it is a user-configured literal, not a report
+    /// this terminal composes.</para>
+    /// <para>A handler registered with <see cref="Terminal.RegisterExecuteHandler"/> for 0x05
+    /// runs first, and one that consumes the control suppresses this reply.</para>
+    /// </remarks>
+    public string EnquiryResponse { get; set; } = string.Empty;
+
+    /// <summary>
+    /// How OSC colour queries (OSC 4, 5, 10, 11 and 12 with <c>?</c>) are answered.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ColorReportFormat.SixteenBit"/>, the default, is xterm's
+    /// <c>rgb:rrrr/gggg/bbbb</c> and what probing programs are written to read.
+    /// <see cref="ColorReportFormat.EightBit"/> answers <c>rgb:rr/gg/bb</c>, and
+    /// <see cref="ColorReportFormat.None"/> leaves queries unanswered, for a host that would rather
+    /// not reveal its colours. Setting colours is unaffected by any of them.
+    /// </remarks>
+    public ColorReportFormat ColorReportFormat { get; set; } = ColorReportFormat.SixteenBit;
+
+    /// <summary>
+    /// Whether KAM (SM 2) actually locks the keyboard. Off by default.
+    /// </summary>
+    /// <remarks>
+    /// <para>This gates the LOCK only. Mode 2 is always stored and DECRQM always reports it, as xterm
+    /// does and esctest's <c>test_DECRQM_ANSI_KAM</c> expects; off, it is simply not acted on, so
+    /// a program that locks the keyboard and then dies cannot leave the user unable to type.</para>
+    /// <para>On, mode 2 sets <see cref="Terminal.KeyboardLocked"/>, and the terminal's own key and
+    /// paste paths drop input until RM 2, RIS or DECSTR resets it. The option is read live: turning
+    /// it off unlocks a keyboard that is locked, and turning it on while mode 2 is set locks it.
+    /// Either raises <see cref="Terminal.KeyboardLockedChanged"/>, on the thread that set this.</para>
+    /// </remarks>
+    public bool KeyboardActionModeAllowed
+    {
+        get => _keyboardActionModeAllowed;
+        set
+        {
+            if (value == _keyboardActionModeAllowed)
+                return;
+
+            _keyboardActionModeAllowed = value;
+            KeyboardActionModeAllowedChanged?.Invoke(value);
+        }
+    }
+
+    private bool _keyboardActionModeAllowed;
+
+    /// <summary>
+    /// Installed by <see cref="Terminal"/> on the snapshot it owns, so a flip while mode 2 is set
+    /// raises <see cref="Terminal.KeyboardLockedChanged"/>. Not copied by the copy constructor, for
+    /// the reason given on <see cref="ScrollbackChanged"/>.
+    /// </summary>
+    internal Action<bool>? KeyboardActionModeAllowedChanged;
+
+    /// <summary>
     /// Budget for images held by client id but not currently on screen, in bytes. A floor: the
     /// terminal always holds at least three screens' worth of pixels, so a program that tiles a
     /// full-screen picture can keep a few screens of tiles to show again without resending them.
@@ -493,6 +551,9 @@ public class TerminalOptions : ICloneable
         MaxClipboardBytes = other.MaxClipboardBytes;
         KittyKeyboardEnabled = other.KittyKeyboardEnabled;
         PointerShapesEnabled = other.PointerShapesEnabled;
+        EnquiryResponse = other.EnquiryResponse;
+        ColorReportFormat = other.ColorReportFormat;
+        KeyboardActionModeAllowed = other.KeyboardActionModeAllowed;
         MaxImageRegistryBytes = other.MaxImageRegistryBytes;
         MaxUserVariables = other.MaxUserVariables;
         MaxUserVariableBytes = other.MaxUserVariableBytes;

@@ -12,8 +12,9 @@ namespace XTerm;
 public partial class InputHandler
 {
     /// <summary>
-    /// Stored ANSI toggles: KAM (2), SRM (12), LNM (20). LNM is the one that also ACTS -- see
-    /// <see cref="Terminal.LineFeedMode"/>. IRM lives on the terminal itself and is not here.
+    /// Stored ANSI toggles: KAM (2), SRM (12), LNM (20). KAM and LNM also ACT -- see
+    /// <see cref="Terminal.KeyboardLocked"/> and <see cref="Terminal.LineFeedMode"/>. IRM lives on
+    /// the terminal itself and is not here.
     /// </summary>
     private readonly Dictionary<int, bool> _storedAnsiModes = new()
     {
@@ -78,6 +79,12 @@ public partial class InputHandler
         if (!table.ContainsKey(mode))
             return false;
 
+        // KAM is always stored and reported, as xterm does and esctest's test_DECRQM_ANSI_KAM
+        // expects. Whether it actually locks the keyboard is the host's call -- see
+        // Terminal.KeyboardLocked, which reads this through the option.
+        if (!isPrivate && mode == 2)
+            _terminal.KeyboardActionMode = value;
+
         table[mode] = value;
         if (!isPrivate && mode == 20)
             _terminal.LineFeedMode = value;
@@ -95,5 +102,6 @@ public partial class InputHandler
             _storedDecModes[key] = false;
         _terminal.LineFeedMode = false;
         _terminal.MoreFixMode = false;
+        _terminal.KeyboardActionMode = false;
     }
 }
