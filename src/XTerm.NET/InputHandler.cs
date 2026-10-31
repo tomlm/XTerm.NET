@@ -1174,9 +1174,10 @@ public partial class InputHandler
     /// </summary>
     /// <remarks>
     /// The serial is held here as well as the position so that every cell of one rectangle belongs
-    /// to the same placement, and a delete aimed at any of them takes the whole picture.
+    /// to the same placement, and a delete aimed at any of them takes the whole picture. The
+    /// placement id is the client's, from the underline colour, and zero when it named none.
     /// </remarks>
-    private (int Row, int Col, uint ImageId, Graphics.TerminalImage Image, int Serial)? _placeholderOrigin;
+    private (int Row, int Col, uint ImageId, int PlacementId, Graphics.TerminalImage Image, int Serial)? _placeholderOrigin;
 
     /// <summary>
     /// The placeholder cell just written, and how many of its combining marks have arrived.

@@ -161,17 +161,162 @@ public class KittyPlaceholderTests
     }
 
     /// <summary>
-    /// A palette index is a colour, not an id. Only a direct colour carries one, so an ordinary
-    /// coloured placeholder does not accidentally summon image number three.
+    /// A 16-colour SGR is a colour, not an id, so an ordinary red placeholder does not summon image
+    /// number one.
     /// </summary>
+    /// <remarks>
+    /// Image ONE, because SGR 31 is index 1. This test used to store image 3, which no reading of
+    /// SGR 31 could ever resolve to, so it passed whether or not the palette was rejected.
+    /// </remarks>
     [Fact]
-    public void A_palette_colour_is_not_read_as_an_id()
+    public void A_sixteen_colour_sgr_is_not_read_as_an_id()
     {
-        var terminal = WithStoredImage(3);
+        var terminal = WithStoredImage(1);
 
         terminal.Write($"{Esc}[31m" + Placeholder);   // SGR 31, palette red
 
         Assert.False(ImageAssertions.IsImageAt(terminal, 0, 0));
+        Assert.Equal(Placeholder, Cell(terminal, 0, 0).Content);
+    }
+
+    /// <summary>
+    /// The default foreground is stored as colour 256, which is a perfectly good id -- and must not
+    /// be read as one, or every uncoloured placeholder would show image 256.
+    /// </summary>
+    [Fact]
+    public void The_default_foreground_is_not_read_as_an_id()
+    {
+        var terminal = WithStoredImage(256);
+
+        terminal.Write($"{Esc}[39m" + Placeholder);
+
+        Assert.False(ImageAssertions.IsImageAt(terminal, 0, 0));
+    }
+
+    // ---- ids from the 256-colour palette, and the placement id ------------------------------------
+
+    /// <summary>Transmits another 4x6 picture into a terminal that already has one.</summary>
+    private static void Store(Terminal terminal, uint id, byte value)
+        => terminal.Write($"{Esc}_Ga=t,i={id},f=32,s=4,v=6,q=2;{SolidRgba(4, 6, value)}{St}");
+
+    /// <summary>Which stored picture a cell shows, by the byte its pixels were filled with.</summary>
+    private static byte? ShownValue(Terminal terminal, int col, int row)
+        => ImageAssertions.ImageAt(terminal, col, row) is { } image ? image.Pixels.Span[0] : null;
+
+    /// <summary>
+    /// The kitty spec's own form for small ids: <c>38;5;n</c>, an 8-bit id in the 256-colour
+    /// palette. Index 1 is the case that matters -- the same value SGR 31 stores, told apart only by
+    /// which palette named it.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(42)]
+    [InlineData(255)]
+    public void A_256_colour_index_is_read_as_an_8_bit_id(int id)
+    {
+        var terminal = WithStoredImage((uint)id);
+
+        terminal.Write($"{Esc}[38;5;{id}m" + Placeholder);
+
+        Assert.True(ImageAssertions.IsImageAt(terminal, 0, 0), $"38;5;{id} did not name image {id}");
+        Assert.Equal((0, 0), ImageAssertions.TileAt(terminal, 0, 0));
+    }
+
+    /// <summary>
+    /// The third mark is the id's most significant byte, over an 8-bit id as over a 24-bit one.
+    /// This is the spec's own example: <c>38;5;42</c> and U+030E (2) name 42 + (2 &lt;&lt; 24).
+    /// </summary>
+    [Fact]
+    public void A_third_mark_adds_the_high_byte_to_an_8_bit_id()
+    {
+        const uint extendedId = 42 + (2u << 24);
+        var terminal = WithStoredImage(42, value: 90);
+        Store(terminal, extendedId, value: 30);
+
+        terminal.Write($"{Esc}[38;5;42m" + Placeholder + Mark[0] + Mark[0] + Mark[2]);
+
+        Assert.Equal((byte)30, ShownValue(terminal, 0, 0));
+    }
+
+    /// <summary>Without the third mark the same cell is image 42 itself.</summary>
+    [Fact]
+    public void An_8_bit_id_without_a_third_mark_is_just_the_index()
+    {
+        var terminal = WithStoredImage(42, value: 90);
+        Store(terminal, 42 + (2u << 24), value: 30);
+
+        terminal.Write($"{Esc}[38;5;42m" + Placeholder + Mark[0] + Mark[0]);
+
+        Assert.Equal((byte)90, ShownValue(terminal, 0, 0));
+    }
+
+    /// <summary>
+    /// A 24-bit id keeps all three of its bytes: reading <c>38;2</c> as if it were an index would
+    /// land on image 3 here, which is stored precisely so that mistake would show.
+    /// </summary>
+    [Fact]
+    public void A_24_bit_id_uses_every_byte_of_the_colour()
+    {
+        var terminal = WithStoredImage(0x010203, value: 90);
+        Store(terminal, 3, value: 30);
+
+        terminal.Write(SelectImageId(0x010203) + Placeholder);
+
+        Assert.Equal((byte)90, ShownValue(terminal, 0, 0));
+    }
+
+    /// <summary>The placement id rides in the underline colour, as a 256-colour index...</summary>
+    [Fact]
+    public void A_256_colour_underline_names_the_placement()
+    {
+        var terminal = WithStoredImage(42);
+
+        terminal.Write($"{Esc}[38;5;42;58;5;7m" + Placeholder);
+
+        Assert.Equal(7, ImageAssertions.PlacementAt(terminal, 0, 0)!.Value.PlacementId);
+    }
+
+    /// <summary>...or as 24 bits of RGB.</summary>
+    [Fact]
+    public void An_rgb_underline_names_the_placement()
+    {
+        var terminal = WithStoredImage(5);
+
+        terminal.Write(SelectImageId(5) + $"{Esc}[58;2;1;2;3m" + Placeholder);
+
+        Assert.Equal(0x010203, ImageAssertions.PlacementAt(terminal, 0, 0)!.Value.PlacementId);
+    }
+
+    /// <summary>No underline colour is placement zero: "any placement of the image".</summary>
+    [Fact]
+    public void Without_an_underline_colour_the_placement_id_is_zero()
+    {
+        var terminal = WithStoredImage(5);
+
+        terminal.Write(SelectImageId(5) + Placeholder);
+
+        Assert.Equal(0, ImageAssertions.PlacementAt(terminal, 0, 0)!.Value.PlacementId);
+    }
+
+    /// <summary>
+    /// Two placements of one image side by side are two rectangles, each starting at its own first
+    /// tile, and a delete naming one placement leaves the other.
+    /// </summary>
+    [Fact]
+    public void A_placement_id_separates_two_copies_of_one_image()
+    {
+        var terminal = WithStoredImage(5);
+
+        terminal.Write(SelectImageId(5) + $"{Esc}[58;5;7m" + Placeholder);
+        terminal.Write($"{Esc}[58;5;9m" + Placeholder);
+
+        Assert.Equal((0, 0), ImageAssertions.TileAt(terminal, 0, 0));
+        Assert.Equal((0, 0), ImageAssertions.TileAt(terminal, 1, 0));
+
+        terminal.Write($"{Esc}_Ga=d,d=i,i=5,p=7,q=2{St}");
+
+        Assert.False(ImageAssertions.IsImageAt(terminal, 0, 0), "placement 7 was not deleted");
+        Assert.True(ImageAssertions.IsImageAt(terminal, 1, 0), "placement 9 went with it");
     }
 
     // ---- explicit tiles, stated with combining marks ----------------------------------------------

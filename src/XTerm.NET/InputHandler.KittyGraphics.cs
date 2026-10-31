@@ -103,9 +103,10 @@ public partial class InputHandler
     /// Writes a cell that a client marked as showing part of an image.
     /// </summary>
     /// <remarks>
-    /// <para>The image is named by the cell's FOREGROUND COLOUR, which carries a 24-bit id rather
-    /// than a colour. That works here because <c>AttributeData</c> keeps 25 bits for the value, so
-    /// it survives the round trip unchanged.</para>
+    /// <para>The image is named by the cell's FOREGROUND COLOUR, which carries an id rather than a
+    /// colour: 24 bits from <c>38;2</c>, or 8 from a <c>38;5</c> index. That works here because
+    /// <c>AttributeData</c> keeps 25 bits for the value, so it survives the round trip unchanged.
+    /// The placement id travels the same way in the UNDERLINE colour, and is optional.</para>
     /// <para>Which tile the cell shows is worked out from where it sits relative to the top-left of
     /// the run, which is how a contiguous rectangle written in reading order comes out right. A
     /// client may also state the row and column explicitly, as combining marks drawn from a fixed
@@ -118,13 +119,20 @@ public partial class InputHandler
         if (!_terminal.Options.KittyGraphicsEnabled)
             return false;
 
-        // Mode 0 is a palette index; only a direct colour carries an id.
-        if (_curAttr.GetFgColorMode() == 0)
+        // An id is a 38;2 colour or a 38;5 index. SGR 30-37 and the default stay colours, so red
+        // text does not summon image number one. Packed once: the kind and the value are both in Fg.
+        var fg = _curAttr.Fg;
+        var kind = AttributeData.KindOf(fg);
+        if (kind != ColorMode.RGB && kind != ColorMode.Palette256)
             return false;
 
-        var imageId = (uint)_curAttr.GetFgColor();
+        var imageId = (uint)(fg & AttributeData.ColorMask);
         if (imageId == 0 || !_kittyImages.TryGet(imageId, out var image))
             return false;
+
+        // SGR 58 has only the 58;5 and 58;2 forms, so any underline colour at all is an id. None is
+        // zero, which the protocol reads as "whichever placement of the image".
+        var placementId = _curAttr.TryGetUnderlineColor(out var underline, out _) ? underline : 0;
 
         var row = _buffer.Y + _buffer.YBase;
         var col = _buffer.X;
@@ -141,14 +149,16 @@ public partial class InputHandler
         // redraws a thumbnail lower down than the last one.
         var continues = _placeholderOrigin is { } origin
                         && origin.ImageId == imageId
+                        && origin.PlacementId == placementId
                         && row >= origin.Row && row - origin.Row < origin.Image.Rows
                         && col >= origin.Col && col - origin.Col < origin.Image.Cols;
 
         if (!continues)
-            _placeholderOrigin = (row, col, imageId, image, Graphics.LinePlacement.NextSerial());
+            _placeholderOrigin = (row, col, imageId, placementId, image, Graphics.LinePlacement.NextSerial());
 
         var start = _placeholderOrigin!.Value;
-        if (!WritePlaceholderCell(row, col, start.Image, start.Serial, col - start.Col, row - start.Row))
+        if (!WritePlaceholderCell(row, col, start.Image, start.Serial, start.PlacementId,
+                                  col - start.Col, row - start.Row))
             return false;
 
         _placeholderCell = (row, col, 0);
@@ -168,7 +178,7 @@ public partial class InputHandler
     /// </remarks>
     /// <returns>False when the tile falls outside the picture.</returns>
     private bool WritePlaceholderCell(int row, int col, Graphics.TerminalImage image, int serial,
-                                      int tileCol, int tileRow)
+                                      int placementId, int tileCol, int tileRow)
     {
         if (tileCol < 0 || tileRow < 0 || tileCol >= image.Cols || tileRow >= image.Rows)
             return false;
@@ -196,6 +206,7 @@ public partial class InputHandler
                 image.Id, col, 1,
                 srcX: srcX, srcY: srcY, srcWidth: srcWidth, srcHeight: srcHeight,
                 kind: Graphics.PlacementKind.Placeholder,
+                placementId: placementId,
                 serial: serial),
             image);
         return true;
@@ -255,13 +266,15 @@ public partial class InputHandler
                 break;
 
             default:
-                // The high byte of the id. Re-resolving can fail, and when it does the cell keeps
-                // the picture it already had rather than becoming a blank.
+                // The high byte of the id, above the 24 or 8 bits the colour carried. Re-resolving
+                // can fail, and when it does the cell keeps the picture it already had rather than
+                // becoming a blank.
                 var extendedId = ((uint)value << 24) | (origin.ImageId & 0x00FFFFFF);
                 if (_kittyImages.TryGet(extendedId, out var extended))
                 {
                     image = extended;
-                    _placeholderOrigin = (origin.Row, origin.Col, extendedId, extended, origin.Serial);
+                    _placeholderOrigin = (origin.Row, origin.Col, extendedId, origin.PlacementId, extended,
+                                          origin.Serial);
                 }
                 break;
         }
@@ -273,7 +286,7 @@ public partial class InputHandler
         if (tileCol >= image.Cols || tileRow >= image.Rows)
             return true;
 
-        WritePlaceholderCell(target.Row, target.Col, image, origin.Serial, tileCol, tileRow);
+        WritePlaceholderCell(target.Row, target.Col, image, origin.Serial, origin.PlacementId, tileCol, tileRow);
         return true;
     }
 
