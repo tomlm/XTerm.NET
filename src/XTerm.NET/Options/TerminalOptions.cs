@@ -324,6 +324,18 @@ public class TerminalOptions : ICloneable
     public ColorReportFormat ColorReportFormat { get; set; } = ColorReportFormat.SixteenBit;
 
     /// <summary>
+    /// Whether an application may lock the keyboard with KAM (SM 2). Off by default.
+    /// </summary>
+    /// <remarks>
+    /// <para>Off, SM 2 is ignored and DECRQM reports mode 2 reset, as Ghostty does: a program that
+    /// locks the keyboard and then dies leaves the user unable to type into their own terminal.</para>
+    /// <para>On, SM 2 sets <see cref="Terminal.KeyboardLocked"/>, and the terminal's own key and
+    /// paste paths drop input until RM 2, RIS or DECSTR clears it. Turning this off does not unlock
+    /// a keyboard already locked; it only refuses the next SM 2.</para>
+    /// </remarks>
+    public bool KeyboardActionModeAllowed { get; set; } = false;
+
+    /// <summary>
     /// Budget for images held by client id but not currently on screen, in bytes. A floor: the
     /// terminal always holds at least three screens' worth of pixels, so a program that tiles a
     /// full-screen picture can keep a few screens of tiles to show again without resending them.
@@ -513,6 +525,7 @@ public class TerminalOptions : ICloneable
         PointerShapesEnabled = other.PointerShapesEnabled;
         EnquiryResponse = other.EnquiryResponse;
         ColorReportFormat = other.ColorReportFormat;
+        KeyboardActionModeAllowed = other.KeyboardActionModeAllowed;
         MaxImageRegistryBytes = other.MaxImageRegistryBytes;
         MaxUserVariables = other.MaxUserVariables;
         MaxUserVariableBytes = other.MaxUserVariableBytes;

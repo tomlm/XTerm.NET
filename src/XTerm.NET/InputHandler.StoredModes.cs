@@ -12,8 +12,9 @@ namespace XTerm;
 public partial class InputHandler
 {
     /// <summary>
-    /// Stored ANSI toggles: KAM (2), SRM (12), LNM (20). LNM is the one that also ACTS -- see
-    /// <see cref="Terminal.LineFeedMode"/>. IRM lives on the terminal itself and is not here.
+    /// Stored ANSI toggles: KAM (2), SRM (12), LNM (20). KAM and LNM also ACT -- see
+    /// <see cref="Terminal.KeyboardLocked"/> and <see cref="Terminal.LineFeedMode"/>. IRM lives on
+    /// the terminal itself and is not here.
     /// </summary>
     private readonly Dictionary<int, bool> _storedAnsiModes = new()
     {
@@ -78,6 +79,16 @@ public partial class InputHandler
         if (!table.ContainsKey(mode))
             return false;
 
+        if (!isPrivate && mode == 2)
+        {
+            // KAM locks the keyboard, which a program can do to a user but not undo for them if it
+            // dies -- so it is refused unless the host opts in, and stays reported reset, as Ghostty
+            // does. RM 2 is always honoured: unlocking is never the risk.
+            if (value && !_terminal.Options.KeyboardActionModeAllowed)
+                return true;
+            _terminal.KeyboardLocked = value;
+        }
+
         table[mode] = value;
         if (!isPrivate && mode == 20)
             _terminal.LineFeedMode = value;
@@ -95,5 +106,6 @@ public partial class InputHandler
             _storedDecModes[key] = false;
         _terminal.LineFeedMode = false;
         _terminal.MoreFixMode = false;
+        _terminal.KeyboardLocked = false;
     }
 }

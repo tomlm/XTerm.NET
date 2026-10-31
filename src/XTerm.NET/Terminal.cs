@@ -43,6 +43,18 @@ public class Terminal : IDisposable
     /// modes the input handler tracks, acted on here because LF executes here.</summary>
     public bool LineFeedMode { get; set; }
 
+    /// <summary>
+    /// KAM (SM 2): the application has locked the keyboard. While true,
+    /// <see cref="GenerateKeyInput"/>, <see cref="GenerateCharInput"/> and
+    /// <see cref="GenerateKittyKeyInput"/> produce nothing and <see cref="Paste(TerminalPaste)"/>
+    /// sends nothing; a host that encodes its own input should check this too.
+    /// </summary>
+    /// <remarks>
+    /// Only ever true when <see cref="TerminalOptions.KeyboardActionModeAllowed"/> is: otherwise
+    /// SM 2 is ignored. RM 2, RIS and DECSTR clear it.
+    /// </remarks>
+    public bool KeyboardLocked { get; internal set; }
+
     /// <summary>The terminator of the OSC being handled right now, for replies to mirror --
     /// xterm answers BEL-terminated queries with BEL and ST-terminated ones with ST.</summary>
     internal string OscReplyTerminator => _parser.LastOscEndedWithBel ? "\u0007" : "\u001b\\";
@@ -1846,6 +1858,8 @@ public class Terminal : IDisposable
     /// <returns>The escape sequence string to send to the application</returns>
     public string GenerateKeyInput(Key key, KeyModifiers modifiers = KeyModifiers.None)
     {
+        if (KeyboardLocked)
+            return string.Empty;
         return _keyboardInput.GenerateKeySequence(key, modifiers);
     }
 
@@ -1857,6 +1871,8 @@ public class Terminal : IDisposable
     /// <returns>The escape sequence string to send to the application</returns>
     public string GenerateCharInput(char c, KeyModifiers modifiers = KeyModifiers.None)
     {
+        if (KeyboardLocked)
+            return string.Empty;
         return _keyboardInput.GenerateCharSequence(c, modifiers);
     }
 
@@ -1879,6 +1895,9 @@ public class Terminal : IDisposable
     /// </returns>
     public string? GenerateKittyKeyInput(KeyEvent ev, KittyKeyboardEventType eventType = KittyKeyboardEventType.Press)
     {
+        if (KeyboardLocked)
+            return null;
+
         var result = KittyKeyboard.Evaluate(ev, KittyKeyboardState.Flags, eventType, Options.MacOptionIsMeta);
         // Legacy encodings describe presses and repeats only. Falling back for a release would
         // turn key-up into a second key-down. With no active flags this Kitty-specific entry point
@@ -2523,7 +2542,8 @@ public class Terminal : IDisposable
     /// </remarks>
     public void Paste(TerminalPaste paste)
     {
-        if (paste.MimeTypes.Count == 0)
+        // KAM: a locked keyboard takes no pasted input either, or the lock is one Ctrl+V from void.
+        if (paste.MimeTypes.Count == 0 || KeyboardLocked)
             return;
 
         if (PasteNotificationMode)
