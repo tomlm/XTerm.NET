@@ -177,7 +177,7 @@ public class ResizeEdgeCaseTests
     /// when the cursor fell below the new bottom, so a shrink with the cursor at the top kept all 24
     /// lines with YBase at 0 -- and ScrollUp appends at the tail, so the extra lines lasted for the
     /// life of the terminal: a buffer longer than its scrollback, and a scrollbar with nothing to
-    /// scroll. xterm.js pops the lines below the cursor.
+    /// scroll.
     /// </remarks>
     [Fact]
     public void ShrinkingRows_WithCursorAtTop_PopsTheBlankRowsBelowIt()
@@ -223,8 +223,8 @@ public class ResizeEdgeCaseTests
     }
 
     /// <summary>
-    /// The cursor in the middle: the lines below it go first, then the rest scrolls into
-    /// scrollback -- the order xterm.js uses.
+    /// The cursor in the middle with blank rows below it: those are popped first, then the rest
+    /// scrolls into scrollback.
     /// </summary>
     [Fact]
     public void ShrinkingRows_WithCursorInTheMiddle_PopsBelowThenScrolls()
@@ -252,6 +252,12 @@ public class ResizeEdgeCaseTests
     /// the viewport was scrolled up into scrollback. A host derives its scroll range from YBase, so
     /// a viewport beyond it would point below the screen.
     /// </summary>
+    /// <remarks>
+    /// The screen is full of output here, so the cursor rows exercise all three outcomes: on row 24
+    /// nothing is below it and nothing is lost; on rows 1 and 12 the content below the cursor is
+    /// more than a 10-row screen can hold once the cursor reaches the top, and only the lines that
+    /// cannot fit are dropped. Every line that remains is the line that was there.
+    /// </remarks>
     [Theory]
     [InlineData(1, false)]
     [InlineData(12, false)]
@@ -271,6 +277,9 @@ public class ResizeEdgeCaseTests
         var buffer = terminal.Buffer;
         var contentRow = buffer.YBase + buffer.Y;
         Assert.Equal(scrolledUp, buffer.ViewportY < buffer.YBase);
+        var before = new string[buffer.Lines.Length];
+        for (var i = 0; i < before.Length; i++)
+            before[i] = buffer.Lines[i]!.TranslateToString(true);
 
         terminal.Resize(40, 10);
 
@@ -279,19 +288,67 @@ public class ResizeEdgeCaseTests
         Assert.Equal(contentRow, buffer.YBase + buffer.Y);
         // A viewport that was following the tail still is; one scrolled up stays scrolled up.
         Assert.Equal(scrolledUp, buffer.ViewportY < buffer.YBase);
+
+        // Nothing is dropped that a 10-row screen below the cursor's line could hold...
+        Assert.Equal(Math.Min(before.Length, contentRow + terminal.Rows), buffer.Lines.Length);
+        // ...and every line kept is the line that was there.
+        for (var i = 0; i < buffer.Lines.Length; i++)
+            Assert.Equal(before[i], buffer.Lines[i]!.TranslateToString(true));
     }
 
     /// <summary>
-    /// Shrinking and growing back returns to a full screen with the cursor on its line, and nothing
-    /// in scrollback that was not there before.
+    /// Content below the cursor survives a shrink and comes back when the window grows: a progress
+    /// bar redrawn above earlier output, an fzf --height list, a DECSDM Sixel.
+    /// </summary>
+    /// <remarks>
+    /// Popping every line below the cursor, as xterm.js does, fixed the blank-row strand but made
+    /// this case lossy, where it had been lossless: rows 19 to 23 came back blank. Found in review.
+    /// </remarks>
+    [Fact]
+    public void ShrinkThenGrow_WithTheCursorAboveContent_KeepsTheContent()
+    {
+        var terminal = new Terminal(new TerminalOptions { Cols = 40, Rows = 24, Scrollback = 200 });
+        for (var i = 0; i < 23; i++)
+            terminal.Write($"line {i}\r\n");
+        terminal.Write("prompt$ ");
+        terminal.Write("\u001b[5A");
+        Assert.Equal(18, terminal.Buffer.Y);
+
+        terminal.Resize(40, 10);
+
+        Assert.Equal(24, terminal.Buffer.Lines.Length);
+        Assert.Equal(14, terminal.Buffer.YBase);
+        Assert.Equal(4, terminal.Buffer.Y);
+
+        terminal.Resize(40, 24);
+
+        Assert.Equal(0, terminal.Buffer.YBase);
+        Assert.Equal(18, terminal.Buffer.Y);
+        for (var i = 0; i < 23; i++)
+            Assert.Equal($"line {i}", terminal.Buffer.Lines[i]!.TranslateToString(true));
+        Assert.Equal("prompt$", terminal.Buffer.Lines[23]!.TranslateToString(true));
+    }
+
+    /// <summary>
+    /// Shrinking and growing back with the cursor near the top and output below it: only the blank
+    /// rows go, so the shrunk buffer is exactly the screen, and the output is still there after.
     /// </summary>
     [Fact]
     public void ShrinkingThenGrowingRows_WithCursorAtTop_RoundTrips()
     {
         var terminal = new Terminal(new TerminalOptions { Cols = 40, Rows = 24, Scrollback = 200 });
         terminal.Write("banner\r\nprompt$ ");
+        for (var row = 7; row <= 9; row++)
+            terminal.Write($"\u001b[{row};1Hitem {row}");
+        terminal.Write("\u001b[2;9H");
 
         terminal.Resize(40, 12);
+
+        // Lines 9 to 23 were blank: 12 of them are popped, and nothing is left below the screen.
+        Assert.Equal(12, terminal.Buffer.Lines.Length);
+        Assert.Equal(0, terminal.Buffer.YBase);
+        Assert.Equal(1, terminal.Buffer.Y);
+
         terminal.Resize(40, 24);
 
         Assert.Equal(24, terminal.Buffer.Lines.Length);
@@ -299,6 +356,8 @@ public class ResizeEdgeCaseTests
         Assert.Equal(1, terminal.Buffer.Y);
         Assert.Equal("banner", terminal.Buffer.Lines[0]!.TranslateToString(true));
         Assert.Equal("prompt$", terminal.Buffer.Lines[1]!.TranslateToString(true));
+        for (var row = 7; row <= 9; row++)
+            Assert.Equal($"item {row}", terminal.Buffer.Lines[row - 1]!.TranslateToString(true));
     }
 
     /// <summary>

@@ -907,11 +907,21 @@ public class TerminalBuffer
         _yDisp = Math.Clamp(_yDisp, 0, _yBase);
 
         // Shrinking rows: the screen is the last `rows` lines, so the difference has to leave the
-        // screen somehow. As xterm.js does, lines BELOW the cursor are popped first -- a fresh
-        // shell's cursor sits near the top, and those are the blank rows it never reached -- and
-        // only once the cursor is the last line does the rest scroll up into scrollback. Moving
-        // lines to scrollback only when the cursor fell off the bottom left every 24-row emulator
-        // resized smaller with blank lines below the screen for the life of the terminal.
+        // screen. Moving lines to scrollback only when the cursor fell off the bottom left every
+        // 24-row emulator resized smaller with blank lines below the screen -- a fresh shell's
+        // cursor sits near the top -- and ScrollUp appends at the tail, so they lasted for the life
+        // of the terminal.
+        //
+        // So, from the tail: a BLANK line below the cursor is popped. Anything else scrolls the top
+        // of the screen into scrollback, which keeps it -- a progress bar redrawn above earlier
+        // output, an fzf --height list or a DECSDM Sixel below the cursor all come back when the
+        // window grows. xterm.js pops below the cursor without looking, which loses those.
+        //
+        // Only when the cursor has reached the top row and the content below it still does not fit
+        // is a non-blank line popped: scrolling further would put the cursor above the screen, and
+        // leaving the line below it is the strand again, which the next ScrollUp would surface as
+        // the bottom row with its stale content still in it.
+        //
         // Floored at one row, so a zero-row resize keeps the cursor's line rather than scrolling
         // it above the screen.
         var keepRows = Math.Max(1, newRows);
@@ -920,14 +930,20 @@ public class TerminalBuffer
             var wasFollowing = _yDisp == _yBase;
             while (_lines.Length > _yBase + keepRows)
             {
-                if (_lines.Length > _yBase + _y + 1)
+                var belowCursor = _lines.Length > _yBase + _y + 1;
+                if (belowCursor && _lines[_lines.Length - 1]?.HasSnapshotContent() != true)
                 {
                     _lines.Pop();
                 }
-                else
+                else if (_y > 0)
                 {
                     _yBase++;
                     _y--;
+                }
+                else
+                {
+                    // Cursor on the top row: the loop condition guarantees this line is below it.
+                    _lines.Pop();
                 }
             }
 
