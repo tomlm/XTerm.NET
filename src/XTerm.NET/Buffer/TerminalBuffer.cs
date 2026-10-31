@@ -90,6 +90,33 @@ public class TerminalBuffer
     /// </summary>
     public event Action<int>? Trimmed;
 
+    private long _trimmedLines;
+    private int _resizes;
+
+    /// <summary>
+    /// How many lines have been trimmed off the start of this buffer since it was made — the running
+    /// total of every <see cref="Trimmed"/>. Safe to read from any thread.
+    /// </summary>
+    /// <remarks>
+    /// An absolute row taken when this read <c>n</c> names the same line, <c>TrimmedLines - n</c>
+    /// rows further up, at any later moment. That makes it a mark something holding rows can be
+    /// rebased from later, on its own thread, instead of rewriting them inside a handler on the
+    /// thread that wrote the output.
+    /// </remarks>
+    public long TrimmedLines => Volatile.Read(ref _trimmedLines);
+
+    /// <summary>
+    /// How many times <see cref="Resize"/> has changed this buffer's size. A row or column taken
+    /// before a change may name different text after it, because a width change reflows.
+    /// </summary>
+    public int ResizeCount => _resizes;
+
+    private void RaiseTrimmed(int count)
+    {
+        Volatile.Write(ref _trimmedLines, _trimmedLines + count);
+        Trimmed?.Invoke(count);
+    }
+
     /// <summary>
     /// Fired synchronously before a line scrolls out of the active viewport and can be recycled.
     /// </summary>
@@ -312,7 +339,7 @@ public class TerminalBuffer
 
                 if (willBeRecycled)
                 {
-                    Trimmed?.Invoke(1);
+                    RaiseTrimmed(1);
                 }
 
                 // Only increment yBase if the buffer didn't recycle
@@ -469,7 +496,7 @@ public class TerminalBuffer
         // Anything tracking absolute rows -- a selection, a search result, a shell-integration
         // mark -- is now pointing above the buffer. Resize's trim path already reports itself;
         // this one did not, so CSI 3 J left the selection highlighting rows that had moved.
-        Trimmed?.Invoke(dropped);
+        RaiseTrimmed(dropped);
     }
 
     /// <summary>
@@ -833,7 +860,7 @@ public class TerminalBuffer
             var wasFollowingBottom = _yDisp == _yBase;
 
             _lines.TrimStart(amountToTrim);
-            Trimmed?.Invoke(amountToTrim);
+            RaiseTrimmed(amountToTrim);
 
             _yBase = Math.Max(0, _lines.Length - _rows);
             _yDisp = wasFollowingBottom
@@ -850,6 +877,9 @@ public class TerminalBuffer
     /// </summary>
     public void Resize(int newCols, int newRows)
     {
+        if (newCols != _cols || newRows != _rows)
+            _resizes++;
+
         // Only a wrap chain drops its pictures now. Reflow re-wraps a logical line by copying
         // ranges of cells between lines, and a run anchored to a column would end up describing
         // content that is no longer there.
@@ -1054,7 +1084,7 @@ public class TerminalBuffer
                 var wasFollowingBottom = _yDisp == _yBase;
 
                 _lines.TrimStart(amountToTrim);
-                Trimmed?.Invoke(amountToTrim);
+                RaiseTrimmed(amountToTrim);
 
                 // Recomputed against the trimmed buffer rather than shifted by the trim amount.
                 // Shifting kept the viewport a fixed distance from rows that are no longer there:
@@ -1289,7 +1319,7 @@ public class TerminalBuffer
                 _yBase = Math.Max(_yBase - amountToTrim, 0);
                 _yDisp = Math.Max(_yDisp - amountToTrim, 0);
                 SavedCursorState.Y = Math.Max(SavedCursorState.Y - amountToTrim, 0);
-                Trimmed?.Invoke(amountToTrim);
+                RaiseTrimmed(amountToTrim);
             }
         }
     }
