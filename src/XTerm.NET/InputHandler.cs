@@ -1760,8 +1760,8 @@ public partial class InputHandler
                 return index;
             }
 
-            // 58:5:n
-            if (sub[0] == 5 && sub.Count >= 2)
+            // 58:5:n, ignoring an index past the palette as 38 and 48 do
+            if (sub[0] == 5 && sub.Count >= 2 && (uint)sub[1] < ColorPalette.Size)
             {
                 _curAttr.SetUnderlineColor(sub[1], (int)ColorMode.Palette256);
                 return index;
@@ -1787,7 +1787,9 @@ public partial class InputHandler
 
         if (kind == 5 && index + 2 < parameters.Length)
         {
-            _curAttr.SetUnderlineColor(parameters.GetParam(index + 2, 0), (int)ColorMode.Palette256);
+            var color = parameters.GetParam(index + 2, 0);
+            if ((uint)color < ColorPalette.Size)
+                _curAttr.SetUnderlineColor(color, (int)ColorMode.Palette256);
             return index + 2;
         }
 
@@ -1828,7 +1830,7 @@ public partial class InputHandler
                 var rgb = (sub[offset] << 16) | (sub[offset + 1] << 8) | sub[offset + 2];
                 SetExtendedColor(rgb, (int)ColorMode.RGB, isForeground);
             }
-            else if (sub[0] == 5 && sub.Count >= 2)
+            else if (sub[0] == 5 && sub.Count >= 2 && (uint)sub[1] < ColorPalette.Size)
             {
                 SetExtendedColor(sub[1], AttributeData.Palette256Mode, isForeground);
             }
@@ -1853,7 +1855,11 @@ public partial class InputHandler
         }
         else if (colorType == 5 && index + 2 < parameters.Length) // 256 color
         {
-            SetExtendedColor(parameters.GetParam(index + 2, 0), AttributeData.Palette256Mode, isForeground);
+            // An index past the palette is ignored, as xterm ignores it, but still consumed, so
+            // the parameters after it keep their meaning. Stored, it would read as the default.
+            var color = parameters.GetParam(index + 2, 0);
+            if ((uint)color < ColorPalette.Size)
+                SetExtendedColor(color, AttributeData.Palette256Mode, isForeground);
             return index + 2;
         }
 

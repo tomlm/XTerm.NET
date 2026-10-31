@@ -439,8 +439,10 @@ public sealed class ColorSnapshot
     /// </remarks>
     public int ResolveForeground(in AttributeData attributes, bool drawBoldTextInBrightColors)
     {
-        var color = attributes.GetFgColor();
-        switch (attributes.GetFgColorKind())
+        // One read of the field, and readonly getters, so an `in` argument is never copied.
+        var fg = attributes.Fg;
+        var color = fg & AttributeData.ColorMask;
+        switch (AttributeData.KindOf(fg))
         {
             case ColorMode.Palette16:
                 if (color < 8 && drawBoldTextInBrightColors && attributes.IsBold())
@@ -474,12 +476,15 @@ public sealed class ColorSnapshot
     /// foreground, and its text drawn in this colour, or <see cref="Background"/> for null.</para>
     /// </remarks>
     public int? ResolveBackground(in AttributeData attributes)
-        => attributes.GetBgColorKind() switch
+    {
+        var bg = attributes.Bg;
+        return AttributeData.KindOf(bg) switch
         {
-            ColorMode.Palette16 or ColorMode.Palette256 => colors[attributes.GetBgColor()],
-            ColorMode.RGB => attributes.GetBgColor(),
+            ColorMode.Palette16 or ColorMode.Palette256 => colors[bg & AttributeData.ColorMask],
+            ColorMode.RGB => bg & AttributeData.ColorMask,
             _ => null,
         };
+    }
 
     /// <summary>Gets whether the background is light enough that dark text belongs on it.</summary>
     public bool IsLightBackground => ColorPalette.IsLight(Background);

@@ -156,6 +156,80 @@ public class SgrColorModeTests
         Assert.Equal(kind, attributes.GetBgColorKind());
     }
 
+    /// <summary>
+    /// An index past the 256-colour palette is ignored, as xterm ignores it, and still consumed,
+    /// so the parameters after it keep their meaning. Stored, it would read as the default colour
+    /// -- in the theme's bold colour when bold.
+    /// </summary>
+    [Theory]
+    [InlineData("31;38;5;256", 1, ColorMode.Palette16)]
+    [InlineData("38;5;1;38;5;300", 1, ColorMode.Palette256)]
+    [InlineData("38;5;300", 256, ColorMode.Default)]
+    [InlineData("31;38:5:300", 1, ColorMode.Palette16)]
+    [InlineData("38;5;300;32", 2, ColorMode.Palette16)]
+    public void Foreground_IndexPastThePalette_IsIgnored(string sgr, int color, ColorMode kind)
+    {
+        var attributes = AttributesAfter(sgr);
+
+        Assert.Equal(color, attributes.GetFgColor());
+        Assert.Equal(kind, attributes.GetFgColorKind());
+    }
+
+    [Theory]
+    [InlineData("42;48;5;256", 2, ColorMode.Palette16)]
+    [InlineData("48;5;300", 257, ColorMode.Default)]
+    [InlineData("42;48:5:300", 2, ColorMode.Palette16)]
+    [InlineData("48;5;300;43", 3, ColorMode.Palette16)]
+    public void Background_IndexPastThePalette_IsIgnored(string sgr, int color, ColorMode kind)
+    {
+        var attributes = AttributesAfter(sgr);
+
+        Assert.Equal(color, attributes.GetBgColor());
+        Assert.Equal(kind, attributes.GetBgColorKind());
+    }
+
+    [Fact]
+    public void IndexPastThePalette_ConsumesItsParameter_SoTheNextOneStillApplies()
+    {
+        // 256 is read as the index, not as an SGR of its own, and the 4 after it underlines.
+        var attributes = AttributesAfter("1;38;5;256;4");
+
+        Assert.True(attributes.IsBold());
+        Assert.True(attributes.IsUnderline());
+        Assert.Equal(ColorMode.Default, attributes.GetFgColorKind());
+    }
+
+    [Theory]
+    [InlineData("58;5;300")]
+    [InlineData("58:5:300")]
+    public void Underline_IndexPastThePalette_IsIgnored(string sgr)
+    {
+        Assert.False(AttributesAfter(sgr).TryGetUnderlineColor(out _, out _));
+    }
+
+    /// <summary>
+    /// The resolvers take <c>in AttributeData</c>; a getter that is not <c>readonly</c> makes the
+    /// compiler copy the whole struct before every call through that reference.
+    /// </summary>
+    [Fact]
+    public void AttributeData_PureGetters_AreReadonly()
+    {
+        var getters = typeof(AttributeData)
+            .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance
+                        | System.Reflection.BindingFlags.DeclaredOnly)
+            .Where(m => m.Name.StartsWith("Is") || m.Name.StartsWith("Get") || m.Name.StartsWith("TryGet")
+                        || m.Name == nameof(AttributeData.Equals))
+            .ToList();
+
+        Assert.Contains(getters, m => m.Name == nameof(AttributeData.GetFgColorKind));
+        Assert.Contains(getters, m => m.Name == nameof(AttributeData.IsBold));
+
+        var notReadonly = getters
+            .Where(m => !m.CustomAttributes.Any(a => a.AttributeType.Name == "IsReadOnlyAttribute"))
+            .Select(m => m.Name);
+        Assert.Empty(notReadonly);
+    }
+
     [Fact]
     public void Sixteen_And256Palette_SameIndex_AreDifferentAttributes()
     {
