@@ -1,6 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using XTerm;
+using XTerm.Buffer;
 using XTerm.Common;
 using XTerm.Options;
 
@@ -546,6 +547,213 @@ public class ColorPaletteTests
         terminal.Write("\x1B]5;1;?\x07");
         Assert.Equal(2, replies.Count);
         Assert.All(replies, r => Assert.EndsWith("rgb:0101/0202/0303\u0007", r));
+    }
+
+    [Fact]
+    public void Osc5_BoldSlot_DefaultsToTheThemeBoldColor_AndAProgramsSetWins()
+    {
+        var terminal = CreateTerminal(new ThemeOptions { Foreground = "#010203", Bold = "#a0b0c0" });
+        var replies = CaptureReplies(terminal);
+        terminal.Write("\x1B]5;0;?\x07");
+        terminal.Write("\x1B]5;1;?\x07");          // the other specials still default to the foreground
+        terminal.Write("\x1B]5;0;#112233\x07");
+        terminal.Write("\x1B]5;0;?\x07");
+        terminal.Write("\x1B]105;0\x07");
+        terminal.Write("\x1B]5;0;?\x07");
+        Assert.Equal(
+            new[]
+            {
+                "\u001b]5;0;rgb:a0a0/b0b0/c0c0\u0007",
+                "\u001b]5;1;rgb:0101/0202/0303\u0007",
+                "\u001b]5;0;rgb:1111/2222/3333\u0007",
+                "\u001b]5;0;rgb:a0a0/b0b0/c0c0\u0007",
+            },
+            replies);
+    }
+
+    // ---- Theme bold colour and foreground resolution -----------------------------------------
+
+    private static AttributeData Attr(int fg, int mode = 0, bool bold = false)
+    {
+        var attr = AttributeData.Default;
+        attr.SetFgColor(fg, mode);
+        attr.SetBold(bold);
+        return attr;
+    }
+
+    private const int DefaultFg = 256;
+
+    [Fact]
+    public void ThemeBold_IsParsedLikeTheOtherThemeColors()
+    {
+        Assert.Equal(0xFFAA00, new ColorPalette(new ThemeOptions { Bold = "#ffaa00" }).Bold);
+        Assert.Null(new ColorPalette(new ThemeOptions()).Bold);
+        Assert.Null(new ColorPalette(new ThemeOptions { Bold = "not a colour" }).Bold);
+        Assert.Null(new ColorPalette().Take().Bold);
+    }
+
+    [Fact]
+    public void ResolveForeground_BoldWithDefaultForeground_TakesTheBoldColor()
+    {
+        var snapshot = new ColorPalette(new ThemeOptions { Foreground = "#010203", Bold = "#ffaa00" }).Take();
+
+        Assert.Equal(0xFFAA00, snapshot.ResolveForeground(Attr(DefaultFg, bold: true), true));
+        Assert.Equal(0xFFAA00, snapshot.ResolveForeground(Attr(DefaultFg, bold: true), false));
+    }
+
+    [Fact]
+    public void ResolveForeground_BoldWithAPaletteOrRgbForeground_IgnoresTheBoldColor()
+    {
+        var snapshot = new ColorPalette(new ThemeOptions { Bold = "#ffaa00" }).Take();
+
+        // Palette 0-7 follows DrawBoldTextInBrightColors, and only that.
+        Assert.Equal(snapshot[9], snapshot.ResolveForeground(Attr(1, bold: true), true));
+        Assert.Equal(snapshot[1], snapshot.ResolveForeground(Attr(1, bold: true), false));
+        // An index past the sixteen has no bright counterpart.
+        Assert.Equal(snapshot[100], snapshot.ResolveForeground(Attr(100, bold: true), true));
+        Assert.Equal(snapshot[12], snapshot.ResolveForeground(Attr(12, bold: true), true));
+        // 24-bit colour comes through exactly as the program named it, even one below 8.
+        Assert.Equal(0x123456, snapshot.ResolveForeground(Attr(0x123456, mode: 1, bold: true), true));
+        Assert.Equal(0x000003, snapshot.ResolveForeground(Attr(0x000003, mode: 1, bold: true), true));
+    }
+
+    [Fact]
+    public void ResolveForeground_NotBold_IsUnaffectedByEitherBoldSetting()
+    {
+        var snapshot = new ColorPalette(new ThemeOptions { Foreground = "#010203", Bold = "#ffaa00" }).Take();
+
+        Assert.Equal(0x010203, snapshot.ResolveForeground(Attr(DefaultFg), true));
+        Assert.Equal(snapshot[1], snapshot.ResolveForeground(Attr(1), true));
+        Assert.Equal(0x123456, snapshot.ResolveForeground(Attr(0x123456, mode: 1), true));
+    }
+
+    [Fact]
+    public void ResolveForeground_WithNoBoldColor_KeepsTodaysBehaviour()
+    {
+        var snapshot = new ColorPalette(new ThemeOptions { Foreground = "#010203" }).Take();
+
+        Assert.Equal(0x010203, snapshot.ResolveForeground(Attr(DefaultFg, bold: true), true));
+        Assert.Equal(snapshot[9], snapshot.ResolveForeground(Attr(1, bold: true), true));
+        Assert.Equal(snapshot[1], snapshot.ResolveForeground(Attr(1, bold: true), false));
+    }
+
+    /// <summary>
+    /// Drives each foreground encoding through real SGR rather than hand-built attributes, so the
+    /// mode check in ResolveForeground is tested against what the parser actually stores.
+    /// </summary>
+    [Theory]
+    // default (SGR 39): colour 256, mode 0 -> the bold colour
+    [InlineData("1;39", 256, 0, 0xFFAA00)]
+    // palette-16 (SGR 31): colour 1, mode 0 -> brightened to index 9
+    [InlineData("1;31", 1, 0, 0xFF0000)]
+    // palette-256 (SGR 38;5;n): index n, int mode 0 like the sixteen, but never brightened --
+    // even an index below 8, which names the same entry as SGR 31 but is drawn as named
+    [InlineData("1;38;5;100", 100, 0, 0x878700)]
+    [InlineData("1;38;5;1", 1, 0, 0xCD0000)]
+    [InlineData("1;38;5;9", 9, 0, 0xFF0000)]
+    // RGB (SGR 38;2): mode 1. 0x000100 is numerically 256, the default marker, and must
+    // still resolve as the colour the program named -- this is what the mode check is for.
+    [InlineData("1;38;2;0;1;0", 0x000100, 1, 0x000100)]
+    [InlineData("1;38;2;0;0;3", 0x000003, 1, 0x000003)]
+    public void ResolveForeground_EachSgrEncoding_IsReadByItsMode(string sgr, int color, int mode, int expected)
+    {
+        var terminal = CreateTerminal(new ThemeOptions { Foreground = "#010203", Bold = "#ffaa00" });
+        terminal.Write($"\x1B[{sgr}mX");
+
+        var attributes = terminal.Buffer.Lines[terminal.Buffer.YBase]![0].Attributes;
+        Assert.True(attributes.IsBold());
+        Assert.Equal(color, attributes.GetFgColor());
+        Assert.Equal(mode, attributes.GetFgColorMode());
+        Assert.Equal(expected, terminal.Colors.Take().ResolveForeground(attributes, true));
+    }
+
+    [Fact]
+    public void ResolveForeground_Bold31Brightens_Bold38_5_1DoesNot()
+    {
+        var snapshot = new ColorPalette().Take();
+
+        Assert.Equal(snapshot[9], ResolveBoldForeground("31"));
+        Assert.Equal(snapshot[1], ResolveBoldForeground("38;5;1"));
+        Assert.Equal(snapshot[1], ResolveBoldForeground("38:5:1"));
+        Assert.Equal(snapshot[9], ResolveBoldForeground("38;5;9"));
+        Assert.Equal(snapshot[9], ResolveBoldForeground("91"));
+    }
+
+    private int ResolveBoldForeground(string color)
+    {
+        var terminal = CreateTerminal();
+        terminal.Write(Esc.Csi($"1;{color}m") + "X");
+
+        var attributes = terminal.Buffer.Lines[terminal.Buffer.YBase]![0].Attributes;
+        return terminal.Colors.Take().ResolveForeground(attributes, true);
+    }
+
+    /// <summary>
+    /// Every background encoding, through real SGR. Bold is set throughout so a background that
+    /// picked up the foreground's brightening would show.
+    /// </summary>
+    [Theory]
+    [InlineData("49", null)]
+    [InlineData("41", 0xCD0000)]
+    [InlineData("101", 0xFF0000)]
+    [InlineData("48;5;1", 0xCD0000)]
+    [InlineData("48:5:1", 0xCD0000)]
+    [InlineData("48;5;100", 0x878700)]
+    [InlineData("48;2;1;2;3", 0x010203)]
+    [InlineData("48:2::1:2:3", 0x010203)]
+    // 0x000101 is numerically 257, the default background's value, and must still be RGB.
+    [InlineData("48;2;0;1;1", 0x000101)]
+    [InlineData("48;2;0;0;3", 0x000003)]
+    public void ResolveBackground_EachSgrEncoding_ResolvesToTheColourNamed(string sgr, int? expected)
+    {
+        var terminal = CreateTerminal(new ThemeOptions { Background = "#102030" });
+        terminal.Write(Esc.Csi($"1;{sgr}m") + "X");
+
+        var attributes = terminal.Buffer.Lines[terminal.Buffer.YBase]![0].Attributes;
+        Assert.Equal(expected, terminal.Colors.Take().ResolveBackground(attributes));
+    }
+
+    [Fact]
+    public void ResolveBackground_ReadsThePaletteAsItStands()
+    {
+        var snapshot = new ColorPalette(new ThemeOptions { Red = "#ff8800" }).Take();
+        var attributes = AttributeData.Default;
+
+        attributes.SetBgColor(1);
+        Assert.Equal(0xFF8800, snapshot.ResolveBackground(attributes));
+
+        attributes.SetBgColor(1, AttributeData.Palette256Mode);
+        Assert.Equal(0xFF8800, snapshot.ResolveBackground(attributes));
+
+        Assert.Null(snapshot.ResolveBackground(AttributeData.Default));
+    }
+
+    [Fact]
+    public void ThemeBold_IsLive_AssigningANewThemeChangesItAndRaisesColorChanged()
+    {
+        var terminal = CreateTerminal(new ThemeOptions { Foreground = "#010203" });
+        var events = new List<ColorTarget>();
+        terminal.Colors.ColorChanged += (_, e) => events.Add(e.Target);
+
+        // Identical apart from Bold, so the bold colour alone must count as a change.
+        terminal.Options.Theme = new ThemeOptions { Foreground = "#010203", Bold = "#ffaa00" };
+
+        Assert.Equal(0xFFAA00, terminal.Colors.Bold);
+        Assert.Equal(new[] { ColorTarget.All }, events);
+
+        terminal.Options.Theme = new ThemeOptions { Foreground = "#010203" };
+        Assert.Null(terminal.Colors.Bold);
+        Assert.Equal(2, events.Count);
+    }
+
+    [Fact]
+    public void ThemeBold_SurvivesSingleColorChanges()
+    {
+        var palette = new ColorPalette(new ThemeOptions { Bold = "#ffaa00" });
+        palette.SetColor(3, 0x111111);
+        palette.SetForeground(0x222222);
+        palette.ResetAllColors();
+        Assert.Equal(0xFFAA00, palette.Bold);
     }
 
     // ---- Reply terminator mirrors the query's ------------------------------------------------
