@@ -238,6 +238,135 @@ public class KittyPlaceholderTests
         Assert.Equal((byte)30, ShownValue(terminal, 0, 0));
     }
 
+    // ---- ids that need the high byte to name anything ---------------------------------------------
+
+    private static readonly string CrLf = "\r\n";
+
+    /// <summary>
+    /// The spec's own example, with ONLY the extended image stored. The colour alone names nothing,
+    /// so the cell cannot be judged until the third mark arrives; a client choosing random 32-bit
+    /// ids is in this position almost every time.
+    /// </summary>
+    [Fact]
+    public void The_spec_example_shows_an_image_only_the_high_byte_names()
+    {
+        var terminal = Fresh();
+        Store(terminal, 42 + (2u << 24), value: 30);
+
+        terminal.Write($"{Esc}[38;5;42m"
+                       + Placeholder + Mark[0] + Mark[0] + Mark[2]
+                       + Placeholder + Mark[0] + Mark[1] + Mark[2] + CrLf
+                       + Placeholder + Mark[1] + Mark[0] + Mark[2]
+                       + Placeholder + Mark[1] + Mark[1] + Mark[2] + CrLf);
+
+        for (int row = 0; row < 2; row++)
+        {
+            for (int col = 0; col < 2; col++)
+            {
+                Assert.True(ImageAssertions.IsImageAt(terminal, col, row), $"cell ({col},{row}) holds no picture");
+                Assert.Equal((col, row), ImageAssertions.TileAt(terminal, col, row));
+                Assert.Equal((byte)30, ShownValue(terminal, col, row));
+                Assert.Equal(" ", Cell(terminal, col, row).Content);
+            }
+        }
+    }
+
+    /// <summary>The same with a 24-bit id: the third mark tops up all three colour bytes.</summary>
+    [Fact]
+    public void A_third_mark_completes_a_24_bit_id_only_it_names()
+    {
+        var terminal = Fresh();
+        Store(terminal, (3u << 24) | 0x0A0B0C, value: 30);
+
+        terminal.Write(SelectImageId(0x0A0B0C) + Placeholder + Mark[0] + Mark[1] + Mark[3]);
+
+        Assert.Equal((byte)30, ShownValue(terminal, 0, 0));
+        Assert.Equal((1, 0), ImageAssertions.TileAt(terminal, 0, 0));
+        Assert.Equal(1, terminal.Buffer.X);
+    }
+
+    /// <summary>
+    /// A rectangle whose first cell only resolves on its third mark. The cells after it leave the
+    /// top byte out, as kitty's left-neighbour rule allows: bare, or with the row and column alone.
+    /// They inherit it, carry on from where the marks put the first cell, and are one placement.
+    /// </summary>
+    [Fact]
+    public void A_run_inherits_the_high_byte_from_the_cell_that_resolved_on_it()
+    {
+        var terminal = Fresh();
+        Store(terminal, 42 + (2u << 24), value: 30);
+
+        terminal.Write($"{Esc}[38;5;42m"
+                       + Placeholder + Mark[0] + Mark[0] + Mark[2]
+                       + Placeholder + CrLf
+                       + Placeholder + Mark[1] + Mark[0] + Mark[2]
+                       + Placeholder + Mark[1] + Mark[1]);
+
+        for (int row = 0; row < 2; row++)
+        {
+            for (int col = 0; col < 2; col++)
+            {
+                Assert.Equal((byte)30, ShownValue(terminal, col, row));
+                Assert.Equal((col, row), ImageAssertions.TileAt(terminal, col, row));
+            }
+        }
+
+        Assert.Equal(ImageAssertions.PlacementAt(terminal, 0, 0)!.Value.Serial,
+                     ImageAssertions.PlacementAt(terminal, 1, 0)!.Value.Serial);
+    }
+
+    /// <summary>
+    /// The marks still place a cell that resolves late: here the first cell of a run claims tile
+    /// (1,1), and the next cell continues the rectangle from there rather than from (0,0).
+    /// </summary>
+    [Fact]
+    public void A_late_resolving_cell_keeps_the_tile_its_marks_named()
+    {
+        var terminal = Fresh();
+        Store(terminal, 42 + (2u << 24), value: 30);
+        terminal.Write($"{Esc}_Ga=t,i={42 + (2u << 24) + 1},f=32,s=6,v=6,q=2;{SolidRgba(6, 6, 50)}{St}");
+
+        // A 3x2 picture this time, so a second column exists to the right of tile (1,1).
+        terminal.Write($"{Esc}[38;5;43m" + Placeholder + Mark[1] + Mark[1] + Mark[2] + Placeholder);
+
+        Assert.Equal((1, 1), ImageAssertions.TileAt(terminal, 0, 0));
+        Assert.Equal((2, 1), ImageAssertions.TileAt(terminal, 1, 0));
+        Assert.Equal((byte)50, ShownValue(terminal, 1, 0));
+    }
+
+    /// <summary>
+    /// A cell that never resolves -- no third mark, a full id nothing was stored under, or a
+    /// non-table mark in the way -- is exactly what an unknown id always was: the placeholder and
+    /// its marks as text. A terminal with kitty switched off is the oracle, since there the
+    /// character is never anything but text.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("̅̅")]               // row and column, no top byte
+    [InlineData("̅̅̐")]         // top byte 3: 42 + (3 << 24) is unknown too
+    [InlineData("̅́̎")]         // U+0301 is not in the table, so the run of marks ends
+    public void A_cell_that_never_resolves_is_left_as_text(string marks)
+    {
+        var terminal = Fresh();
+        Store(terminal, 42 + (2u << 24), value: 30);
+        var oracle = new Terminal(new TerminalOptions
+        {
+            Cols = 30, Rows = 12, CellWidthPixels = 2, CellHeightPixels = 3, KittyGraphicsEnabled = false
+        });
+
+        var text = $"{Esc}[38;5;42m" + Placeholder + marks + "x" + Mark[1] + "y";
+        terminal.Write(text);
+        oracle.Write(text);
+
+        Assert.False(ImageAssertions.IsImageAt(terminal, 0, 0));
+        for (int col = 0; col < 4; col++)
+        {
+            Assert.Equal(Cell(oracle, col, 0).Content, Cell(terminal, col, 0).Content);
+            Assert.Equal(Cell(oracle, col, 0).Width, Cell(terminal, col, 0).Width);
+        }
+        Assert.Equal(oracle.Buffer.X, terminal.Buffer.X);
+    }
+
     /// <summary>Without the third mark the same cell is image 42 itself.</summary>
     [Fact]
     public void An_8_bit_id_without_a_third_mark_is_just_the_index()

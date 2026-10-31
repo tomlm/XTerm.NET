@@ -316,8 +316,15 @@ public partial class InputHandler
             // A placeholder is a character that means "part of a picture goes here". It has to be
             // taken before the combining-character machinery below, which would otherwise try to
             // merge the diacritics that follow it into a text cell.
-            if (codePoint == KittyPlaceholder && TryPrintKittyPlaceholder())
-                return;
+            //
+            // One that resolves to nothing yet falls through to print as text, and must not then be
+            // offered to the mark handling as if it were a mark for itself: that would end the wait
+            // for the third mark that may still name its image.
+            if (codePoint == KittyPlaceholder)
+            {
+                if (TryPrintKittyPlaceholder())
+                    return;
+            }
 
             // The combining marks that state a placeholder's tile explicitly. They must be taken
             // here too: left to the machinery below they would be appended to the image cell as
@@ -325,8 +332,10 @@ public partial class InputHandler
             // Guarded at the CALL rather than inside, which is not a style preference: the method
             // is too big to inline, so without this every printed character pays a real call to be
             // told there is no placeholder. Measured at 12% of the alt-redraw corpus.
-            if (_placeholderCell is not null && TryApplyPlaceholderDiacritic(codePoint))
+            else if (_placeholderCell is not null && TryApplyPlaceholderDiacritic(codePoint))
+            {
                 return;
+            }
 
             // A character standing exactly where a ZWJ was just merged continues that cluster.
             // GB11 is ZWJ x \p{Extended_Pictographic}: the ZWJ keeps the cluster only when what

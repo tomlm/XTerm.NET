@@ -1190,6 +1190,17 @@ public partial class InputHandler
     /// </remarks>
     private (int Row, int Col, int MarksSeen)? _placeholderCell;
 
+    /// <summary>
+    /// Set while <see cref="_placeholderCell"/> is a placeholder whose colour named no image on its
+    /// own, and which was printed as text: what it named, and the tile its marks have stated so far.
+    /// </summary>
+    /// <remarks>
+    /// The colour carries only the low 24 bits of the id. The third mark supplies the top byte, so
+    /// a cell cannot be judged unknown until it arrives. Held beside the cell rather than in it so
+    /// Print still tests a single field before calling in.
+    /// </remarks>
+    private (uint ColorId, int PlacementId, int TileRow, int TileCol)? _pendingPlaceholder;
+
     #endregion
     /// <summary>
     /// Handles OSC sequences (Operating System Command).
