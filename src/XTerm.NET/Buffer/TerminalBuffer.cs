@@ -906,6 +906,50 @@ public class TerminalBuffer
         _y += yBaseBefore - _yBase;
         _yDisp = Math.Clamp(_yDisp, 0, _yBase);
 
+        // Shrinking rows: the screen is the last `rows` lines, so the difference has to leave the
+        // screen. Moving lines to scrollback only when the cursor fell off the bottom left every
+        // 24-row emulator resized smaller with blank lines below the screen -- a fresh shell's
+        // cursor sits near the top -- and ScrollUp appends at the tail, so they lasted for the life
+        // of the terminal.
+        //
+        // So, from the tail: a BLANK line below the cursor is popped. Anything else scrolls the top
+        // of the screen into scrollback, which keeps it -- a progress bar redrawn above earlier
+        // output, an fzf --height list or a DECSDM Sixel below the cursor all come back when the
+        // window grows. xterm.js pops below the cursor without looking, which loses those.
+        //
+        // Only when the cursor has reached the top row and the content below it still does not fit
+        // is a non-blank line popped: scrolling further would put the cursor above the screen, and
+        // leaving the line below it is the strand again, which the next ScrollUp would surface as
+        // the bottom row with its stale content still in it.
+        //
+        // Floored at one row, so a zero-row resize keeps the cursor's line rather than scrolling
+        // it above the screen.
+        var keepRows = Math.Max(1, newRows);
+        if (_lines.Length > _yBase + keepRows)
+        {
+            var wasFollowing = _yDisp == _yBase;
+            while (_lines.Length > _yBase + keepRows)
+            {
+                var belowCursor = _lines.Length > _yBase + _y + 1;
+                if (belowCursor && _lines[_lines.Length - 1]?.HasSnapshotContent() != true)
+                {
+                    _lines.Pop();
+                }
+                else if (_y > 0)
+                {
+                    _yBase++;
+                    _y--;
+                }
+                else
+                {
+                    // Cursor on the top row: the loop condition guarantees this line is below it.
+                    _lines.Pop();
+                }
+            }
+
+            _yDisp = wasFollowing ? _yBase : Math.Min(_yDisp, _yBase);
+        }
+
         if (_lines.Length > 0)
         {
             if (IsReflowEnabled && newCols != _cols)
