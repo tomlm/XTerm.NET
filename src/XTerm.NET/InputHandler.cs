@@ -1756,14 +1756,14 @@ public partial class InputHandler
             {
                 var offset = sub.Count >= 5 ? 2 : 1;
                 var rgb = (sub[offset] << 16) | (sub[offset + 1] << 8) | sub[offset + 2];
-                _curAttr.SetUnderlineColor(rgb, 1);
+                _curAttr.SetUnderlineColor(rgb, (int)ColorMode.RGB);
                 return index;
             }
 
             // 58:5:n
             if (sub[0] == 5 && sub.Count >= 2)
             {
-                _curAttr.SetUnderlineColor(sub[1], 0);
+                _curAttr.SetUnderlineColor(sub[1], (int)ColorMode.Palette256);
                 return index;
             }
 
@@ -1781,13 +1781,13 @@ public partial class InputHandler
                       | (parameters.GetParam(index + 3, 0) << 8)
                       | parameters.GetParam(index + 4, 0);
 
-            _curAttr.SetUnderlineColor(rgb, 1);
+            _curAttr.SetUnderlineColor(rgb, (int)ColorMode.RGB);
             return index + 4;
         }
 
         if (kind == 5 && index + 2 < parameters.Length)
         {
-            _curAttr.SetUnderlineColor(parameters.GetParam(index + 2, 0), 0);
+            _curAttr.SetUnderlineColor(parameters.GetParam(index + 2, 0), (int)ColorMode.Palette256);
             return index + 2;
         }
 
@@ -1826,11 +1826,11 @@ public partial class InputHandler
             {
                 var offset = sub.Count >= 5 ? 2 : 1;
                 var rgb = (sub[offset] << 16) | (sub[offset + 1] << 8) | sub[offset + 2];
-                SetExtendedColor(rgb, 1, isForeground);
+                SetExtendedColor(rgb, (int)ColorMode.RGB, isForeground);
             }
             else if (sub[0] == 5 && sub.Count >= 2)
             {
-                SetExtendedColor(sub[1], 0, isForeground);
+                SetExtendedColor(sub[1], AttributeData.Palette256Mode, isForeground);
             }
 
             // Sub-parameters belong to this parameter, so no later one was consumed.
@@ -1848,12 +1848,12 @@ public partial class InputHandler
             var g = parameters.GetParam(index + 3, 0);
             var b = parameters.GetParam(index + 4, 0);
 
-            SetExtendedColor((r << 16) | (g << 8) | b, 1, isForeground);
+            SetExtendedColor((r << 16) | (g << 8) | b, (int)ColorMode.RGB, isForeground);
             return index + 4;
         }
         else if (colorType == 5 && index + 2 < parameters.Length) // 256 color
         {
-            SetExtendedColor(parameters.GetParam(index + 2, 0), 0, isForeground);
+            SetExtendedColor(parameters.GetParam(index + 2, 0), AttributeData.Palette256Mode, isForeground);
             return index + 2;
         }
 

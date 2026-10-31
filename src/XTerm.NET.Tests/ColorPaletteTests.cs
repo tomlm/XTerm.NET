@@ -646,10 +646,11 @@ public class ColorPaletteTests
     [InlineData("1;39", 256, 0, 0xFFAA00)]
     // palette-16 (SGR 31): colour 1, mode 0 -> brightened to index 9
     [InlineData("1;31", 1, 0, 0xFF0000)]
-    // palette-256 (SGR 38;5;n): stored exactly like palette-16 -- index n, mode 0 -- so the
-    // two cannot be told apart; an index past 15 comes through as itself
+    // palette-256 (SGR 38;5;n): index n, int mode 0 like the sixteen, but never brightened --
+    // even an index below 8, which names the same entry as SGR 31 but is drawn as named
     [InlineData("1;38;5;100", 100, 0, 0x878700)]
-    [InlineData("1;38;5;1", 1, 0, 0xFF0000)]
+    [InlineData("1;38;5;1", 1, 0, 0xCD0000)]
+    [InlineData("1;38;5;9", 9, 0, 0xFF0000)]
     // RGB (SGR 38;2): mode 1. 0x000100 is numerically 256, the default marker, and must
     // still resolve as the colour the program named -- this is what the mode check is for.
     [InlineData("1;38;2;0;1;0", 0x000100, 1, 0x000100)]
@@ -664,6 +665,67 @@ public class ColorPaletteTests
         Assert.Equal(color, attributes.GetFgColor());
         Assert.Equal(mode, attributes.GetFgColorMode());
         Assert.Equal(expected, terminal.Colors.Take().ResolveForeground(attributes, true));
+    }
+
+    [Fact]
+    public void ResolveForeground_Bold31Brightens_Bold38_5_1DoesNot()
+    {
+        var snapshot = new ColorPalette().Take();
+
+        Assert.Equal(snapshot[9], ResolveBoldForeground("31"));
+        Assert.Equal(snapshot[1], ResolveBoldForeground("38;5;1"));
+        Assert.Equal(snapshot[1], ResolveBoldForeground("38:5:1"));
+        Assert.Equal(snapshot[9], ResolveBoldForeground("38;5;9"));
+        Assert.Equal(snapshot[9], ResolveBoldForeground("91"));
+    }
+
+    private int ResolveBoldForeground(string color)
+    {
+        var terminal = CreateTerminal();
+        terminal.Write(Esc.Csi($"1;{color}m") + "X");
+
+        var attributes = terminal.Buffer.Lines[terminal.Buffer.YBase]![0].Attributes;
+        return terminal.Colors.Take().ResolveForeground(attributes, true);
+    }
+
+    /// <summary>
+    /// Every background encoding, through real SGR. Bold is set throughout so a background that
+    /// picked up the foreground's brightening would show.
+    /// </summary>
+    [Theory]
+    [InlineData("49", null)]
+    [InlineData("41", 0xCD0000)]
+    [InlineData("101", 0xFF0000)]
+    [InlineData("48;5;1", 0xCD0000)]
+    [InlineData("48:5:1", 0xCD0000)]
+    [InlineData("48;5;100", 0x878700)]
+    [InlineData("48;2;1;2;3", 0x010203)]
+    [InlineData("48:2::1:2:3", 0x010203)]
+    // 0x000101 is numerically 257, the default background's value, and must still be RGB.
+    [InlineData("48;2;0;1;1", 0x000101)]
+    [InlineData("48;2;0;0;3", 0x000003)]
+    public void ResolveBackground_EachSgrEncoding_ResolvesToTheColourNamed(string sgr, int? expected)
+    {
+        var terminal = CreateTerminal(new ThemeOptions { Background = "#102030" });
+        terminal.Write(Esc.Csi($"1;{sgr}m") + "X");
+
+        var attributes = terminal.Buffer.Lines[terminal.Buffer.YBase]![0].Attributes;
+        Assert.Equal(expected, terminal.Colors.Take().ResolveBackground(attributes));
+    }
+
+    [Fact]
+    public void ResolveBackground_ReadsThePaletteAsItStands()
+    {
+        var snapshot = new ColorPalette(new ThemeOptions { Red = "#ff8800" }).Take();
+        var attributes = AttributeData.Default;
+
+        attributes.SetBgColor(1);
+        Assert.Equal(0xFF8800, snapshot.ResolveBackground(attributes));
+
+        attributes.SetBgColor(1, AttributeData.Palette256Mode);
+        Assert.Equal(0xFF8800, snapshot.ResolveBackground(attributes));
+
+        Assert.Null(snapshot.ResolveBackground(AttributeData.Default));
     }
 
     [Fact]

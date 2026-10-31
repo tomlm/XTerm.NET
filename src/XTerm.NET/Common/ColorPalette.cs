@@ -424,34 +424,62 @@ public sealed class ColorSnapshot
     /// <param name="attributes">The cell's attributes.</param>
     /// <param name="drawBoldTextInBrightColors">
     /// <see cref="TerminalOptions.DrawBoldTextInBrightColors"/>: whether a bold cell coloured with
-    /// palette index 0-7 is drawn with index 8-15 instead.
+    /// 16-palette index 0-7 (SGR 30-37) is drawn with index 8-15 instead.
     /// </param>
     /// <remarks>
     /// <para>The one place the bold rules live, so every host applies them alike: a bold cell
     /// with the DEFAULT foreground takes <see cref="Bold"/> when the theme sets one; a bold cell
-    /// with palette index 0-7 moves to the bright half when
-    /// <paramref name="drawBoldTextInBrightColors"/> says so; every other colour -- 24-bit RGB, a
-    /// palette index from 8 up -- comes through as the program named it. A cell that is not
-    /// bold resolves exactly as it would with no bold settings at all.</para>
+    /// with 16-palette index 0-7 moves to the bright half when
+    /// <paramref name="drawBoldTextInBrightColors"/> says so; every other colour -- 24-bit RGB,
+    /// 16-palette index 8-15, any 256-palette index (SGR 38;5;n), even one below 8 -- comes
+    /// through as the program named it. A cell that is not bold resolves exactly as it would
+    /// with no bold settings at all.</para>
     /// <para>It resolves the foreground ATTRIBUTE. Inverse, dim and invisible are the host's to
     /// apply on top, since what each means depends on how the host paints.</para>
     /// </remarks>
     public int ResolveForeground(in AttributeData attributes, bool drawBoldTextInBrightColors)
     {
-        if (attributes.GetFgColorMode() == 1)
-            return attributes.GetFgColor();
-
         var color = attributes.GetFgColor();
-        if (color < ColorPalette.Size)
+        switch (attributes.GetFgColorKind())
         {
-            if (color < 8 && drawBoldTextInBrightColors && attributes.IsBold())
-                color += 8;
-            return colors[color];
-        }
+            case ColorMode.Palette16:
+                if (color < 8 && drawBoldTextInBrightColors && attributes.IsBold())
+                    color += 8;
+                return colors[color];
 
-        // Default foreground. The bold colour is checked first because unset is one compare.
-        return bold != NoBold && attributes.IsBold() ? bold : Foreground;
+            case ColorMode.Palette256:
+                return colors[color];
+
+            case ColorMode.RGB:
+                return color;
+
+            default:
+                // The bold colour is checked first because unset is one compare.
+                return bold != NoBold && attributes.IsBold() ? bold : Foreground;
+        }
     }
+
+    /// <summary>
+    /// Resolves the colour a cell's background is painted in, from its background attribute, as
+    /// 0xRRGGBB, or null when it is the default background.
+    /// </summary>
+    /// <param name="attributes">The cell's attributes.</param>
+    /// <remarks>
+    /// <para>A 16-palette index, a 256-palette index and 24-bit RGB each resolve to the colour
+    /// the program named; bold has no effect on a background. Null rather than
+    /// <see cref="Background"/> for the default, so a host can leave the cell unpainted and let
+    /// whatever is behind the grid show through.</para>
+    /// <para>It resolves the background ATTRIBUTE. Inverse is the host's to apply on top, as it
+    /// is for <see cref="ResolveForeground"/>: an inverse cell is painted with the resolved
+    /// foreground, and its text drawn in this colour, or <see cref="Background"/> for null.</para>
+    /// </remarks>
+    public int? ResolveBackground(in AttributeData attributes)
+        => attributes.GetBgColorKind() switch
+        {
+            ColorMode.Palette16 or ColorMode.Palette256 => colors[attributes.GetBgColor()],
+            ColorMode.RGB => attributes.GetBgColor(),
+            _ => null,
+        };
 
     /// <summary>Gets whether the background is light enough that dark text belongs on it.</summary>
     public bool IsLightBackground => ColorPalette.IsLight(Background);

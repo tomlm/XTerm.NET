@@ -13,7 +13,9 @@ public struct AttributeData : IEquatable<AttributeData>
     /// Three ints, twelve bytes, in every cell of the buffer.
     /// </summary>
     /// <remarks>
-    /// <para><c>Fg</c> and <c>Bg</c> each hold a colour in bits 0-24 and its mode above that.
+    /// <para><c>Fg</c> and <c>Bg</c> each hold a colour in bits 0-24, its mode (palette or RGB) in
+    /// bit 25, and in bit 26 a flag marking a palette index as the 256-colour palette's (SGR 38;5)
+    /// rather than the sixteen's.
     /// <c>Extended</c> holds the boolean attributes in bits 0-8, the underline style in 9-11, and an
     /// underline colour id in 12-31.</para>
     /// <para>Underline colour is an id rather than a colour because a full RGB value plus its mode
@@ -128,9 +130,62 @@ public struct AttributeData : IEquatable<AttributeData>
 
     public int GetFgColor() => Fg & 0x1FFFFFF;
     public int GetBgColor() => Bg & 0x1FFFFFF;
-    
-    public int GetFgColorMode() => Fg >> 25;
-    public int GetBgColorMode() => Bg >> 25;
+
+    /// <summary>
+    /// The foreground's mode: 0 (<see cref="Common.ColorMode.Palette256"/>) for any palette index
+    /// or the default colour 256, 1 (<see cref="Common.ColorMode.RGB"/>) for RGB.
+    /// </summary>
+    /// <remarks>
+    /// It does not say WHICH palette: <c>31</c> and <c>38;5;1</c> are both 0 here. Use
+    /// <see cref="GetFgColorKind"/> for that.
+    /// </remarks>
+    public int GetFgColorMode() => (Fg >> 25) & 1;
+
+    /// <summary>
+    /// The background's mode, read as <see cref="GetFgColorMode"/> is; the default background is
+    /// colour 257.
+    /// </summary>
+    public int GetBgColorMode() => (Bg >> 25) & 1;
+
+    /// <summary>
+    /// Which kind of colour <see cref="GetFgColor"/> is: the 16-colour palette, the 256-colour
+    /// palette, RGB, or the default foreground.
+    /// </summary>
+    public readonly Common.ColorMode GetFgColorKind() => KindOf(Fg);
+
+    /// <summary>
+    /// Which kind of colour <see cref="GetBgColor"/> is: the 16-colour palette, the 256-colour
+    /// palette, RGB, or the default background.
+    /// </summary>
+    public readonly Common.ColorMode GetBgColorKind() => KindOf(Bg);
+
+    /// <summary>
+    /// The mode <see cref="SetFgColor"/> and <see cref="SetBgColor"/> take for an index from SGR
+    /// 38;5 or 48;5: palette mode 0 plus the bit above it that says "256-colour palette".
+    /// </summary>
+    /// <remarks>
+    /// A flag on the 256-colour palette, not on the sixteen, so SGR 30-37 store exactly what they
+    /// always did, and so does a host that calls <c>SetFgColor(index)</c> itself. The int mode
+    /// accessors mask the flag off, so it changes nothing a host reads through them.
+    /// </remarks>
+    internal const int Palette256Mode = 2;
+
+    private const int PALETTE256 = Palette256Mode << 25;
+
+    private static Common.ColorMode KindOf(int packed)
+    {
+        if ((packed & (1 << 25)) != 0)
+            return Common.ColorMode.RGB;
+
+        var color = packed & 0x1FFFFFF;
+        if (color >= Common.ColorPalette.Size)
+            return Common.ColorMode.Default;
+
+        // An index past 15 can only be the 256-colour palette, flagged or not.
+        return (packed & PALETTE256) != 0 || color >= 16
+            ? Common.ColorMode.Palette256
+            : Common.ColorMode.Palette16;
+    }
 
     public void SetFgColor(int color, int mode = 0)
     {

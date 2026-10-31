@@ -2576,7 +2576,10 @@ public class InputHandlerTests
     [InlineData("\x1b[91m", "91")]          // bright foreground
     [InlineData("\x1b[44m", "44")]          // ANSI background
     [InlineData("\x1b[104m", "104")]        // bright background
-    [InlineData("\x1b[38;5;9m", "91")]      // palette 9 is the bright red the 16 already name
+    [InlineData("\x1b[38;5;9m", "38;5;9")]  // a 256-palette index stays one: 91 replays as 16-palette
+    [InlineData("\x1b[38;5;1m", "38;5;1")]  // and 31 would replay as a colour bold brightens
+    [InlineData("\x1b[48;5;1m", "48;5;1")]
+    [InlineData("\x1b[38:5:1m", "38;5;1")]
     [InlineData("\x1b[39;49m", "0")]        // back to the defaults, which are left out
     public void Decrqss_Colors_ReportsTheShortestFormThatParsesBack(string sgr, string expected)
     {

@@ -426,12 +426,18 @@ public class TerminalOptions : ICloneable
     /// </summary>
     /// <remarks>
     /// <para>A RENDERER option, with the same caveat as <see cref="MinimumContrastRatio"/>: stored
-    /// here, applied by whoever draws.</para>
+    /// here, applied by whoever draws. <see cref="XTerm.Common.ColorSnapshot.ResolveForeground"/>
+    /// applies it.</para>
     /// <para>It selects a different palette ENTRY, which is what the name says and what xterm.js
     /// does. It does not mean "lighten the colour": a 24-bit colour a program named exactly has no
     /// bright counterpart to select and must come through unchanged, and so must a 256-palette index
     /// the user chose. A host that brightens channels arithmetically is not implementing this
     /// option, it is overriding the program.</para>
+    /// <para>Only a colour whose <see cref="XTerm.Buffer.AttributeData.GetFgColorKind"/> is
+    /// <see cref="XTerm.Common.ColorMode.Palette16"/> is brightened (SGR 30-37). SGR 38;5;1 names
+    /// palette entry 1 as well, but its kind is <see cref="XTerm.Common.ColorMode.Palette256"/> and
+    /// it comes through as entry 1, bold or not. <see cref="XTerm.Buffer.AttributeData.GetFgColorMode"/>
+    /// reports 0 for both, so it cannot make this distinction.</para>
     /// </remarks>
     public bool DrawBoldTextInBrightColors { get; set; } = true;
 
