@@ -33,6 +33,13 @@ public class Terminal : IDisposable
     /// </summary>
     public TerminalOptions Options { get; }
     public Buffer.TerminalBuffer Buffer => _buffer;
+
+    /// <summary>
+    /// The screen being shown — normal or alternate — even while <see cref="Buffer"/> is pointing at
+    /// the status line because a program is writing to it.
+    /// </summary>
+    internal Buffer.TerminalBuffer ScreenBuffer => _usingAltBuffer ? _altBuffer! : _normalBuffer!;
+
     public int Cols { get; private set; }
     public int Rows { get; private set; }
     public BufferType ActiveBuffer => _usingAltBuffer ? BufferType.Alternate : BufferType.Normal;
@@ -42,6 +49,63 @@ public class Terminal : IDisposable
     /// <summary>LNM (SM 20): a line feed implies a carriage return. Stored beside the other
     /// modes the input handler tracks, acted on here because LF executes here.</summary>
     public bool LineFeedMode { get; set; }
+
+    /// <summary>
+    /// Whether the keyboard is locked by KAM (SM 2). While true,
+    /// <see cref="GenerateKeyInput"/>, <see cref="GenerateCharInput"/> and
+    /// <see cref="GenerateKittyKeyInput"/> produce nothing and <see cref="Paste(TerminalPaste)"/>
+    /// sends nothing; a host that encodes its own input should check this too.
+    /// </summary>
+    /// <remarks>
+    /// True exactly when mode 2 is set AND <see cref="TerminalOptions.KeyboardActionModeAllowed"/>
+    /// is on, read live. Mode 2 itself is always stored and reported by DECRQM, whatever the
+    /// option says. So turning the option off unlocks at once (the host's way out for a user a dead
+    /// program left locked), and turning it on while mode 2 is set locks at once. RM 2, RIS and
+    /// DECSTR reset mode 2, and with it the lock. <see cref="KeyboardLockedChanged"/> reports
+    /// every change of this value.
+    /// </remarks>
+    public bool KeyboardLocked => KeyboardActionMode && Options.KeyboardActionModeAllowed;
+
+    /// <summary>
+    /// Raised when <see cref="KeyboardLocked"/> changes, and only then, so a host can show a
+    /// "keyboard locked" indicator without polling.
+    /// </summary>
+    /// <remarks>
+    /// Raised synchronously, after the new value is in place: for SM 2, RM 2, RIS and DECSTR on the
+    /// thread calling <see cref="Write(string)"/>, and for a write to
+    /// <see cref="TerminalOptions.KeyboardActionModeAllowed"/> on the thread that set it. Nothing is
+    /// raised when the lock does not move -- SM 2 while the option is off, SM 2 when already
+    /// locked, or flipping the option while mode 2 is reset.
+    /// </remarks>
+    public event EventHandler<TerminalEvents.KeyboardLockedEventArgs>? KeyboardLockedChanged;
+
+    /// <summary>KAM's stored state, set by SM 2 whether or not it is allowed to lock.</summary>
+    internal bool KeyboardActionMode
+    {
+        get => _keyboardActionMode;
+        set
+        {
+            if (value == _keyboardActionMode)
+                return;
+
+            _keyboardActionMode = value;
+            // Mode 2 moving only moves the lock while the option lets it.
+            if (Options.KeyboardActionModeAllowed)
+                RaiseKeyboardLockedChanged(value);
+        }
+    }
+
+    private bool _keyboardActionMode;
+
+    /// <summary>The option flipped; it only moves the lock while mode 2 is set.</summary>
+    private void OnKeyboardActionModeAllowedChanged(bool allowed)
+    {
+        if (_keyboardActionMode)
+            RaiseKeyboardLockedChanged(allowed);
+    }
+
+    private void RaiseKeyboardLockedChanged(bool locked) =>
+        KeyboardLockedChanged?.Invoke(this, new TerminalEvents.KeyboardLockedEventArgs(locked));
 
     /// <summary>The terminator of the OSC being handled right now, for replies to mirror --
     /// xterm answers BEL-terminated queries with BEL and ST-terminated ones with ST.</summary>
@@ -800,6 +864,7 @@ public class Terminal : IDisposable
         Options.ScrollbackChanged = _normalBuffer.SetScrollback;
         Options.ThemeChanged = Colors.ApplyTheme;
         Options.TabStopWidthChanged = ResetTabStops;
+        Options.KeyboardActionModeAllowedChanged = OnKeyboardActionModeAllowedChanged;
 
         // Initialize parser and input handler
         _parser = new EscapeSequenceParser();
@@ -1846,6 +1911,8 @@ public class Terminal : IDisposable
     /// <returns>The escape sequence string to send to the application</returns>
     public string GenerateKeyInput(Key key, KeyModifiers modifiers = KeyModifiers.None)
     {
+        if (KeyboardLocked)
+            return string.Empty;
         return _keyboardInput.GenerateKeySequence(key, modifiers);
     }
 
@@ -1857,6 +1924,8 @@ public class Terminal : IDisposable
     /// <returns>The escape sequence string to send to the application</returns>
     public string GenerateCharInput(char c, KeyModifiers modifiers = KeyModifiers.None)
     {
+        if (KeyboardLocked)
+            return string.Empty;
         return _keyboardInput.GenerateCharSequence(c, modifiers);
     }
 
@@ -1879,6 +1948,9 @@ public class Terminal : IDisposable
     /// </returns>
     public string? GenerateKittyKeyInput(KeyEvent ev, KittyKeyboardEventType eventType = KittyKeyboardEventType.Press)
     {
+        if (KeyboardLocked)
+            return null;
+
         var result = KittyKeyboard.Evaluate(ev, KittyKeyboardState.Flags, eventType, Options.MacOptionIsMeta);
         // Legacy encodings describe presses and repeats only. Falling back for a release would
         // turn key-up into a second key-down. With no active flags this Kitty-specific entry point
@@ -2287,8 +2359,18 @@ public class Terminal : IDisposable
         if (code != 0x1B)
             _inputHandler.CancelRepeat();
 
+        // Keep these cases dense: the switch compiles to a jump table, so a case costs a slot in it
+        // rather than a compare in front of LF and CR.
         switch (code)
         {
+            case 0x05: // ENQ - answerback
+                // RaiseInputData, not RaiseDataReceived: the answerback is the user's literal string,
+                // and the S8C1T converter would rewrite a leading ESC in it as though it were one of
+                // this terminal's own reports.
+                if (Options.EnquiryResponse is { Length: > 0 } answerback)
+                    RaiseInputData(answerback);
+                break;
+
             case 0x07: // BEL
                 BellRang?.Invoke(this, EventArgs.Empty);
                 break;
@@ -2418,6 +2500,7 @@ public class Terminal : IDisposable
         Options.ScrollbackChanged = null;
         Options.ThemeChanged = null;
         Options.TabStopWidthChanged = null;
+        Options.KeyboardActionModeAllowedChanged = null;
 
         // Unsubscribe from parser events
         _parser.PrintFast = null;
@@ -2442,6 +2525,7 @@ public class Terminal : IDisposable
         FontQueryRequested = null;
         CursorStyleChanged = null;
         SynchronizedOutputChanged = null;
+        KeyboardLockedChanged = null;
         BufferChanged = null;
         TitleChanged = null;
         StatusLineChanged = null;
@@ -2513,7 +2597,8 @@ public class Terminal : IDisposable
     /// </remarks>
     public void Paste(TerminalPaste paste)
     {
-        if (paste.MimeTypes.Count == 0)
+        // KAM: a locked keyboard takes no pasted input either, or the lock is one Ctrl+V from void.
+        if (paste.MimeTypes.Count == 0 || KeyboardLocked)
             return;
 
         if (PasteNotificationMode)

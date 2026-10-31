@@ -13,7 +13,9 @@ public struct AttributeData : IEquatable<AttributeData>
     /// Three ints, twelve bytes, in every cell of the buffer.
     /// </summary>
     /// <remarks>
-    /// <para><c>Fg</c> and <c>Bg</c> each hold a colour in bits 0-24 and its mode above that.
+    /// <para><c>Fg</c> and <c>Bg</c> each hold a colour in bits 0-24, its mode (palette or RGB) in
+    /// bit 25, and in bit 26 a flag marking a palette index as the 256-colour palette's (SGR 38;5)
+    /// rather than the sixteen's.
     /// <c>Extended</c> holds the boolean attributes in bits 0-8, the underline style in 9-11, and an
     /// underline colour id in 12-31.</para>
     /// <para>Underline colour is an id rather than a colour because a full RGB value plus its mode
@@ -81,21 +83,21 @@ public struct AttributeData : IEquatable<AttributeData>
         Extended = other.Extended;
     }
 
-    public bool IsBold() => (Extended & BOLD) != 0;
-    public bool IsDim() => (Extended & DIM) != 0;
-    public bool IsItalic() => (Extended & ITALIC) != 0;
-    public bool IsUnderline() => GetUnderlineStyle() != Common.UnderlineStyle.None;
-    public bool IsBlink() => (Extended & BLINK) != 0;
-    public bool IsInverse() => (Extended & INVERSE) != 0;
-    public bool IsInvisible() => (Extended & INVISIBLE) != 0;
-    public bool IsStrikethrough() => (Extended & STRIKETHROUGH) != 0;
-    public bool IsOverline() => (Extended & OVERLINE) != 0;
+    public readonly bool IsBold() => (Extended & BOLD) != 0;
+    public readonly bool IsDim() => (Extended & DIM) != 0;
+    public readonly bool IsItalic() => (Extended & ITALIC) != 0;
+    public readonly bool IsUnderline() => GetUnderlineStyle() != Common.UnderlineStyle.None;
+    public readonly bool IsBlink() => (Extended & BLINK) != 0;
+    public readonly bool IsInverse() => (Extended & INVERSE) != 0;
+    public readonly bool IsInvisible() => (Extended & INVISIBLE) != 0;
+    public readonly bool IsStrikethrough() => (Extended & STRIKETHROUGH) != 0;
+    public readonly bool IsOverline() => (Extended & OVERLINE) != 0;
 
     /// <summary>DECSCA protection: honoured by the selective erases, DECSED and DECSEL.</summary>
-    public bool IsProtected() => (Extended & PROTECTED) != 0;
+    public readonly bool IsProtected() => (Extended & PROTECTED) != 0;
 
     /// <summary>ISO guard (SPA/EPA): honoured by ED, EL and ECH.</summary>
-    public bool IsGuarded() => (Extended & GUARDED) != 0;
+    public readonly bool IsGuarded() => (Extended & GUARDED) != 0;
 
     public void SetBold(bool value) => SetFlag(BOLD, value);
     public void SetDim(bool value) => SetFlag(DIM, value);
@@ -126,11 +128,71 @@ public struct AttributeData : IEquatable<AttributeData>
             Extended &= ~flag;
     }
 
-    public int GetFgColor() => Fg & 0x1FFFFFF;
-    public int GetBgColor() => Bg & 0x1FFFFFF;
-    
-    public int GetFgColorMode() => Fg >> 25;
-    public int GetBgColorMode() => Bg >> 25;
+    public readonly int GetFgColor() => Fg & 0x1FFFFFF;
+    public readonly int GetBgColor() => Bg & 0x1FFFFFF;
+
+    /// <summary>
+    /// The foreground's mode: 0 (<see cref="Common.ColorMode.Palette256"/>) for any palette index
+    /// or the default colour 256, 1 (<see cref="Common.ColorMode.RGB"/>) for RGB.
+    /// </summary>
+    /// <remarks>
+    /// It does not say WHICH palette: <c>31</c> and <c>38;5;1</c> are both 0 here. Use
+    /// <see cref="GetFgColorKind"/> for that.
+    /// </remarks>
+    public readonly int GetFgColorMode() => (Fg >> 25) & 1;
+
+    /// <summary>
+    /// The background's mode, read as <see cref="GetFgColorMode"/> is; the default background is
+    /// colour 257.
+    /// </summary>
+    public readonly int GetBgColorMode() => (Bg >> 25) & 1;
+
+    /// <summary>
+    /// Which kind of colour <see cref="GetFgColor"/> is: the 16-colour palette, the 256-colour
+    /// palette, RGB, or the default foreground.
+    /// </summary>
+    public readonly Common.ColorMode GetFgColorKind() => KindOf(Fg);
+
+    /// <summary>
+    /// Which kind of colour <see cref="GetBgColor"/> is: the 16-colour palette, the 256-colour
+    /// palette, RGB, or the default background.
+    /// </summary>
+    public readonly Common.ColorMode GetBgColorKind() => KindOf(Bg);
+
+    /// <summary>
+    /// The mode <see cref="SetFgColor"/> and <see cref="SetBgColor"/> take for an index from SGR
+    /// 38;5 or 48;5: palette mode 0 plus the bit above it that says "256-colour palette".
+    /// </summary>
+    /// <remarks>
+    /// A flag on the 256-colour palette, not on the sixteen, so SGR 30-37 store exactly what they
+    /// always did, and so does a host that calls <c>SetFgColor(index)</c> itself. The int mode
+    /// accessors mask the flag off, so it changes nothing a host reads through them.
+    /// </remarks>
+    internal const int Palette256Mode = 2;
+
+    /// <summary>The colour value's bits in a packed <see cref="Fg"/> or <see cref="Bg"/>.</summary>
+    internal const int ColorMask = 0x1FFFFFF;
+
+    private const int PALETTE256 = Palette256Mode << 25;
+
+    /// <summary>
+    /// The kind of a packed <see cref="Fg"/> or <see cref="Bg"/> value, for a caller that has
+    /// already read the field into a local and wants it read once.
+    /// </summary>
+    internal static Common.ColorMode KindOf(int packed)
+    {
+        if ((packed & (1 << 25)) != 0)
+            return Common.ColorMode.RGB;
+
+        var color = packed & 0x1FFFFFF;
+        if (color >= Common.ColorPalette.Size)
+            return Common.ColorMode.Default;
+
+        // An index past 15 can only be the 256-colour palette, flagged or not.
+        return (packed & PALETTE256) != 0 || color >= 16
+            ? Common.ColorMode.Palette256
+            : Common.ColorMode.Palette16;
+    }
 
     public void SetFgColor(int color, int mode = 0)
     {
@@ -143,7 +205,7 @@ public struct AttributeData : IEquatable<AttributeData>
     }
 
     /// <summary>How this cell's underline is drawn.</summary>
-    public Common.UnderlineStyle GetUnderlineStyle()
+    public readonly Common.UnderlineStyle GetUnderlineStyle()
         => (Common.UnderlineStyle)((Extended & UNDERLINE_STYLE_MASK) >> UNDERLINE_STYLE_SHIFT);
 
     public void SetUnderlineStyle(Common.UnderlineStyle style)
@@ -153,7 +215,7 @@ public struct AttributeData : IEquatable<AttributeData>
     /// <summary>
     /// The interned id of this cell's underline colour, or zero for "same as the foreground".
     /// </summary>
-    public int GetUnderlineColorId()
+    public readonly int GetUnderlineColorId()
         => (int)(((uint)Extended & UNDERLINE_COLOR_MASK) >> UNDERLINE_COLOR_SHIFT);
 
     /// <summary>
@@ -176,20 +238,20 @@ public struct AttributeData : IEquatable<AttributeData>
     /// <summary>
     /// The underline's colour, or false when it follows the foreground.
     /// </summary>
-    public bool TryGetUnderlineColor(out int color, out int mode)
+    public readonly bool TryGetUnderlineColor(out int color, out int mode)
         => Common.UnderlineColorTable.TryGet(GetUnderlineColorId(), out color, out mode);
 
-    public bool Equals(AttributeData other)
+    public readonly bool Equals(AttributeData other)
     {
         return Fg == other.Fg && Bg == other.Bg && Extended == other.Extended;
     }
 
-    public override bool Equals(object? obj)
+    public readonly override bool Equals(object? obj)
     {
         return obj is AttributeData other && Equals(other);
     }
 
-    public override int GetHashCode()
+    public readonly override int GetHashCode()
     {
         return HashCode.Combine(Fg, Bg, Extended);
     }

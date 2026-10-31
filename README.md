@@ -707,7 +707,8 @@ by number, by placement id, at the cursor, at a cell, by row, by column, and by 
 upper-case form of each additionally releasing the stored image.
 
 Images may be transmitted once and placed repeatedly, including via **U+10EEEE Unicode
-placeholders**, where the image id travels in the cell's foreground colour. That is how `yazi`,
+placeholders**, where the image id travels in the cell's foreground colour (24-bit `38;2` or 8-bit
+`38;5`) and an optional placement id in its underline colour. That is how `yazi`,
 `ranger` and `image.nvim` draw. The combining marks that state an explicit tile row and column are
 decoded, so a client may write tiles in any order rather than as a rectangle in reading order.
 

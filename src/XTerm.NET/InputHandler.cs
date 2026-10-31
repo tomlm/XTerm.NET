@@ -1174,9 +1174,10 @@ public partial class InputHandler
     /// </summary>
     /// <remarks>
     /// The serial is held here as well as the position so that every cell of one rectangle belongs
-    /// to the same placement, and a delete aimed at any of them takes the whole picture.
+    /// to the same placement, and a delete aimed at any of them takes the whole picture. The
+    /// placement id is the client's, from the underline colour, and zero when it named none.
     /// </remarks>
-    private (int Row, int Col, uint ImageId, Graphics.TerminalImage Image, int Serial)? _placeholderOrigin;
+    private (int Row, int Col, uint ImageId, int PlacementId, Graphics.TerminalImage Image, int Serial)? _placeholderOrigin;
 
     /// <summary>
     /// The placeholder cell just written, and how many of its combining marks have arrived.
@@ -1188,6 +1189,17 @@ public partial class InputHandler
     /// position they are filling.
     /// </remarks>
     private (int Row, int Col, int MarksSeen)? _placeholderCell;
+
+    /// <summary>
+    /// Set while <see cref="_placeholderCell"/> is a placeholder whose colour named no image on its
+    /// own, and which was printed as text: what it named, and the tile its marks have stated so far.
+    /// </summary>
+    /// <remarks>
+    /// The colour carries only the low 24 bits of the id. The third mark supplies the top byte, so
+    /// a cell cannot be judged unknown until it arrives. Held beside the cell rather than in it so
+    /// Print still tests a single field before calling in.
+    /// </remarks>
+    private (uint ColorId, int PlacementId, int TileRow, int TileCol)? _pendingPlaceholder;
 
     #endregion
     /// <summary>
@@ -1756,14 +1768,14 @@ public partial class InputHandler
             {
                 var offset = sub.Count >= 5 ? 2 : 1;
                 var rgb = (sub[offset] << 16) | (sub[offset + 1] << 8) | sub[offset + 2];
-                _curAttr.SetUnderlineColor(rgb, 1);
+                _curAttr.SetUnderlineColor(rgb, (int)ColorMode.RGB);
                 return index;
             }
 
-            // 58:5:n
-            if (sub[0] == 5 && sub.Count >= 2)
+            // 58:5:n, ignoring an index past the palette as 38 and 48 do
+            if (sub[0] == 5 && sub.Count >= 2 && (uint)sub[1] < ColorPalette.Size)
             {
-                _curAttr.SetUnderlineColor(sub[1], 0);
+                _curAttr.SetUnderlineColor(sub[1], (int)ColorMode.Palette256);
                 return index;
             }
 
@@ -1781,13 +1793,15 @@ public partial class InputHandler
                       | (parameters.GetParam(index + 3, 0) << 8)
                       | parameters.GetParam(index + 4, 0);
 
-            _curAttr.SetUnderlineColor(rgb, 1);
+            _curAttr.SetUnderlineColor(rgb, (int)ColorMode.RGB);
             return index + 4;
         }
 
         if (kind == 5 && index + 2 < parameters.Length)
         {
-            _curAttr.SetUnderlineColor(parameters.GetParam(index + 2, 0), 0);
+            var color = parameters.GetParam(index + 2, 0);
+            if ((uint)color < ColorPalette.Size)
+                _curAttr.SetUnderlineColor(color, (int)ColorMode.Palette256);
             return index + 2;
         }
 
@@ -1826,11 +1840,11 @@ public partial class InputHandler
             {
                 var offset = sub.Count >= 5 ? 2 : 1;
                 var rgb = (sub[offset] << 16) | (sub[offset + 1] << 8) | sub[offset + 2];
-                SetExtendedColor(rgb, 1, isForeground);
+                SetExtendedColor(rgb, (int)ColorMode.RGB, isForeground);
             }
-            else if (sub[0] == 5 && sub.Count >= 2)
+            else if (sub[0] == 5 && sub.Count >= 2 && (uint)sub[1] < ColorPalette.Size)
             {
-                SetExtendedColor(sub[1], 0, isForeground);
+                SetExtendedColor(sub[1], AttributeData.Palette256Mode, isForeground);
             }
 
             // Sub-parameters belong to this parameter, so no later one was consumed.
@@ -1848,12 +1862,16 @@ public partial class InputHandler
             var g = parameters.GetParam(index + 3, 0);
             var b = parameters.GetParam(index + 4, 0);
 
-            SetExtendedColor((r << 16) | (g << 8) | b, 1, isForeground);
+            SetExtendedColor((r << 16) | (g << 8) | b, (int)ColorMode.RGB, isForeground);
             return index + 4;
         }
         else if (colorType == 5 && index + 2 < parameters.Length) // 256 color
         {
-            SetExtendedColor(parameters.GetParam(index + 2, 0), 0, isForeground);
+            // An index past the palette is ignored, as xterm ignores it, but still consumed, so
+            // the parameters after it keep their meaning. Stored, it would read as the default.
+            var color = parameters.GetParam(index + 2, 0);
+            if ((uint)color < ColorPalette.Size)
+                SetExtendedColor(color, AttributeData.Palette256Mode, isForeground);
             return index + 2;
         }
 

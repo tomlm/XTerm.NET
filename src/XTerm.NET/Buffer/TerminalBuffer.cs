@@ -90,6 +90,33 @@ public class TerminalBuffer
     /// </summary>
     public event Action<int>? Trimmed;
 
+    private long _trimmedLines;
+    private int _resizes;
+
+    /// <summary>
+    /// How many lines have been trimmed off the start of this buffer since it was made — the running
+    /// total of every <see cref="Trimmed"/>. Safe to read from any thread.
+    /// </summary>
+    /// <remarks>
+    /// An absolute row taken when this read <c>n</c> names the same line, <c>TrimmedLines - n</c>
+    /// rows further up, at any later moment. That makes it a mark something holding rows can be
+    /// rebased from later, on its own thread, instead of rewriting them inside a handler on the
+    /// thread that wrote the output.
+    /// </remarks>
+    public long TrimmedLines => Volatile.Read(ref _trimmedLines);
+
+    /// <summary>
+    /// How many times <see cref="Resize"/> has changed this buffer's size. A row or column taken
+    /// before a change may name different text after it, because a width change reflows.
+    /// </summary>
+    public int ResizeCount => _resizes;
+
+    private void RaiseTrimmed(int count)
+    {
+        Volatile.Write(ref _trimmedLines, _trimmedLines + count);
+        Trimmed?.Invoke(count);
+    }
+
     /// <summary>
     /// Fired synchronously before a line scrolls out of the active viewport and can be recycled.
     /// </summary>
@@ -312,7 +339,7 @@ public class TerminalBuffer
 
                 if (willBeRecycled)
                 {
-                    Trimmed?.Invoke(1);
+                    RaiseTrimmed(1);
                 }
 
                 // Only increment yBase if the buffer didn't recycle
@@ -469,7 +496,7 @@ public class TerminalBuffer
         // Anything tracking absolute rows -- a selection, a search result, a shell-integration
         // mark -- is now pointing above the buffer. Resize's trim path already reports itself;
         // this one did not, so CSI 3 J left the selection highlighting rows that had moved.
-        Trimmed?.Invoke(dropped);
+        RaiseTrimmed(dropped);
     }
 
     /// <summary>
@@ -833,7 +860,7 @@ public class TerminalBuffer
             var wasFollowingBottom = _yDisp == _yBase;
 
             _lines.TrimStart(amountToTrim);
-            Trimmed?.Invoke(amountToTrim);
+            RaiseTrimmed(amountToTrim);
 
             _yBase = Math.Max(0, _lines.Length - _rows);
             _yDisp = wasFollowingBottom
@@ -850,6 +877,9 @@ public class TerminalBuffer
     /// </summary>
     public void Resize(int newCols, int newRows)
     {
+        if (newCols != _cols || newRows != _rows)
+            _resizes++;
+
         // Only a wrap chain drops its pictures now. Reflow re-wraps a logical line by copying
         // ranges of cells between lines, and a run anchored to a column would end up describing
         // content that is no longer there.
@@ -905,6 +935,50 @@ public class TerminalBuffer
         _yBase = Math.Min(_yBase, Math.Max(0, _lines.Length - newRows));
         _y += yBaseBefore - _yBase;
         _yDisp = Math.Clamp(_yDisp, 0, _yBase);
+
+        // Shrinking rows: the screen is the last `rows` lines, so the difference has to leave the
+        // screen. Moving lines to scrollback only when the cursor fell off the bottom left every
+        // 24-row emulator resized smaller with blank lines below the screen -- a fresh shell's
+        // cursor sits near the top -- and ScrollUp appends at the tail, so they lasted for the life
+        // of the terminal.
+        //
+        // So, from the tail: a BLANK line below the cursor is popped. Anything else scrolls the top
+        // of the screen into scrollback, which keeps it -- a progress bar redrawn above earlier
+        // output, an fzf --height list or a DECSDM Sixel below the cursor all come back when the
+        // window grows. xterm.js pops below the cursor without looking, which loses those.
+        //
+        // Only when the cursor has reached the top row and the content below it still does not fit
+        // is a non-blank line popped: scrolling further would put the cursor above the screen, and
+        // leaving the line below it is the strand again, which the next ScrollUp would surface as
+        // the bottom row with its stale content still in it.
+        //
+        // Floored at one row, so a zero-row resize keeps the cursor's line rather than scrolling
+        // it above the screen.
+        var keepRows = Math.Max(1, newRows);
+        if (_lines.Length > _yBase + keepRows)
+        {
+            var wasFollowing = _yDisp == _yBase;
+            while (_lines.Length > _yBase + keepRows)
+            {
+                var belowCursor = _lines.Length > _yBase + _y + 1;
+                if (belowCursor && _lines[_lines.Length - 1]?.HasSnapshotContent() != true)
+                {
+                    _lines.Pop();
+                }
+                else if (_y > 0)
+                {
+                    _yBase++;
+                    _y--;
+                }
+                else
+                {
+                    // Cursor on the top row: the loop condition guarantees this line is below it.
+                    _lines.Pop();
+                }
+            }
+
+            _yDisp = wasFollowing ? _yBase : Math.Min(_yDisp, _yBase);
+        }
 
         if (_lines.Length > 0)
         {
@@ -1010,7 +1084,7 @@ public class TerminalBuffer
                 var wasFollowingBottom = _yDisp == _yBase;
 
                 _lines.TrimStart(amountToTrim);
-                Trimmed?.Invoke(amountToTrim);
+                RaiseTrimmed(amountToTrim);
 
                 // Recomputed against the trimmed buffer rather than shifted by the trim amount.
                 // Shifting kept the viewport a fixed distance from rows that are no longer there:
@@ -1245,7 +1319,7 @@ public class TerminalBuffer
                 _yBase = Math.Max(_yBase - amountToTrim, 0);
                 _yDisp = Math.Max(_yDisp - amountToTrim, 0);
                 SavedCursorState.Y = Math.Max(SavedCursorState.Y - amountToTrim, 0);
-                Trimmed?.Invoke(amountToTrim);
+                RaiseTrimmed(amountToTrim);
             }
         }
     }

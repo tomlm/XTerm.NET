@@ -573,6 +573,22 @@ public class ThemeOptionsTests
     }
 
     [Fact]
+    public void Bold_RoundTripsThroughThemeAndTerminalOptionsCopies()
+    {
+        Assert.Null(new ThemeOptions().Bold);
+
+        var theme = new ThemeOptions { Bold = "#FFAA00" };
+        var clone = theme.Clone();
+        Assert.Equal("#FFAA00", clone.Bold);
+
+        clone.Bold = "#000000";
+        Assert.Equal("#FFAA00", theme.Bold);
+
+        var options = new TerminalOptions { Theme = theme };
+        Assert.Equal("#FFAA00", options.Clone().Theme.Bold);
+    }
+
+    [Fact]
     public void AllColors_CanBeSet()
     {
         // Arrange

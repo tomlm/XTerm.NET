@@ -129,49 +129,35 @@ public partial class InputHandler
         if (attr.IsStrikethrough()) parts.Add("9");
         if (attr.IsOverline()) parts.Add("53");
 
-        // Foreground colour
-        var fgMode = attr.GetFgColorMode();
+        // Colours by kind, so 38;5;1 reports as 38;5;1: 31 would replay as a 16-palette colour,
+        // which bold brightens and a 256-palette index is not. The defaults are left out.
         var fg = attr.GetFgColor();
-        if (fgMode == 1)
+        switch (attr.GetFgColorKind())
         {
-            // RGB truecolor
-            parts.Add($"38;2;{(fg >> 16) & 0xFF};{(fg >> 8) & 0xFF};{fg & 0xFF}");
+            case ColorMode.Palette16:
+                parts.Add(fg <= 7 ? $"{30 + fg}" : $"{90 + fg - 8}");
+                break;
+            case ColorMode.Palette256:
+                parts.Add($"38;5;{fg}");
+                break;
+            case ColorMode.RGB:
+                parts.Add($"38;2;{(fg >> 16) & 0xFF};{(fg >> 8) & 0xFF};{fg & 0xFF}");
+                break;
         }
-        else if (fg <= 7)
-        {
-            parts.Add($"{30 + fg}");
-        }
-        else if (fg <= 15)
-        {
-            parts.Add($"{90 + fg - 8}");
-        }
-        else if (fg <= 255)
-        {
-            parts.Add($"38;5;{fg}");
-        }
-        // 256 (default fg) → omit
 
-        // Background colour
-        var bgMode = attr.GetBgColorMode();
         var bg = attr.GetBgColor();
-        if (bgMode == 1)
+        switch (attr.GetBgColorKind())
         {
-            // RGB truecolor
-            parts.Add($"48;2;{(bg >> 16) & 0xFF};{(bg >> 8) & 0xFF};{bg & 0xFF}");
+            case ColorMode.Palette16:
+                parts.Add(bg <= 7 ? $"{40 + bg}" : $"{100 + bg - 8}");
+                break;
+            case ColorMode.Palette256:
+                parts.Add($"48;5;{bg}");
+                break;
+            case ColorMode.RGB:
+                parts.Add($"48;2;{(bg >> 16) & 0xFF};{(bg >> 8) & 0xFF};{bg & 0xFF}");
+                break;
         }
-        else if (bg <= 7)
-        {
-            parts.Add($"{40 + bg}");
-        }
-        else if (bg <= 15)
-        {
-            parts.Add($"{100 + bg - 8}");
-        }
-        else if (bg <= 255)
-        {
-            parts.Add($"48;5;{bg}");
-        }
-        // 257 (default bg) → omit
 
         return parts.Count == 0 ? "0" : string.Join(";", parts);
     }
