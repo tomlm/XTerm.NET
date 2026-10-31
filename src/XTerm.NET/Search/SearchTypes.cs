@@ -36,32 +36,6 @@ public readonly struct SearchHit
     public override string ToString() => $"{BufferRow}:{Column}+{Cols}#{MatchId}";
 }
 
-/// <summary>
-/// Where one <see cref="BufferSearch.Scan"/> stopped. The hits themselves went into the list it was
-/// given.
-/// </summary>
-public readonly struct SearchScan
-{
-    public SearchScan(int nextRow, bool truncated)
-    {
-        NextRow = nextRow;
-        Truncated = truncated;
-    }
-
-    /// <summary>
-    /// The first row this scan did not search: the start of the next slice. Past the slice's end row
-    /// when its last line wrapped beyond it. An absolute buffer row, so shift it down for any lines
-    /// trimmed before the next slice runs.
-    /// </summary>
-    public int NextRow { get; }
-
-    /// <summary>
-    /// Whether the list reached <see cref="BufferSearch.MaxHits"/>. Nothing more will be added to it,
-    /// so the search is over.
-    /// </summary>
-    public bool Truncated { get; }
-}
-
 /// <summary>How to match.</summary>
 /// <remarks>
 /// No regular expressions, deliberately. <c>Regex</c> takes a string, so supporting it would mean

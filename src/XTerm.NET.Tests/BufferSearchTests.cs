@@ -333,7 +333,7 @@ public class BufferSearchTests
                          search.HitsOnRow(row).ToArray().Select(h => (h.Column, h.Cols)));
     }
 
-    // ---- Scan and Apply: a search split so it can run off the UI thread -------------------------
+    // ---- BeginScan / Next / Apply: a search split so it can run off the UI thread --------------
 
     /// <summary>
     /// Ten columns, so these wrap: single-row lines, a match straddling a wrap, three-row runs with
@@ -354,11 +354,17 @@ public class BufferSearchTests
         return t;
     }
 
-    private static List<SearchHit> ScanAll(Terminal t, string needle, SearchOptions options = default)
+    /// <summary>
+    /// Steps a scan to the end, doing <paramref name="between"/> after every slice that leaves more —
+    /// which is where a host lets go of the terminal and output gets in.
+    /// </summary>
+    private static BufferScanStatus RunScan(BufferScan scan, int sliceRows, Action<int>? between = null)
     {
-        var hits = new List<SearchHit>();
-        BufferSearch.Scan(t.Buffer, 0, t.Buffer.Lines.Length, needle, options, hits);
-        return hits;
+        BufferScanStatus status;
+        var slice = 0;
+        while ((status = scan.Next(sliceRows)) == BufferScanStatus.More)
+            between?.Invoke(slice++);
+        return status;
     }
 
     private static List<SearchHit> HeldHits(BufferSearch search, Terminal t)
@@ -367,6 +373,16 @@ public class BufferSearchTests
         for (var row = 0; row < t.Buffer.Lines.Length; row++)
             hits.AddRange(search.HitsOnRow(row).ToArray());
         return hits;
+    }
+
+    /// <summary>Where the hits are, without the match ids a fresh search numbers differently.</summary>
+    private static List<(int Row, int Column, int Cols)> Places(BufferSearch search, Terminal t)
+        => HeldHits(search, t).Select(h => (h.BufferRow, h.Column, h.Cols)).ToList();
+
+    private static void Trim(Terminal t, int lines)
+    {
+        for (var k = 0; k < lines; k++)
+            t.Write("zz\r\n");
     }
 
     [Fact]
@@ -381,9 +397,10 @@ public class BufferSearchTests
         var hits = HeldHits(search, t);
         var current = search.CurrentIndex;
 
-        var scanned = ScanAll(t, "xxx");
+        var scan = search.BeginScan("xxx");
+        Assert.Equal(BufferScanStatus.Done, RunScan(scan, 3));
 
-        Assert.NotEmpty(scanned);
+        Assert.True(scan.Count > 0);
         Assert.Equal(hits, HeldHits(search, t));
         Assert.Equal(current, search.CurrentIndex);
         Assert.Equal("ab", search.Needle);
@@ -398,10 +415,13 @@ public class BufferSearchTests
         using var applied = new BufferSearch(t);
 
         found.Find("ab");
-        applied.Apply(ScanAll(t, "ab"), truncated: false);
+        var scan = applied.BeginScan("ab");
+        Assert.Equal(BufferScanStatus.Done, RunScan(scan, int.MaxValue));
+        applied.Apply(scan);
 
         Assert.True(found.Count > 20);
         Assert.Equal(found.Count, applied.Count);
+        Assert.Equal("ab", applied.Needle);
         Assert.Equal(HeldHits(found, t), HeldHits(applied, t));
 
         for (var i = 0; i < found.Count + 3; i++)   // far enough to wrap round
@@ -419,8 +439,8 @@ public class BufferSearchTests
     }
 
     /// <summary>
-    /// The control scans in slices, letting go of the terminal between them. Slice boundaries must
-    /// not lose a match that wraps across one, find it twice, or reuse a match id.
+    /// Slice boundaries must not lose a match that wraps across one, find it twice, or reuse a
+    /// match id. With nothing written between slices, the result is Find's exactly, ids included.
     /// </summary>
     [Theory]
     [InlineData(1)]
@@ -428,24 +448,18 @@ public class BufferSearchTests
     [InlineData(3)]
     [InlineData(4)]
     [InlineData(7)]
-    public void Scanning_in_slices_gives_the_same_hits_as_one_scan(int sliceRows)
+    public void Scanning_in_slices_gives_the_same_hits_as_Find(int sliceRows)
     {
         var t = Wrapping();
-        var whole = ScanAll(t, "ab");
-        var length = t.Buffer.Lines.Length;
+        using var found = new BufferSearch(t);
+        using var applied = new BufferSearch(t);
+        found.Find("ab");
 
-        // Each slice starting where the last one said to.
-        var stepped = new List<SearchHit>();
-        for (var start = 0; start < length;)
-            start = BufferSearch.Scan(t.Buffer, start, start + sliceRows, "ab", default, stepped).NextRow;
+        var scan = applied.BeginScan("ab");
+        Assert.Equal(BufferScanStatus.Done, RunScan(scan, sliceRows));
+        applied.Apply(scan);
 
-        // Fixed boundaries, which land on continuation rows.
-        var fixedSlices = new List<SearchHit>();
-        for (var start = 0; start < length; start += sliceRows)
-            BufferSearch.Scan(t.Buffer, start, start + sliceRows, "ab", default, fixedSlices);
-
-        Assert.Equal(whole, stepped);
-        Assert.Equal(whole, fixedSlices);
+        Assert.Equal(HeldHits(found, t), HeldHits(applied, t));
     }
 
     [Fact]
@@ -455,58 +469,191 @@ public class BufferSearchTests
         for (var i = 0; i < 3000; i++)
             t.Write(new string('a', 79) + "\r\n");
 
-        var sliced = new List<SearchHit>();
-        var truncated = false;
-        for (var start = 0; !truncated && start < t.Buffer.Lines.Length;)
-        {
-            var scan = BufferSearch.Scan(t.Buffer, start, start + 50, "a", default, sliced);
-            truncated = scan.Truncated;
-            start = scan.NextRow;
-        }
+        using var found = new BufferSearch(t);
+        using var applied = new BufferSearch(t);
+        found.Find("a");
 
-        Assert.True(truncated);
-        Assert.Equal(ScanAll(t, "a"), sliced);
-        Assert.Equal(BufferSearch.MaxHits, sliced.Count);
+        var scan = applied.BeginScan("a");
+        Assert.Equal(BufferScanStatus.Truncated, RunScan(scan, 50));
+        applied.Apply(scan);
+
+        Assert.True(applied.Truncated);
+        Assert.Equal(BufferSearch.MaxHits, applied.Count);
+        Assert.Equal(HeldHits(found, t), HeldHits(applied, t));
     }
 
     /// <summary>
-    /// The hits cross to the UI thread after the scan lets go of the terminal, and output keeps
-    /// scrolling meanwhile. The mark taken when the rows were right says how far they have to move.
+    /// A host lets go of the terminal between slices, and with the scrollback full every line of
+    /// output trims one off the top. Hits from slices before a trim and after it must end up in the
+    /// same frame: a list holding both draws the early ones low, or (on a big trim) puts a new hit
+    /// above an old one. Sizes: one line, a few, more than a slice, and more than the scan has
+    /// covered, which drops every earlier hit and some rows not yet searched.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(7)]
+    [InlineData(25)]
+    public void A_trim_between_slices_leaves_exactly_what_a_fresh_Find_finds(int trim)
+    {
+        var t = Fresh(cols: 10, rows: 4, scrollback: 21);
+        for (var i = 0; i < 40; i++)
+            t.Write(i % 5 == 4 ? "xxabxxxxxxxxabxxxxxxxxabxxxxxx\r\n" : i % 2 == 0 ? "ab k\r\n" : "zz\r\n");
+
+        using var search = new BufferSearch(t);
+        var scan = search.BeginScan("ab");
+        Assert.Equal(BufferScanStatus.Done, RunScan(scan, 5, slice =>
+        {
+            if (slice < 2)
+                Trim(t, trim);
+        }));
+        search.Apply(scan);
+
+        using var oracle = new BufferSearch(t);
+        oracle.Find("ab");
+
+        Assert.Equal(Places(oracle, t), Places(search, t));
+        for (var i = 0; i < search.Count; i++)
+        {
+            Assert.True(search.TryMoveNext(out var hit));
+            Assert.Equal("ab", RowText(t, hit.BufferRow).Substring(hit.Column, 2));
+        }
+    }
+
+    /// <summary>
+    /// Output keeps scrolling while a finished scan waits for the UI thread to apply it.
     /// </summary>
     [Fact]
-    public void Apply_shifts_the_hits_for_lines_trimmed_since_their_mark()
+    public void Lines_trimmed_after_the_scan_finished_are_applied_with_it()
     {
         var t = Fresh(rows: 3, scrollback: 10);
         for (var i = 0; i < 20; i++)
             t.Write(i % 3 == 0 ? $"needle {i}\r\n" : $"other {i}\r\n");
 
         using var search = new BufferSearch(t);
-        var hits = ScanAll(t, "needle");
-        var mark = search.TrimMark;
+        var scan = search.BeginScan("needle");
+        Assert.Equal(BufferScanStatus.Done, RunScan(scan, 4));
+        var scanned = scan.Count;
 
-        for (var i = 0; i < 4; i++)
-            t.Write($"after {i}\r\n");
-        Assert.Equal(mark + 4, search.TrimMark);
-
-        search.Apply(hits, truncated: false, mark);
+        Trim(t, 4);
+        search.Apply(scan);
 
         using var oracle = new BufferSearch(t);
         oracle.Find("needle");
-        Assert.True(oracle.Count < hits.Count, "some hits should have scrolled out with the trim");
-        Assert.Equal(HeldHits(oracle, t).Select(h => (h.BufferRow, h.Column)),
-                     HeldHits(search, t).Select(h => (h.BufferRow, h.Column)));
+        Assert.True(oracle.Count < scanned, "some hits should have scrolled out with the trim");
+        Assert.Equal(Places(oracle, t), Places(search, t));
+    }
+
+    /// <summary>
+    /// A trim can leave row 0 holding the tail of a wrapped line. When the scan already searched that
+    /// line (extra 0), resuming must not search its tail again as if it were a line of its own; when
+    /// the trim reached past everything searched (extra 2), the tail is new ground and is searched
+    /// the way Find searches it, as a line starting at row 0.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public void A_scan_resumed_on_a_wrapped_line_at_row_0_searches_it_once(int extra)
+    {
+        var t = Fresh(cols: 10, rows: 4, scrollback: 21);
+        for (var i = 0; i < 12; i++)
+            t.Write("xxabxxxxxxxxabxxxxxxxxabxxxxxx\r\n");   // three rows, a match on each
+
+        var lines = t.Buffer.Lines;
+        var starts = Enumerable.Range(0, lines.Length).Where(r => r == 0 || !lines[r]!.IsWrapped).ToList();
+        var lastSearched = starts[3] - 1;   // the first slice ends after the run starting at starts[2]
+
+        using var search = new BufferSearch(t);
+        var scan = search.BeginScan("ab");
+        Assert.Equal(BufferScanStatus.More, scan.Next(starts[2] + 1));
+
+        Trim(t, lastSearched + extra);
+        Assert.True(t.Buffer.Lines[0]!.IsWrapped, "the trim should leave the tail of a wrapped line at row 0");
+
+        Assert.Equal(BufferScanStatus.Done, RunScan(scan, 3));
+        search.Apply(scan);
+
+        var places = Places(search, t);
+        Assert.Equal(places.Distinct().Count(), places.Count);
+
+        using var oracle = new BufferSearch(t);
+        oracle.Find("ab");
+        Assert.Equal(Places(oracle, t), places);
     }
 
     [Fact]
-    public void Apply_refuses_hits_out_of_row_order()
+    public void Switching_screens_invalidates_a_scan()
     {
-        var t = Fresh();
+        var t = Wrapping();
         using var search = new BufferSearch(t);
+        var scan = search.BeginScan("ab");
+        Assert.Equal(BufferScanStatus.More, scan.Next(3));
 
-        var hits = new[] { new SearchHit(3, 0, 1, 0), new SearchHit(1, 0, 1, 1) };
+        t.Write($"{Esc}[?1049h");
 
-        Assert.Throws<ArgumentException>(() => search.Apply(hits, truncated: false));
-        Assert.Equal(0, search.Count);
+        Assert.Equal(BufferScanStatus.Invalidated, scan.Next(3));
+        Assert.Equal(0, scan.Count);
+        Assert.Equal(BufferScanStatus.Invalidated, scan.Next(3));
+        Assert.Throws<InvalidOperationException>(() => search.Apply(scan));
+    }
+
+    [Fact]
+    public void Resizing_invalidates_a_scan()
+    {
+        var t = Wrapping();
+        using var search = new BufferSearch(t);
+        var scan = search.BeginScan("ab");
+        Assert.Equal(BufferScanStatus.More, scan.Next(3));
+
+        t.Resize(14, 4);
+
+        Assert.Equal(BufferScanStatus.Invalidated, scan.Next(3));
+    }
+
+    /// <summary>
+    /// A program writing its status line points the terminal's buffer at a one-row status buffer for
+    /// a moment. That is not a screen switch, and must not throw away a scan of the screen.
+    /// </summary>
+    [Fact]
+    public void Writing_the_status_line_does_not_invalidate_a_scan()
+    {
+        var t = Wrapping();
+        var screen = t.Buffer;
+
+        using var found = new BufferSearch(t);
+        found.Find("ab");
+
+        using var search = new BufferSearch(t);
+        var scan = search.BeginScan("ab");
+        Assert.Equal(BufferScanStatus.More, scan.Next(3));
+
+        t.SetStatusDisplayType(2);
+        t.SetActiveStatusDisplay(1);
+        Assert.NotSame(screen, t.Buffer);
+
+        Assert.Equal(BufferScanStatus.Done, RunScan(scan, 3));
+        search.Apply(scan);
+
+        t.SetActiveStatusDisplay(0);
+        Assert.Same(screen, t.Buffer);
+        Assert.Equal(HeldHits(found, t), HeldHits(search, t));
+    }
+
+    [Fact]
+    public void Apply_refuses_a_scan_that_is_not_finished_or_not_its_own()
+    {
+        var t = Wrapping();
+        using var search = new BufferSearch(t);
+        using var other = new BufferSearch(t);
+
+        var unfinished = search.BeginScan("ab");
+        Assert.Throws<InvalidOperationException>(() => search.Apply(unfinished));
+        Assert.Equal(BufferScanStatus.More, unfinished.Next(2));
+        Assert.Throws<InvalidOperationException>(() => search.Apply(unfinished));
+
+        var theirs = other.BeginScan("ab");
+        Assert.Equal(BufferScanStatus.Done, RunScan(theirs, int.MaxValue));
+        Assert.Throws<ArgumentException>(() => search.Apply(theirs));
     }
 
     private static string RowText(Terminal t, int row)
