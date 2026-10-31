@@ -1,0 +1,96 @@
+XTerm.NET is licensed under the MIT License (see LICENSE). It incorporates
+material from the projects listed below. Their original copyright and
+permission notices follow, and must be carried along with XTerm.NET's own.
+
+================================================================================
+1. xterm.js
+   https://github.com/xtermjs/xterm.js
+   Used in: the terminal core as a whole is a C# port of xterm.js, including
+   Buffer/BufferReflow.cs and Input/KittyKeyboard.cs.
+================================================================================
+
+Copyright (c) 2017-2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
+Copyright (c) 2014-2016, SourceLair Private Company (https://www.sourcelair.com)
+Copyright (c) 2012-2013, Christopher Jeffrey (https://github.com/chjj/)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+================================================================================
+2. wcwidth (python)
+   https://github.com/jquast/wcwidth
+   Used in: Common/WidthTables.Generated.cs, generated from its tables by
+   scripts/generate-width-tables.py.
+================================================================================
+
+The MIT License (MIT)
+
+Copyright (c) 2014 Jeff Quast <contact@jeffquast.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Markus Kuhn -- 2007-05-26 (Unicode 5.0)
+
+Permission to use, copy, modify, and distribute this software
+for any purpose and without fee is hereby granted. The author
+disclaims all warranties with regard to this software.
+
+================================================================================
+3. libX11 Xcms (X Color Management System)
+   https://gitlab.freedesktop.org/xorg/lib/libx11 (src/xcms)
+   Used in: Common/XcmsColor.cs, ported from LRGB.c, Lab.c, Luv.c, uvY.c,
+   xyY.c and HVC.c.
+================================================================================
+
+Code and supporting documentation (c) Copyright 1990 1991 Tektronix, Inc.
+All Rights Reserved
+
+This file is a component of an X Window System-specific implementation
+of Xcms based on the TekColor Color Management System.  Permission is
+hereby granted to use, copy, modify, sell, and otherwise distribute this
+software and its documentation for any purpose and without fee, provided
+that this copyright, permission, and disclaimer notice is reproduced in
+all copies of this software and in supporting documentation.  TekColor
+is a trademark of Tektronix, Inc.
+
+Tektronix makes no representation about the suitability of this software
+for any purpose.  It is provided "as is" and with all faults.
+
+TEKTRONIX DISCLAIMS ALL WARRANTIES APPLICABLE TO THIS SOFTWARE,
+INCLUDING THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE.  IN NO EVENT SHALL TEKTRONIX BE LIABLE FOR ANY
+SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER
+RESULTING FROM LOSS OF USE, DATA, OR PROFITS, WHETHER IN AN ACTION OF
+CONTRACT, NEGLIGENCE, OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+CONNECTION WITH THE USE OR THE PERFORMANCE OF THIS SOFTWARE.

@@ -1,4 +1,5 @@
-// Ported from libX11 src/xcms (LRGB.c, Lab.c, Luv.c, uvY.c, xyY.c, HVC.c), MIT/X11 licence.
+// Ported from libX11 src/xcms (LRGB.c, Lab.c, Luv.c, uvY.c, xyY.c, HVC.c), (c) 1990 1991 Tektronix, Inc.;
+// its permission notice is reproduced in THIRD-PARTY-NOTICES.txt.
 // The DEFAULT screen colorimetry -- the "Tektronix 19-inch (Sony) CRT" data every Xcms build
 // ships -- because that is what xterm converts device-independent colour specs with, and what
 // esctest's expected byte values were produced by. Byte-exactness is the point: a program that
