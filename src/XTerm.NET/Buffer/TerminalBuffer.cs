@@ -906,6 +906,34 @@ public class TerminalBuffer
         _y += yBaseBefore - _yBase;
         _yDisp = Math.Clamp(_yDisp, 0, _yBase);
 
+        // Shrinking rows: the screen is the last `rows` lines, so the difference has to leave the
+        // screen somehow. As xterm.js does, lines BELOW the cursor are popped first -- a fresh
+        // shell's cursor sits near the top, and those are the blank rows it never reached -- and
+        // only once the cursor is the last line does the rest scroll up into scrollback. Moving
+        // lines to scrollback only when the cursor fell off the bottom left every 24-row emulator
+        // resized smaller with blank lines below the screen for the life of the terminal.
+        // Floored at one row, so a zero-row resize keeps the cursor's line rather than scrolling
+        // it above the screen.
+        var keepRows = Math.Max(1, newRows);
+        if (_lines.Length > _yBase + keepRows)
+        {
+            var wasFollowing = _yDisp == _yBase;
+            while (_lines.Length > _yBase + keepRows)
+            {
+                if (_lines.Length > _yBase + _y + 1)
+                {
+                    _lines.Pop();
+                }
+                else
+                {
+                    _yBase++;
+                    _y--;
+                }
+            }
+
+            _yDisp = wasFollowing ? _yBase : Math.Min(_yDisp, _yBase);
+        }
+
         if (_lines.Length > 0)
         {
             if (IsReflowEnabled && newCols != _cols)

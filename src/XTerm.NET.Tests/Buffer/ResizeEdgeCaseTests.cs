@@ -1,5 +1,6 @@
 using XTerm;
 using XTerm.Buffer;
+using XTerm.Common;
 using XTerm.Options;
 
 namespace XTerm.Tests.Buffer;
@@ -165,6 +166,163 @@ public class ResizeEdgeCaseTests
 
         // A viewport that was at the tail is still at the tail.
         Assert.Equal(terminal.Buffer.YBase, terminal.Buffer.ViewportY);
+    }
+
+    /// <summary>
+    /// A fresh shell's cursor sits near the top. Shrinking must drop the blank rows below it, not
+    /// leave them below the screen.
+    /// </summary>
+    /// <remarks>
+    /// Every emulator starts at 24 rows and is resized to its layout. Lines were moved out only
+    /// when the cursor fell below the new bottom, so a shrink with the cursor at the top kept all 24
+    /// lines with YBase at 0 -- and ScrollUp appends at the tail, so the extra lines lasted for the
+    /// life of the terminal: a buffer longer than its scrollback, and a scrollbar with nothing to
+    /// scroll. xterm.js pops the lines below the cursor.
+    /// </remarks>
+    [Fact]
+    public void ShrinkingRows_WithCursorAtTop_PopsTheBlankRowsBelowIt()
+    {
+        var terminal = new Terminal(new TerminalOptions { Cols = 40, Rows = 24, Scrollback = 200 });
+        terminal.Write("banner\r\nprompt$ ");
+
+        terminal.Resize(40, 12);
+
+        Assert.Equal(12, terminal.Buffer.Lines.Length);
+        Assert.Equal(0, terminal.Buffer.YBase);
+        Assert.Equal(1, terminal.Buffer.Y);
+        Assert.True(terminal.Buffer.ViewportY <= terminal.Buffer.YBase);
+
+        // Scrolling afterwards keeps the buffer exactly scrollback + screen.
+        for (var i = 0; i < 30; i++)
+            terminal.Write($"\r\nline {i}");
+        Assert.Equal(terminal.Buffer.Lines.Length, terminal.Buffer.YBase + terminal.Rows);
+        Assert.Equal(terminal.Buffer.YBase, terminal.Buffer.ViewportY);
+    }
+
+    /// <summary>
+    /// With content all the way down to the cursor on the last row, there is nothing below it to
+    /// pop: the shrink moves the top of the screen into scrollback, as it always did.
+    /// </summary>
+    [Fact]
+    public void ShrinkingRows_WithCursorOnTheBottomRow_ScrollsIntoScrollback()
+    {
+        var terminal = new Terminal(new TerminalOptions { Cols = 40, Rows = 24, Scrollback = 200 });
+        for (var i = 0; i < 23; i++)
+            terminal.Write($"line {i}\r\n");
+        terminal.Write("prompt$ ");
+
+        terminal.Resize(40, 10);
+
+        Assert.Equal(24, terminal.Buffer.Lines.Length);
+        Assert.Equal(14, terminal.Buffer.YBase);
+        Assert.Equal(9, terminal.Buffer.Y);
+        Assert.Equal(14, terminal.Buffer.ViewportY);
+        Assert.True(terminal.Buffer.ViewportY <= terminal.Buffer.YBase);
+        for (var i = 0; i < 23; i++)
+            Assert.Equal($"line {i}", terminal.Buffer.Lines[i]!.TranslateToString(true));
+    }
+
+    /// <summary>
+    /// The cursor in the middle: the lines below it go first, then the rest scrolls into
+    /// scrollback -- the order xterm.js uses.
+    /// </summary>
+    [Fact]
+    public void ShrinkingRows_WithCursorInTheMiddle_PopsBelowThenScrolls()
+    {
+        var terminal = new Terminal(new TerminalOptions { Cols = 40, Rows = 24, Scrollback = 200 });
+        for (var i = 0; i < 10; i++)
+            terminal.Write($"line {i}\r\n");
+        terminal.Write("prompt$ ");
+
+        // 13 blank rows below the cursor on row 10. Shrinking by 19 pops those 13, then scrolls 6.
+        terminal.Resize(40, 5);
+
+        Assert.Equal(11, terminal.Buffer.Lines.Length);
+        Assert.Equal(6, terminal.Buffer.YBase);
+        Assert.Equal(4, terminal.Buffer.Y);
+        Assert.Equal(6, terminal.Buffer.ViewportY);
+        Assert.True(terminal.Buffer.ViewportY <= terminal.Buffer.YBase);
+        for (var i = 0; i < 10; i++)
+            Assert.Equal($"line {i}", terminal.Buffer.Lines[i]!.TranslateToString(true));
+        Assert.Equal("prompt$", terminal.Buffer.Lines[10]!.TranslateToString(true));
+    }
+
+    /// <summary>
+    /// ViewportY never ends up past YBase after a shrink, wherever the cursor is and whether or not
+    /// the viewport was scrolled up into scrollback. A host derives its scroll range from YBase, so
+    /// a viewport beyond it would point below the screen.
+    /// </summary>
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(12, false)]
+    [InlineData(24, false)]
+    [InlineData(1, true)]
+    [InlineData(12, true)]
+    [InlineData(24, true)]
+    public void ShrinkingRows_KeepsTheViewportWithinScrollback(int cursorRow, bool scrolledUp)
+    {
+        var terminal = new Terminal(new TerminalOptions { Cols = 40, Rows = 24, Scrollback = 200 });
+        for (var i = 0; i < 40; i++)
+            terminal.Write($"line {i}\r\n");
+        terminal.Write($"\u001b[{cursorRow};1H");
+        if (scrolledUp)
+            terminal.ScrollLines(-10);
+
+        var buffer = terminal.Buffer;
+        var contentRow = buffer.YBase + buffer.Y;
+        Assert.Equal(scrolledUp, buffer.ViewportY < buffer.YBase);
+
+        terminal.Resize(40, 10);
+
+        Assert.InRange(buffer.ViewportY, 0, buffer.YBase);
+        Assert.Equal(buffer.Lines.Length, buffer.YBase + terminal.Rows);
+        Assert.Equal(contentRow, buffer.YBase + buffer.Y);
+        // A viewport that was following the tail still is; one scrolled up stays scrolled up.
+        Assert.Equal(scrolledUp, buffer.ViewportY < buffer.YBase);
+    }
+
+    /// <summary>
+    /// Shrinking and growing back returns to a full screen with the cursor on its line, and nothing
+    /// in scrollback that was not there before.
+    /// </summary>
+    [Fact]
+    public void ShrinkingThenGrowingRows_WithCursorAtTop_RoundTrips()
+    {
+        var terminal = new Terminal(new TerminalOptions { Cols = 40, Rows = 24, Scrollback = 200 });
+        terminal.Write("banner\r\nprompt$ ");
+
+        terminal.Resize(40, 12);
+        terminal.Resize(40, 24);
+
+        Assert.Equal(24, terminal.Buffer.Lines.Length);
+        Assert.Equal(0, terminal.Buffer.YBase);
+        Assert.Equal(1, terminal.Buffer.Y);
+        Assert.Equal("banner", terminal.Buffer.Lines[0]!.TranslateToString(true));
+        Assert.Equal("prompt$", terminal.Buffer.Lines[1]!.TranslateToString(true));
+    }
+
+    /// <summary>
+    /// The alternate buffer has no scrollback, and both buffers are resized together: shrinking
+    /// while a full-screen app is up leaves neither holding more lines than the screen.
+    /// </summary>
+    [Fact]
+    public void ShrinkingRows_InTheAlternateBuffer_LeavesBothBuffersAtScreenHeight()
+    {
+        var terminal = new Terminal(new TerminalOptions { Cols = 40, Rows = 24, Scrollback = 200 });
+        terminal.Write("prompt$ ");
+        terminal.Write("\u001b[?1049h");
+        terminal.Write("\u001b[3;1Hmenu");
+
+        terminal.Resize(40, 12);
+
+        Assert.Equal(BufferType.Alternate, terminal.ActiveBuffer);
+        Assert.Equal(12, terminal.Buffer.Lines.Length);
+        Assert.Equal(0, terminal.Buffer.YBase);
+        Assert.Equal("menu", terminal.Buffer.Lines[2]!.TranslateToString(true));
+
+        terminal.Write("\u001b[?1049l");
+        Assert.Equal(12, terminal.Buffer.Lines.Length);
+        Assert.Equal(0, terminal.Buffer.YBase);
     }
 
     /// <summary>
