@@ -426,12 +426,18 @@ public class TerminalOptions : ICloneable
     /// </summary>
     /// <remarks>
     /// <para>A RENDERER option, with the same caveat as <see cref="MinimumContrastRatio"/>: stored
-    /// here, applied by whoever draws.</para>
+    /// here, applied by whoever draws. <see cref="XTerm.Common.ColorSnapshot.ResolveForeground"/>
+    /// applies it.</para>
     /// <para>It selects a different palette ENTRY, which is what the name says and what xterm.js
     /// does. It does not mean "lighten the colour": a 24-bit colour a program named exactly has no
     /// bright counterpart to select and must come through unchanged, and so must a 256-palette index
     /// the user chose. A host that brightens channels arithmetically is not implementing this
     /// option, it is overriding the program.</para>
+    /// <para>Only a colour whose <see cref="XTerm.Buffer.AttributeData.GetFgColorKind"/> is
+    /// <see cref="XTerm.Common.ColorMode.Palette16"/> is brightened (SGR 30-37). SGR 38;5;1 names
+    /// palette entry 1 as well, but its kind is <see cref="XTerm.Common.ColorMode.Palette256"/> and
+    /// it comes through as entry 1, bold or not. <see cref="XTerm.Buffer.AttributeData.GetFgColorMode"/>
+    /// reports 0 for both, so it cannot make this distinction.</para>
     /// </remarks>
     public bool DrawBoldTextInBrightColors { get; set; } = true;
 
@@ -627,6 +633,30 @@ public class ThemeOptions : ICloneable
     public string? Foreground { get; set; }
     public string? Background { get; set; }
     public string? Cursor { get; set; }
+
+    /// <summary>
+    /// The colour bold text is drawn in when its foreground is the default, in any form
+    /// <see cref="XTerm.Common.ColorSpec"/> parses. Unset (null, or a spec that does not parse)
+    /// means bold text with the default foreground keeps the foreground colour, as before.
+    /// </summary>
+    /// <remarks>
+    /// <para>Only the DEFAULT foreground is replaced. A bold cell a program coloured itself -- a
+    /// palette index or 24-bit RGB -- keeps that colour; whether a palette index 0-7 moves to its
+    /// bright counterpart is <see cref="TerminalOptions.DrawBoldTextInBrightColors"/>'s business,
+    /// and that option is the equivalent of Ghostty's <c>bold-color = bright</c>.</para>
+    /// <para>Setting this does NOT switch palette brightening on, unlike Ghostty, where giving
+    /// <c>bold-color</c> a colour also brightens the other bold colours. The two stay independent
+    /// here so that each setting means one thing: a host that wants Ghostty's behaviour leaves
+    /// <see cref="TerminalOptions.DrawBoldTextInBrightColors"/> at its default of true, which is
+    /// already that combination; a host that wants a bold colour without brightening can have it.</para>
+    /// <para>A RENDERER colour: the library never draws it. It reaches hosts through
+    /// <see cref="XTerm.Common.ColorSnapshot.Bold"/> and
+    /// <see cref="XTerm.Common.ColorSnapshot.ResolveForeground"/>, and is what OSC 5;0 (xterm's
+    /// <c>colorBD</c>) reports until a program sets that slot itself. Live in the same way as the
+    /// rest of the theme: assign a new theme, or call <see cref="XTerm.Common.ColorPalette.ApplyTheme"/>.</para>
+    /// </remarks>
+    public string? Bold { get; set; }
+
     public string? CursorAccent { get; set; }
     public string? Selection { get; set; }
     public string? SelectionInactive { get; set; }
@@ -666,6 +696,7 @@ public class ThemeOptions : ICloneable
         Foreground = other.Foreground;
         Background = other.Background;
         Cursor = other.Cursor;
+        Bold = other.Bold;
         CursorAccent = other.CursorAccent;
         Selection = other.Selection;
         SelectionInactive = other.SelectionInactive;

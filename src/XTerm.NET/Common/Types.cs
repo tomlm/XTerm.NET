@@ -62,12 +62,39 @@ public enum CharsetMode
 }
 
 /// <summary>
-/// Terminal color mode.
+/// How a cell's foreground, background or underline colour is to be read.
 /// </summary>
+/// <remarks>
+/// <para><see cref="Palette256"/> and <see cref="RGB"/> are the values
+/// <see cref="Buffer.AttributeData.GetFgColorMode"/>, <see cref="Buffer.AttributeData.GetBgColorMode"/>
+/// and <see cref="Buffer.AttributeData.TryGetUnderlineColor"/> report, and always have: 0 for ANY
+/// palette index -- the sixteen, the 256-colour palette, or the default colours 256 and 257 -- and
+/// 1 for RGB.</para>
+/// <para><see cref="Palette16"/> and <see cref="Default"/> are only ever returned by
+/// <see cref="Buffer.AttributeData.GetFgColorKind"/> and
+/// <see cref="Buffer.AttributeData.GetBgColorKind"/>, which say precisely which kind of colour a
+/// cell holds. The two palettes are told apart because they render differently: bold text in a
+/// <see cref="Palette16"/> colour 0-7 is drawn bright under
+/// <see cref="Options.TerminalOptions.DrawBoldTextInBrightColors"/>, while a
+/// <see cref="Palette256"/> index is drawn as the program named it, even one below 16. This is
+/// xterm.js's split between <c>CM_P16</c> and <c>CM_P256</c>.</para>
+/// </remarks>
 public enum ColorMode
 {
-    Palette256,
-    RGB
+    /// <summary>
+    /// From the int mode accessors: any palette index, or the default colour. From
+    /// <c>GetFgColorKind</c>/<c>GetBgColorKind</c>: an index 0-255 named by SGR 38;5, 48;5 or 58;5.
+    /// </summary>
+    Palette256 = 0,
+
+    /// <summary>A direct 24-bit colour, 0xRRGGBB, from SGR 38;2, 48;2 or 58;2.</summary>
+    RGB = 1,
+
+    /// <summary>An index 0-15 into the palette, from SGR 30-37, 40-47, 90-97 or 100-107.</summary>
+    Palette16 = 2,
+
+    /// <summary>The terminal's default foreground or background (SGR 39 or 49).</summary>
+    Default = 3,
 }
 
 /// <summary>

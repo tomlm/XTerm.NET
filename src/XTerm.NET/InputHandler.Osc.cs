@@ -19,14 +19,18 @@ public partial class InputHandler
     /// and OSC 4 names as palette indexes past 255. Kept beside the palette rather than in it:
     /// the palette is a lock-free snapshot on the render hot path, and these five are read by
     /// nothing but the queries that set them. Their default is the default foreground, which is
-    /// what an unset special means everywhere one is honoured.
+    /// what an unset special means everywhere one is honoured -- except bold, slot 0, whose
+    /// default is the theme's <see cref="Options.ThemeOptions.Bold"/> when it sets one, because
+    /// that is the colour bold text is actually drawn in.
     /// </summary>
     private readonly int?[] _specialColors = new int?[5];
 
     internal void ResetSpecialColors() => Array.Clear(_specialColors);
 
     private int SpecialColor(int slot)
-        => _specialColors[slot] ?? _terminal.Colors.Foreground;
+        => _specialColors[slot]
+           ?? (slot == 0 ? _terminal.Colors.Bold : null)
+           ?? _terminal.Colors.Foreground;
 
     /// <summary>Handles one index;spec pair aimed at a special colour, for OSC 4 and OSC 5 alike.</summary>
     private void HandleSpecialColorPair(int mode, int slot, string spec)
