@@ -54,12 +54,51 @@ public class Terminal : IDisposable
     /// is on, read live. Mode 2 itself is always stored and reported by DECRQM, whatever the
     /// option says. So turning the option off unlocks at once (the host's way out for a user a dead
     /// program left locked), and turning it on while mode 2 is set locks at once. RM 2, RIS and
-    /// DECSTR reset mode 2, and with it the lock.
+    /// DECSTR reset mode 2, and with it the lock. <see cref="KeyboardLockedChanged"/> reports
+    /// every change of this value.
     /// </remarks>
     public bool KeyboardLocked => KeyboardActionMode && Options.KeyboardActionModeAllowed;
 
+    /// <summary>
+    /// Raised when <see cref="KeyboardLocked"/> changes, and only then, so a host can show a
+    /// "keyboard locked" indicator without polling.
+    /// </summary>
+    /// <remarks>
+    /// Raised synchronously, after the new value is in place: for SM 2, RM 2, RIS and DECSTR on the
+    /// thread calling <see cref="Write(string)"/>, and for a write to
+    /// <see cref="TerminalOptions.KeyboardActionModeAllowed"/> on the thread that set it. Nothing is
+    /// raised when the lock does not move -- SM 2 while the option is off, SM 2 when already
+    /// locked, or flipping the option while mode 2 is reset.
+    /// </remarks>
+    public event EventHandler<TerminalEvents.KeyboardLockedEventArgs>? KeyboardLockedChanged;
+
     /// <summary>KAM's stored state, set by SM 2 whether or not it is allowed to lock.</summary>
-    internal bool KeyboardActionMode { get; set; }
+    internal bool KeyboardActionMode
+    {
+        get => _keyboardActionMode;
+        set
+        {
+            if (value == _keyboardActionMode)
+                return;
+
+            _keyboardActionMode = value;
+            // Mode 2 moving only moves the lock while the option lets it.
+            if (Options.KeyboardActionModeAllowed)
+                RaiseKeyboardLockedChanged(value);
+        }
+    }
+
+    private bool _keyboardActionMode;
+
+    /// <summary>The option flipped; it only moves the lock while mode 2 is set.</summary>
+    private void OnKeyboardActionModeAllowedChanged(bool allowed)
+    {
+        if (_keyboardActionMode)
+            RaiseKeyboardLockedChanged(allowed);
+    }
+
+    private void RaiseKeyboardLockedChanged(bool locked) =>
+        KeyboardLockedChanged?.Invoke(this, new TerminalEvents.KeyboardLockedEventArgs(locked));
 
     /// <summary>The terminator of the OSC being handled right now, for replies to mirror --
     /// xterm answers BEL-terminated queries with BEL and ST-terminated ones with ST.</summary>
@@ -818,6 +857,7 @@ public class Terminal : IDisposable
         Options.ScrollbackChanged = _normalBuffer.SetScrollback;
         Options.ThemeChanged = Colors.ApplyTheme;
         Options.TabStopWidthChanged = ResetTabStops;
+        Options.KeyboardActionModeAllowedChanged = OnKeyboardActionModeAllowedChanged;
 
         // Initialize parser and input handler
         _parser = new EscapeSequenceParser();
@@ -2453,6 +2493,7 @@ public class Terminal : IDisposable
         Options.ScrollbackChanged = null;
         Options.ThemeChanged = null;
         Options.TabStopWidthChanged = null;
+        Options.KeyboardActionModeAllowedChanged = null;
 
         // Unsubscribe from parser events
         _parser.PrintFast = null;
@@ -2477,6 +2518,7 @@ public class Terminal : IDisposable
         FontQueryRequested = null;
         CursorStyleChanged = null;
         SynchronizedOutputChanged = null;
+        KeyboardLockedChanged = null;
         BufferChanged = null;
         TitleChanged = null;
         StatusLineChanged = null;

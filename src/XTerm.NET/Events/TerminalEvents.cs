@@ -298,6 +298,24 @@ public static class TerminalEvents
     }
 
     /// <summary>
+    /// The keyboard lock (KAM, SM 2, as gated by the host's option) taking effect or lifting.
+    /// </summary>
+    /// <remarks>
+    /// An EventArgs rather than a bare bool for the reason given on
+    /// <see cref="SynchronizedOutputEventArgs"/>.
+    /// </remarks>
+    public class KeyboardLockedEventArgs : EventArgs
+    {
+        public KeyboardLockedEventArgs(bool locked)
+        {
+            Locked = locked;
+        }
+
+        /// <summary>The new value of <see cref="Terminal.KeyboardLocked"/>.</summary>
+        public bool Locked { get; }
+    }
+
+    /// <summary>
     /// Shell integration event - fired for each OSC 133 mark.
     /// </summary>
     public class ShellIntegrationEventArgs : EventArgs

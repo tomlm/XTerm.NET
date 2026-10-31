@@ -332,9 +332,30 @@ public class TerminalOptions : ICloneable
     /// a program that locks the keyboard and then dies cannot leave the user unable to type.</para>
     /// <para>On, mode 2 sets <see cref="Terminal.KeyboardLocked"/>, and the terminal's own key and
     /// paste paths drop input until RM 2, RIS or DECSTR resets it. The option is read live: turning
-    /// it off unlocks a keyboard that is locked, and turning it on while mode 2 is set locks it.</para>
+    /// it off unlocks a keyboard that is locked, and turning it on while mode 2 is set locks it.
+    /// Either raises <see cref="Terminal.KeyboardLockedChanged"/>, on the thread that set this.</para>
     /// </remarks>
-    public bool KeyboardActionModeAllowed { get; set; } = false;
+    public bool KeyboardActionModeAllowed
+    {
+        get => _keyboardActionModeAllowed;
+        set
+        {
+            if (value == _keyboardActionModeAllowed)
+                return;
+
+            _keyboardActionModeAllowed = value;
+            KeyboardActionModeAllowedChanged?.Invoke(value);
+        }
+    }
+
+    private bool _keyboardActionModeAllowed;
+
+    /// <summary>
+    /// Installed by <see cref="Terminal"/> on the snapshot it owns, so a flip while mode 2 is set
+    /// raises <see cref="Terminal.KeyboardLockedChanged"/>. Not copied by the copy constructor, for
+    /// the reason given on <see cref="ScrollbackChanged"/>.
+    /// </summary>
+    internal Action<bool>? KeyboardActionModeAllowedChanged;
 
     /// <summary>
     /// Budget for images held by client id but not currently on screen, in bytes. A floor: the
