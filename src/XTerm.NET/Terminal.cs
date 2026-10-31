@@ -44,16 +44,22 @@ public class Terminal : IDisposable
     public bool LineFeedMode { get; set; }
 
     /// <summary>
-    /// KAM (SM 2): the application has locked the keyboard. While true,
+    /// Whether the keyboard is locked by KAM (SM 2). While true,
     /// <see cref="GenerateKeyInput"/>, <see cref="GenerateCharInput"/> and
     /// <see cref="GenerateKittyKeyInput"/> produce nothing and <see cref="Paste(TerminalPaste)"/>
     /// sends nothing; a host that encodes its own input should check this too.
     /// </summary>
     /// <remarks>
-    /// Only ever true when <see cref="TerminalOptions.KeyboardActionModeAllowed"/> is: otherwise
-    /// SM 2 is ignored. RM 2, RIS and DECSTR clear it.
+    /// True exactly when mode 2 is set AND <see cref="TerminalOptions.KeyboardActionModeAllowed"/>
+    /// is on, read live. Mode 2 itself is always stored and reported by DECRQM, whatever the
+    /// option says. So turning the option off unlocks at once (the host's way out for a user a dead
+    /// program left locked), and turning it on while mode 2 is set locks at once. RM 2, RIS and
+    /// DECSTR reset mode 2, and with it the lock.
     /// </remarks>
-    public bool KeyboardLocked { get; internal set; }
+    public bool KeyboardLocked => KeyboardActionMode && Options.KeyboardActionModeAllowed;
+
+    /// <summary>KAM's stored state, set by SM 2 whether or not it is allowed to lock.</summary>
+    internal bool KeyboardActionMode { get; set; }
 
     /// <summary>The terminator of the OSC being handled right now, for replies to mirror --
     /// xterm answers BEL-terminated queries with BEL and ST-terminated ones with ST.</summary>

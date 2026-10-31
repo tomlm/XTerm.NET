@@ -86,6 +86,16 @@ public class ColorReportFormatTests
     }
 
     [Fact]
+    public void An_out_of_range_format_falls_back_to_sixteen_bit_rather_than_silence()
+    {
+        var (terminal, replies) = Create((ColorReportFormat)42);
+
+        terminal.Write(Esc + "]11;#12ab0f" + Bel + Esc + "]11;?" + Bel);
+
+        Assert.Equal([Esc + "]11;rgb:1212/abab/0f0f" + Bel], replies);
+    }
+
+    [Fact]
     public void The_ST_terminator_is_still_mirrored()
     {
         var (terminal, replies) = Create(ColorReportFormat.EightBit);

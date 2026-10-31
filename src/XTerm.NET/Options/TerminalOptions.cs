@@ -324,14 +324,15 @@ public class TerminalOptions : ICloneable
     public ColorReportFormat ColorReportFormat { get; set; } = ColorReportFormat.SixteenBit;
 
     /// <summary>
-    /// Whether an application may lock the keyboard with KAM (SM 2). Off by default.
+    /// Whether KAM (SM 2) actually locks the keyboard. Off by default.
     /// </summary>
     /// <remarks>
-    /// <para>Off, SM 2 is ignored and DECRQM reports mode 2 reset, as Ghostty does: a program that
-    /// locks the keyboard and then dies leaves the user unable to type into their own terminal.</para>
-    /// <para>On, SM 2 sets <see cref="Terminal.KeyboardLocked"/>, and the terminal's own key and
-    /// paste paths drop input until RM 2, RIS or DECSTR clears it. Turning this off does not unlock
-    /// a keyboard already locked; it only refuses the next SM 2.</para>
+    /// <para>This gates the LOCK only. Mode 2 is always stored and DECRQM always reports it, as xterm
+    /// does and esctest's <c>test_DECRQM_ANSI_KAM</c> expects; off, it is simply not acted on, so
+    /// a program that locks the keyboard and then dies cannot leave the user unable to type.</para>
+    /// <para>On, mode 2 sets <see cref="Terminal.KeyboardLocked"/>, and the terminal's own key and
+    /// paste paths drop input until RM 2, RIS or DECSTR resets it. The option is read live: turning
+    /// it off unlocks a keyboard that is locked, and turning it on while mode 2 is set locks it.</para>
     /// </remarks>
     public bool KeyboardActionModeAllowed { get; set; } = false;
 

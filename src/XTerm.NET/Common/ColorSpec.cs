@@ -74,19 +74,23 @@ public static class ColorSpec
     /// Formats a colour in the given report format, or returns null for
     /// <see cref="ColorReportFormat.None"/>, which means the query gets no reply.
     /// </summary>
+    /// <remarks>
+    /// Only an explicit None is silent. A value outside the enum gets xterm's sixteen-bit form,
+    /// the default, rather than silence nobody asked for.
+    /// </remarks>
     public static string? Format(int rgb, ColorReportFormat format)
     {
         switch (format)
         {
-            case ColorReportFormat.SixteenBit:
-                return Format(rgb);
+            case ColorReportFormat.None:
+                return null;
             case ColorReportFormat.EightBit:
                 var r = (rgb >> 16) & 0xFF;
                 var g = (rgb >> 8) & 0xFF;
                 var b = rgb & 0xFF;
                 return string.Create(CultureInfo.InvariantCulture, $"rgb:{r:x2}/{g:x2}/{b:x2}");
             default:
-                return null;
+                return Format(rgb);
         }
     }
 

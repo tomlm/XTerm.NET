@@ -79,15 +79,11 @@ public partial class InputHandler
         if (!table.ContainsKey(mode))
             return false;
 
+        // KAM is always stored and reported, as xterm does and esctest's test_DECRQM_ANSI_KAM
+        // expects. Whether it actually locks the keyboard is the host's call -- see
+        // Terminal.KeyboardLocked, which reads this through the option.
         if (!isPrivate && mode == 2)
-        {
-            // KAM locks the keyboard, which a program can do to a user but not undo for them if it
-            // dies -- so it is refused unless the host opts in, and stays reported reset, as Ghostty
-            // does. RM 2 is always honoured: unlocking is never the risk.
-            if (value && !_terminal.Options.KeyboardActionModeAllowed)
-                return true;
-            _terminal.KeyboardLocked = value;
-        }
+            _terminal.KeyboardActionMode = value;
 
         table[mode] = value;
         if (!isPrivate && mode == 20)
@@ -106,6 +102,6 @@ public partial class InputHandler
             _storedDecModes[key] = false;
         _terminal.LineFeedMode = false;
         _terminal.MoreFixMode = false;
-        _terminal.KeyboardLocked = false;
+        _terminal.KeyboardActionMode = false;
     }
 }

@@ -4,9 +4,8 @@ using XTerm.Options;
 namespace XTerm.Tests;
 
 /// <summary>
-/// KAM (SM 2) locks the keyboard, but only when the host allows it with
-/// <see cref="TerminalOptions.KeyboardActionModeAllowed"/>; otherwise SM 2 is ignored, as Ghostty
-/// ignores it.
+/// KAM (SM 2) is always stored and reported, as xterm does and esctest expects. It LOCKS the
+/// keyboard only while the host allows it with <see cref="TerminalOptions.KeyboardActionModeAllowed"/>.
 /// </summary>
 public class KeyboardActionModeTests
 {
@@ -30,7 +29,7 @@ public class KeyboardActionModeTests
     }
 
     [Fact]
-    public void By_default_SM_2_is_ignored_and_reported_reset()
+    public void By_default_SM_2_is_reported_set_but_does_not_lock()
     {
         var (terminal, data) = Create();
 
@@ -38,7 +37,7 @@ public class KeyboardActionModeTests
         terminal.Write(QueryKam);
 
         Assert.False(terminal.KeyboardLocked);
-        Assert.Equal([KamReset], data);
+        Assert.Equal([KamSet], data);
     }
 
     [Fact]
@@ -47,6 +46,7 @@ public class KeyboardActionModeTests
         var (terminal, data) = Create();
 
         terminal.Write(SetKam);
+        data.Clear();
 
         Assert.Equal("\r", terminal.GenerateKeyInput(Key.Enter));
         Assert.Equal("a", terminal.GenerateCharInput('a'));
@@ -125,18 +125,45 @@ public class KeyboardActionModeTests
     }
 
     [Fact]
-    public void Disallowing_after_a_lock_still_lets_RM_2_unlock()
+    public void Turning_the_option_off_unlocks_at_once_and_mode_2_stays_reported()
     {
-        var (terminal, _) = Create(allowed: true);
+        // The host's way out for a user a dead program left locked.
+        var (terminal, data) = Create(allowed: true);
 
         terminal.Write(SetKam);
-        terminal.Options.KeyboardActionModeAllowed = false;
         Assert.True(terminal.KeyboardLocked);
 
-        terminal.Write(ResetKam);
+        terminal.Options.KeyboardActionModeAllowed = false;
+        terminal.Write(QueryKam);
+
         Assert.False(terminal.KeyboardLocked);
+        Assert.Equal("a", terminal.GenerateCharInput('a'));
+        Assert.Equal([KamSet], data);
+    }
+
+    [Fact]
+    public void Turning_the_option_on_while_mode_2_is_set_locks()
+    {
+        var (terminal, _) = Create();
 
         terminal.Write(SetKam);
+        Assert.False(terminal.KeyboardLocked);
+
+        terminal.Options.KeyboardActionModeAllowed = true;
+
+        Assert.True(terminal.KeyboardLocked);
+        Assert.Equal(string.Empty, terminal.GenerateCharInput('a'));
+    }
+
+    [Fact]
+    public void Turning_the_option_on_after_RM_2_does_not_lock()
+    {
+        var (terminal, _) = Create();
+
+        terminal.Write(SetKam);
+        terminal.Write(ResetKam);
+        terminal.Options.KeyboardActionModeAllowed = true;
+
         Assert.False(terminal.KeyboardLocked);
     }
 }
