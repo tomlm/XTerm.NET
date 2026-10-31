@@ -75,8 +75,8 @@ public class ConsoleRenderer
         // Get foreground and background colors
         var fgColor = attributes.GetFgColor();
         var bgColor = attributes.GetBgColor();
-        var fgMode = attributes.GetFgColorMode();
-        var bgMode = attributes.GetBgColorMode();
+        var fgMode = attributes.GetFgColorKind();
+        var bgMode = attributes.GetBgColorKind();
         
         // Handle inverse attribute (swap fg/bg)
         bool isInverse = attributes.IsInverse();
@@ -140,15 +140,20 @@ public class ConsoleRenderer
         }
     }
 
-    private string GetForegroundColorSequence(int color, int mode)
+    private string GetForegroundColorSequence(int color, XTerm.Common.ColorMode mode)
     {
-        if (mode == 1)
+        if (mode == XTerm.Common.ColorMode.RGB)
         {
             // RGB mode - use true color
             var r = (color >> 16) & 0xFF;
             var g = (color >> 8) & 0xFF;
             var b = color & 0xFF;
             return $"38;2;{r};{g};{b}";
+        }
+        else if (mode == XTerm.Common.ColorMode.Palette256)
+        {
+            // Kept as 38;5 even below 16, which bold does not brighten.
+            return $"38;5;{color}";
         }
         else
         {
@@ -171,15 +176,20 @@ public class ConsoleRenderer
         }
     }
 
-    private string GetBackgroundColorSequence(int color, int mode)
+    private string GetBackgroundColorSequence(int color, XTerm.Common.ColorMode mode)
     {
-        if (mode == 1)
+        if (mode == XTerm.Common.ColorMode.RGB)
         {
             // RGB mode - use true color
             var r = (color >> 16) & 0xFF;
             var g = (color >> 8) & 0xFF;
             var b = color & 0xFF;
             return $"48;2;{r};{g};{b}";
+        }
+        else if (mode == XTerm.Common.ColorMode.Palette256)
+        {
+            // Kept as 48;5 even below 16, which bold does not brighten.
+            return $"48;5;{color}";
         }
         else
         {

@@ -103,28 +103,34 @@ public partial class InputHandler
     /// Writes a cell that a client marked as showing part of an image.
     /// </summary>
     /// <remarks>
-    /// <para>The image is named by the cell's FOREGROUND COLOUR, which carries a 24-bit id rather
-    /// than a colour. That works here because <c>AttributeData</c> keeps 25 bits for the value, so
-    /// it survives the round trip unchanged.</para>
+    /// <para>The image is named by the cell's FOREGROUND COLOUR, which carries an id rather than a
+    /// colour: 24 bits from <c>38;2</c>, or 8 from a <c>38;5</c> index. That works here because
+    /// <c>AttributeData</c> keeps 25 bits for the value, so it survives the round trip unchanged.
+    /// The placement id travels the same way in the UNDERLINE colour, and is optional.</para>
     /// <para>Which tile the cell shows is worked out from where it sits relative to the top-left of
     /// the run, which is how a contiguous rectangle written in reading order comes out right. A
     /// client may also state the row and column explicitly, as combining marks drawn from a fixed
     /// table; those arrive after this cell and are applied by
     /// <see cref="TryApplyPlaceholderDiacritic"/>.</para>
     /// </remarks>
-    /// <returns>False when nothing can be resolved, so the character prints as ordinary text.</returns>
+    /// <returns>False when nothing can be resolved yet, so the character prints as ordinary text.</returns>
     private bool TryPrintKittyPlaceholder()
     {
         if (!_terminal.Options.KittyGraphicsEnabled)
             return false;
 
-        // Mode 0 is a palette index; only a direct colour carries an id.
-        if (_curAttr.GetFgColorMode() == 0)
+        // An id is a 38;2 colour or a 38;5 index. SGR 30-37 and the default stay colours, so red
+        // text does not summon image number one. Packed once: the kind and the value are both in Fg.
+        var fg = _curAttr.Fg;
+        var kind = AttributeData.KindOf(fg);
+        if (kind != ColorMode.RGB && kind != ColorMode.Palette256)
             return false;
 
-        var imageId = (uint)_curAttr.GetFgColor();
-        if (imageId == 0 || !_kittyImages.TryGet(imageId, out var image))
-            return false;
+        var colorId = (uint)(fg & AttributeData.ColorMask);
+
+        // SGR 58 has only the 58;5 and 58;2 forms, so any underline colour at all is an id. None is
+        // zero, which the protocol reads as "whichever placement of the image".
+        var placementId = _curAttr.TryGetUnderlineColor(out var underline, out _) ? underline : 0;
 
         var row = _buffer.Y + _buffer.YBase;
         var col = _buffer.X;
@@ -139,16 +145,34 @@ public partial class InputHandler
         // printed as a visible character instead of a picture. That is not an edge case -- it is
         // what a client does when it shows one image twice, and what image.nvim does every time it
         // redraws a thumbnail lower down than the last one.
+        //
+        // Matched on the colour, which is only the low 24 bits of the id: a cell that continues a
+        // rectangle inherits its high byte. That is kitty's left-neighbour rule -- the third mark is
+        // sent on the first cell and the rest of the run carries the colour alone.
         var continues = _placeholderOrigin is { } origin
-                        && origin.ImageId == imageId
+                        && (origin.ImageId & 0x00FFFFFF) == colorId
+                        && origin.PlacementId == placementId
                         && row >= origin.Row && row - origin.Row < origin.Image.Rows
                         && col >= origin.Col && col - origin.Col < origin.Image.Cols;
 
+        var imageId = continues ? _placeholderOrigin!.Value.ImageId : colorId;
+        if (imageId == 0 || !_kittyImages.TryGet(imageId, out var image))
+        {
+            // Unknown so far, not unknown: a third mark may still arrive with the top byte. The cell
+            // prints as text meanwhile, exactly as an unknown id always has, and stays that way
+            // unless the mark names an image.
+            _placeholderCell = (row, col, 0);
+            _pendingPlaceholder = (colorId, placementId, 0, 0);
+            return false;
+        }
+
+        _pendingPlaceholder = null;
         if (!continues)
-            _placeholderOrigin = (row, col, imageId, image, Graphics.LinePlacement.NextSerial());
+            _placeholderOrigin = (row, col, imageId, placementId, image, Graphics.LinePlacement.NextSerial());
 
         var start = _placeholderOrigin!.Value;
-        if (!WritePlaceholderCell(row, col, start.Image, start.Serial, col - start.Col, row - start.Row))
+        if (!WritePlaceholderCell(row, col, start.Image, start.Serial, start.PlacementId,
+                                  col - start.Col, row - start.Row))
             return false;
 
         _placeholderCell = (row, col, 0);
@@ -168,7 +192,7 @@ public partial class InputHandler
     /// </remarks>
     /// <returns>False when the tile falls outside the picture.</returns>
     private bool WritePlaceholderCell(int row, int col, Graphics.TerminalImage image, int serial,
-                                      int tileCol, int tileRow)
+                                      int placementId, int tileCol, int tileRow)
     {
         if (tileCol < 0 || tileRow < 0 || tileCol >= image.Cols || tileRow >= image.Rows)
             return false;
@@ -196,6 +220,7 @@ public partial class InputHandler
                 image.Id, col, 1,
                 srcX: srcX, srcY: srcY, srcWidth: srcWidth, srcHeight: srcHeight,
                 kind: Graphics.PlacementKind.Placeholder,
+                placementId: placementId,
                 serial: serial),
             image);
         return true;
@@ -210,13 +235,20 @@ public partial class InputHandler
     /// send fewer than three and let the rest be inferred, which is why each is applied on its own
     /// rather than waiting for the set.</para>
     /// <para>The third one can change WHICH image the cell shows, so the placement has to be
-    /// rebuilt. That is rare -- it only matters for ids above 16777215 -- but resolving it late is
-    /// the only option, since the id is not complete until the mark arrives.</para>
+    /// rebuilt; resolving it late is the only option, since the id is not complete until the mark
+    /// arrives. A cell whose colour named no image at all is still text, and
+    /// <see cref="TryResolvePendingPlaceholder"/> takes its marks instead.</para>
     /// </remarks>
     /// <returns>False if this is not a mark applying to a placeholder, so it prints normally.</returns>
     private bool TryApplyPlaceholderDiacritic(int codePoint)
     {
-        if (_placeholderCell is not { } target || _placeholderOrigin is not { } origin)
+        if (_placeholderCell is not { } target)
+            return false;
+
+        if (_pendingPlaceholder is { } pending)
+            return TryResolvePendingPlaceholder(target, pending, codePoint);
+
+        if (_placeholderOrigin is not { } origin)
             return false;
 
         // Only the cell immediately to the left, and only up to three marks.
@@ -255,13 +287,15 @@ public partial class InputHandler
                 break;
 
             default:
-                // The high byte of the id. Re-resolving can fail, and when it does the cell keeps
-                // the picture it already had rather than becoming a blank.
+                // The high byte of the id, above the 24 or 8 bits the colour carried. Re-resolving
+                // can fail, and when it does the cell keeps the picture it already had rather than
+                // becoming a blank.
                 var extendedId = ((uint)value << 24) | (origin.ImageId & 0x00FFFFFF);
                 if (_kittyImages.TryGet(extendedId, out var extended))
                 {
                     image = extended;
-                    _placeholderOrigin = (origin.Row, origin.Col, extendedId, extended, origin.Serial);
+                    _placeholderOrigin = (origin.Row, origin.Col, extendedId, origin.PlacementId, extended,
+                                          origin.Serial);
                 }
                 break;
         }
@@ -273,7 +307,68 @@ public partial class InputHandler
         if (tileCol >= image.Cols || tileRow >= image.Rows)
             return true;
 
-        WritePlaceholderCell(target.Row, target.Col, image, origin.Serial, tileCol, tileRow);
+        WritePlaceholderCell(target.Row, target.Col, image, origin.Serial, origin.PlacementId, tileCol, tileRow);
+        return true;
+    }
+
+    /// <summary>
+    /// Applies a mark to a placeholder whose colour named no image, and makes it a picture if the
+    /// mark is the third and completes an id that does.
+    /// </summary>
+    /// <remarks>
+    /// <para>Until then the cell is TEXT, and each mark is left to the ordinary combining path to
+    /// append. A cell that never resolves -- too few marks, or a full id that is unknown too -- so
+    /// ends up exactly as an unknown id always has. Kitty's spec does not say how an unknown id is
+    /// shown; kitty keeps such a cell as a character and draws a picture only for an id that
+    /// resolves, which comes to the same thing.</para>
+    /// <para>This is the common case rather than an edge: a client choosing random 32-bit ids
+    /// almost never has one whose low 24 bits name another image.</para>
+    /// </remarks>
+    /// <returns>True only when the cell became a picture and the mark went into it.</returns>
+    private bool TryResolvePendingPlaceholder((int Row, int Col, int MarksSeen) target,
+                                              (uint ColorId, int PlacementId, int TileRow, int TileCol) pending,
+                                              int codePoint)
+    {
+        if (target.Row != _buffer.Y + _buffer.YBase || target.Col != _buffer.X - 1
+            || !Graphics.PlaceholderDiacritics.TryGetValue(codePoint, out var value))
+        {
+            // Anything but this cell's next mark ends it, and Print stops calling in.
+            _placeholderCell = null;
+            _pendingPlaceholder = null;
+            return false;
+        }
+
+        switch (target.MarksSeen)
+        {
+            case 0:
+                _pendingPlaceholder = pending with { TileRow = value };
+                _placeholderCell = (target.Row, target.Col, 1);
+                return false;
+
+            case 1:
+                _pendingPlaceholder = pending with { TileCol = value };
+                _placeholderCell = (target.Row, target.Col, 2);
+                return false;
+        }
+
+        // The third mark: the top byte, which completes the id. Whatever it names, the wait is over.
+        _placeholderCell = null;
+        _pendingPlaceholder = null;
+
+        var imageId = ((uint)value << 24) | pending.ColorId;
+        if (!_kittyImages.TryGet(imageId, out var image))
+            return false;
+
+        var serial = Graphics.LinePlacement.NextSerial();
+        if (!WritePlaceholderCell(target.Row, target.Col, image, serial, pending.PlacementId,
+                                  pending.TileCol, pending.TileRow))
+            return false;
+
+        // The rectangle this cell belongs to, set where its marks put it, so the next cell along
+        // continues it a column further on with the same top byte -- kitty's left-neighbour rule.
+        _placeholderOrigin = (target.Row - pending.TileRow, target.Col - pending.TileCol, imageId,
+                              pending.PlacementId, image, serial);
+        _placeholderCell = (target.Row, target.Col, 3);
         return true;
     }
 
