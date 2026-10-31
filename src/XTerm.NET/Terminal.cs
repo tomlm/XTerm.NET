@@ -2287,8 +2287,18 @@ public class Terminal : IDisposable
         if (code != 0x1B)
             _inputHandler.CancelRepeat();
 
+        // Keep these cases dense: the switch compiles to a jump table, so a case costs a slot in it
+        // rather than a compare in front of LF and CR.
         switch (code)
         {
+            case 0x05: // ENQ - answerback
+                // RaiseInputData, not RaiseDataReceived: the answerback is the user's literal string,
+                // and the S8C1T converter would rewrite a leading ESC in it as though it were one of
+                // this terminal's own reports.
+                if (Options.EnquiryResponse is { Length: > 0 } answerback)
+                    RaiseInputData(answerback);
+                break;
+
             case 0x07: // BEL
                 BellRang?.Invoke(this, EventArgs.Empty);
                 break;

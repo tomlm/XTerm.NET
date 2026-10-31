@@ -300,6 +300,18 @@ public class TerminalOptions : ICloneable
     public bool PointerShapesEnabled { get; set; } = true;
 
     /// <summary>
+    /// The answerback string sent in reply to ENQ (0x05). Empty, the default, sends nothing.
+    /// </summary>
+    /// <remarks>
+    /// <para>xterm's <c>answerbackString</c>, also empty by default there. The reply is the string
+    /// exactly as given, with no S8C1T conversion: it is a user-configured literal, not a report
+    /// this terminal composes.</para>
+    /// <para>A handler registered with <see cref="Terminal.RegisterExecuteHandler"/> for 0x05
+    /// runs first, and one that consumes the control suppresses this reply.</para>
+    /// </remarks>
+    public string EnquiryResponse { get; set; } = string.Empty;
+
+    /// <summary>
     /// Budget for images held by client id but not currently on screen, in bytes. A floor: the
     /// terminal always holds at least three screens' worth of pixels, so a program that tiles a
     /// full-screen picture can keep a few screens of tiles to show again without resending them.
@@ -487,6 +499,7 @@ public class TerminalOptions : ICloneable
         MaxClipboardBytes = other.MaxClipboardBytes;
         KittyKeyboardEnabled = other.KittyKeyboardEnabled;
         PointerShapesEnabled = other.PointerShapesEnabled;
+        EnquiryResponse = other.EnquiryResponse;
         MaxImageRegistryBytes = other.MaxImageRegistryBytes;
         MaxUserVariables = other.MaxUserVariables;
         MaxUserVariableBytes = other.MaxUserVariableBytes;
