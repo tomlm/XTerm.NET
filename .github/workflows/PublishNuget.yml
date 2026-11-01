@@ -6,6 +6,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # trusted publishing: OIDC token exchanged for a NuGet API key
+      contents: read
     steps:
       - name: Checkout 
         uses: actions/checkout@v4
@@ -25,11 +28,17 @@ jobs:
         run: |
           dotnet pack --no-build src/XTerm.NET.slnx -c Release -o packages --include-symbols --property WarningLevel=0
 
+      - name: NuGet login (trusted publishing)
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: thermous
+
       - name: Publish NuGet and symbols
         id: nuget-push
         uses: edumserrano/nuget-push@v1
         with:
-          api-key: '${{ secrets.NUGET_KEY }}' 
+          api-key: '${{ steps.nuget-login.outputs.NUGET_API_KEY }}' 
           working-directory: 'packages'
           fail-if-exists: false
         
