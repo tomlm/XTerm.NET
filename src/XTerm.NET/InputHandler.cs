@@ -919,8 +919,11 @@ public partial class InputHandler
                 break;
 
             case CsiCommand.Unknown:
-                // Log unknown sequence for debugging
-                System.Diagnostics.Debug.WriteLine($"Unknown CSI sequence: {identifier}");
+                // Log unknown sequence for debugging. The parser collects intermediates without a
+                // limit, so a long run is reported by its final byte and count, not quoted whole.
+                System.Diagnostics.Debug.WriteLine(identifier.Length <= 3
+                    ? $"Unknown CSI sequence: {identifier}"
+                    : $"Unknown CSI sequence: final '{identifier[^1]}' after {identifier.Length - 1} intermediates");
                 break;
         }
     }
@@ -1318,15 +1321,19 @@ public partial class InputHandler
                 default:
                     // Known but unhandled command
                     recognized = false;
-                    System.Diagnostics.Debug.WriteLine($"Unhandled OSC command: {command}");
+                    System.Diagnostics.Debug.WriteLine($"Unhandled OSC command: {(int)command}");
                     break;
             }
         }
         else
         {
-            // Unknown or unsupported OSC sequence
+            // Unknown or unsupported OSC sequence. Only a plain number is logged: the text before
+            // the first ';' is program output, and without one it is the whole payload.
             recognized = false;
-            System.Diagnostics.Debug.WriteLine($"Unknown OSC sequence: {parts[0]}");
+            System.Diagnostics.Debug.WriteLine(
+                int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var number)
+                    ? $"Unknown OSC sequence: {number}"
+                    : $"Unknown OSC sequence: non-numeric command, {parts[0].Length} chars");
         }
 
         // Last, so a listener observes the terminal's own handling as already done rather than
