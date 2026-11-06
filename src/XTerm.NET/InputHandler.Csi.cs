@@ -1753,6 +1753,11 @@ public partial class InputHandler
         if (!RectangularEditingAvailable)
             return;
 
+        // A read-back of the screen, so opt-in; see TerminalOptions.ChecksumReportsEnabled. Silent
+        // when off, as xterm and WezTerm are, rather than a reply that could be mistaken for a sum.
+        if (!_terminal.Options.ChecksumReportsEnabled)
+            return;
+
         var id = parameters.GetParam(0, 0);
         // parameters[1] is the page, ignored. Coordinates are read in the ORIGIN MODE system,
         // like a cursor address and like every rectangle operation: a program that addresses its

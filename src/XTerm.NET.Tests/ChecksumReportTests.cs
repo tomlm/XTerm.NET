@@ -10,8 +10,36 @@ public class ChecksumReportTests
 {
     private const string Esc = "";
 
-    private static Terminal NewTerminal(int cols = 20, int rows = 5) =>
-        new(new TerminalOptions { Cols = cols, Rows = rows });
+    // Opted in, as an esctest run has to be: the report is off by default (tomlm/XTerm.NET#190).
+    private static Terminal NewTerminal(int cols = 20, int rows = 5, bool enabled = true) =>
+        new(new TerminalOptions { Cols = cols, Rows = rows, ChecksumReportsEnabled = enabled });
+
+    /// <summary>
+    /// Off by default: DECRQCRA reads the screen back one cell at a time, so a program could recover
+    /// what was displayed before it started. Like xterm and WezTerm when it is disallowed, the
+    /// request goes unanswered rather than drawing a reply that could pass for a sum.
+    /// </summary>
+    [Fact]
+    public void Is_silent_by_default()
+    {
+        var terminal = new Terminal(new TerminalOptions { Cols = 20, Rows = 5 });
+        terminal.Write("Hello");
+
+        Assert.Null(Reply(terminal, $"{Esc}[1;0;1;1;1;1*y"));
+        Assert.Null(Reply(terminal, $"{Esc}[1*y"));
+    }
+
+    [Fact]
+    public void Is_silent_when_disabled_and_answers_once_enabled()
+    {
+        var terminal = NewTerminal(enabled: false);
+        terminal.Write("Hello");
+        Assert.Null(Reply(terminal, $"{Esc}[1;0;1;1;1;1*y"));
+
+        // The option is read per request, so a host can turn it on for a running terminal.
+        terminal.Options.ChecksumReportsEnabled = true;
+        Assert.Equal(Report(1, 'H'), Reply(terminal, $"{Esc}[1;0;1;1;1;1*y"));
+    }
 
     private static string? Reply(Terminal terminal, string sequence)
     {

@@ -170,6 +170,7 @@ public class VtTestBehaviourTests
     public void Rectangular_area_checksums_negate_the_sum_of_the_characters()
     {
         var terminal = Sized(20, 5);
+        terminal.Options.ChecksumReportsEnabled = true;            // vttest's checksum test needs the opt-in
         var replies = new List<string>();
         terminal.DataReceived += (_, e) => replies.Add(e.Data);
 
