@@ -2212,7 +2212,7 @@ public class Terminal : IDisposable
     internal void RaiseKittyNotificationReceived(string? identifier, string? title, string? body, int? urgency, string? icon) =>
         NotificationReceived?.Invoke(this, new TerminalEvents.NotificationEventArgs(identifier, title, body, urgency, icon));
     internal void RaiseOscReceived(string identifier, int code, string data, string raw, bool recognized) =>
-        OscReceived?.Invoke(this, new TerminalEvents.OscReceivedEventArgs(identifier, code, data, raw, recognized));
+        OscReceived?.Invoke(this, new TerminalEvents.OscReceivedEventArgs(identifier, code, data, raw, recognized, _parser.LastOscEndedWithBel));
     
     internal void RaiseWindowMoved(int x, int y) => 
         WindowMoved?.Invoke(this, new TerminalEvents.WindowMovedEventArgs(x, y));
