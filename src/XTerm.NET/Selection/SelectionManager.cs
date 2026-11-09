@@ -1,5 +1,6 @@
 using XTerm.Buffer;
 using XTerm.Common;
+using XTerm.Options;
 
 namespace XTerm.Selection;
 
@@ -289,7 +290,7 @@ public class SelectionManager
         var firstLine = first.y >= 0 && first.y < buffer.Lines.Length ? buffer.Lines[first.y] : null;
         if (firstLine != null)
         {
-            while (first.x > 0 && IsWordChar(firstLine[first.x - 1].Content))
+            while (first.x > 0 && IsWordCell(firstLine, first.x - 1))
             {
                 first.x--;
             }
@@ -298,7 +299,7 @@ public class SelectionManager
         var lastLine = last.y >= 0 && last.y < buffer.Lines.Length ? buffer.Lines[last.y] : null;
         if (lastLine != null)
         {
-            while (last.x < _terminal.Cols - 1 && IsWordChar(lastLine[last.x + 1].Content))
+            while (last.x < _terminal.Cols - 1 && IsWordCell(lastLine, last.x + 1))
             {
                 last.x++;
             }
@@ -333,15 +334,66 @@ public class SelectionManager
     }
 
     /// <summary>
-    /// Checks if a character is a word character.
+    /// Whether the cell at <paramref name="x"/> is part of a word, whole glyphs at a time: a wide glyph's
+    /// second cell is a width-0 continuation with no content of its own, and belongs to the glyph before
+    /// it. Without that, expansion stopped halfway through a CJK character or an emoji. A cell that is
+    /// empty without following a wide glyph is still a boundary.
     /// </summary>
-    private bool IsWordChar(string ch)
+    private bool IsWordCell(BufferLine line, int x)
     {
-        if (string.IsNullOrEmpty(ch))
+        if (x > 0 && line.GetWidth(x) == 0 && line.GetWidth(x - 1) == 2)
+            return IsWordChar(line[x - 1].Content);
+        return IsWordChar(line[x].Content);
+    }
+
+    /// <summary>
+    /// Whether a cell's content is part of a word, by <see cref="TerminalOptions.WordSeparators"/>: what
+    /// double-click expansion stops at. Public so a host's own word motion agrees with the mouse.
+    /// </summary>
+    /// <param name="content">A cell's content. Null or empty, an empty cell, is never part of a word.</param>
+    public bool IsWordChar(string? content)
+    {
+        if (string.IsNullOrEmpty(content))
             return false;
 
-        var c = ch[0];
-        return char.IsLetterOrDigit(c) || c == '_';
+        var separators = _terminal.Options.WordSeparators;
+        if (separators is null)
+        {
+            var c = content[0];
+            return char.IsLetterOrDigit(c) || c == '_';
+        }
+
+        int first = char.IsHighSurrogate(content[0]) && content.Length > 1 && char.IsLowSurrogate(content[1])
+            ? char.ConvertToUtf32(content[0], content[1])
+            : content[0];
+        return first != 0 && !SeparatorSet(separators).Contains(first);
+    }
+
+    // The separators as code points, rebuilt only when the option is set to a different string.
+    private string? _separatorSource;
+    private HashSet<int> _separatorSet = new();
+
+    private HashSet<int> SeparatorSet(string separators)
+    {
+        if (!ReferenceEquals(separators, _separatorSource))
+        {
+            var set = new HashSet<int>();
+            for (var i = 0; i < separators.Length; i++)
+            {
+                if (char.IsHighSurrogate(separators[i]) && i + 1 < separators.Length && char.IsLowSurrogate(separators[i + 1]))
+                {
+                    set.Add(char.ConvertToUtf32(separators[i], separators[i + 1]));
+                    i++;
+                }
+                else
+                {
+                    set.Add(separators[i]);
+                }
+            }
+            _separatorSet = set;
+            _separatorSource = separators;
+        }
+        return _separatorSet;
     }
 
     private int ToAbsoluteY(int viewportY)
