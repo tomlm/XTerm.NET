@@ -341,6 +341,27 @@ terminal.PointerShapeChanged += (sender, e) =>
 };
 ```
 
+**Shell state** (OSC 133 shell integration). `terminal.ShellState` says where the shell is:
+`Unknown` (no marks yet, or a shell without integration), `Prompt` (after `133;A`, or after
+`133;D` ends a command), `Input` (after `133;B`) or `Running` (after `133;C`). Each mark sets the
+state outright, so a lost `D` is repaired by the next prompt's `A`; a full reset (RIS) returns it
+to `Unknown`, and the alternate screen does not affect it. `ShellStateChanged` fires only when the
+value changes, with the exit code of the `133;D` that ended a command:
+
+```csharp
+// Ask before closing only while a command is running.
+bool confirmClose = terminal.ShellState == ShellState.Running;
+
+terminal.ShellStateChanged += (sender, e) =>
+{
+    if (e.OldState == ShellState.Running)
+        Console.WriteLine($"Command finished, exit code {e.ExitCode?.ToString() ?? "not reported"}");
+};
+```
+
+`LastCommandExitCode` holds the last reported exit code; `ShellIntegrationState` and
+`ShellIntegrationMarkReceived` give the raw marks.
+
 **Window manipulation events** (used by some terminal applications):
 
 ```csharp
