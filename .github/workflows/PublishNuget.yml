@@ -2,6 +2,11 @@ name: Publish Nuget
 
 on:
   workflow_dispatch:
+    inputs:
+      prerelease:
+        description: 'Prerelease: publish <version>-rcNNN instead of <version>'
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -10,23 +15,70 @@ jobs:
       id-token: write  # trusted publishing: OIDC token exchanged for a NuGet API key
       contents: read
     steps:
-      - name: Checkout 
+      - name: Checkout
         uses: actions/checkout@v4
-  
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v3
         with:
           dotnet-version: 10.0.x
-  
+
       - name: Restore dependencies
         run: dotnet restore src/XTerm.NET.slnx
 
       - name: Build
-        run: dotnet build src/XTerm.NET.slnx -c Release --no-restore 
-  
-      - name: dotnet pack 
+        run: dotnet build src/XTerm.NET.slnx -c Release --no-restore
+
+      - name: Determine prerelease version
+        if: ${{ inputs.prerelease }}
+        id: versioning
         run: |
-          dotnet pack --no-build src/XTerm.NET.slnx -c Release -o packages --include-symbols --property WarningLevel=0
+          set -euo pipefail
+          # Pack once into a throwaway folder so the packages themselves tell us
+          # which ids and versions ship -- guessing from a .csproj picks up
+          # demo and test projects that never pack.
+          dotnet pack src/XTerm.NET.slnx -c Release --no-build -o probe-packages --property WarningLevel=0
+          mapfile -t NUPKGS < <(find probe-packages -maxdepth 1 -name '*.nupkg' ! -name '*.symbols.nupkg' | sort)
+          if [ ${#NUPKGS[@]} -eq 0 ]; then
+            echo "::error::dotnet pack produced no packages; nothing to publish."
+            exit 1
+          fi
+          BASE_VERSION=""
+          NEXT_RC=1
+          for NUPKG in "${NUPKGS[@]}"; do
+            NUSPEC=$(unzip -p "$NUPKG" '*.nuspec')
+            PKG_ID=$(echo "$NUSPEC" | grep -oPm1 '(?<=<id>)[^<]+')
+            PKG_VERSION=$(echo "$NUSPEC" | grep -oPm1 '(?<=<version>)[^<]+')
+            PKG_BASE=${PKG_VERSION%%-*}
+            echo "Discovered $PKG_ID $PKG_VERSION (base $PKG_BASE)"
+            if [ -z "$BASE_VERSION" ]; then
+              BASE_VERSION="$PKG_BASE"
+            elif [ "$BASE_VERSION" != "$PKG_BASE" ]; then
+              echo "::error::Packages disagree on base version ($BASE_VERSION vs $PKG_BASE); one prerelease version cannot cover them."
+              exit 1
+            fi
+            PKG_LOWER=$(echo "$PKG_ID" | tr '[:upper:]' '[:lower:]')
+            VERSIONS=$(curl -sS "https://api.nuget.org/v3-flatcontainer/${PKG_LOWER}/index.json" | jq -r '.versions[]?' || echo "")
+            ESCAPED_VERSION=$(echo "$PKG_BASE" | sed 's/\./\\./g')
+            MAX_RC=$(echo "$VERSIONS" | grep -oP "^${ESCAPED_VERSION}-rc\K[0-9]+" | sort -n | tail -1 || true)
+            # Every package shares one version, so take the highest free rc across them all.
+            # 10# keeps the zero padding from being read as octal once we reach rc008.
+            if [ -n "$MAX_RC" ] && [ $((10#$MAX_RC + 1)) -gt "$NEXT_RC" ]; then
+              NEXT_RC=$((10#$MAX_RC + 1))
+            fi
+          done
+          rm -rf probe-packages
+          PRERELEASE_VERSION="${BASE_VERSION}-rc$(printf '%03d' "$NEXT_RC")"
+          echo "version=$PRERELEASE_VERSION" >> $GITHUB_OUTPUT
+          echo "Prerelease version: $PRERELEASE_VERSION"
+
+      - name: dotnet pack
+        if: ${{ !inputs.prerelease }}
+        run: dotnet pack --no-build src/XTerm.NET.slnx -c Release -o packages --include-symbols --property WarningLevel=0
+
+      - name: dotnet pack (prerelease)
+        if: ${{ inputs.prerelease }}
+        run: dotnet pack src/XTerm.NET.slnx -c Release -o packages --include-symbols --property WarningLevel=0 /p:Version=${{ steps.versioning.outputs.version }}
 
       - name: NuGet login (trusted publishing)
         id: nuget-login
@@ -38,7 +90,6 @@ jobs:
         id: nuget-push
         uses: edumserrano/nuget-push@v1
         with:
-          api-key: '${{ steps.nuget-login.outputs.NUGET_API_KEY }}' 
+          api-key: '${{ steps.nuget-login.outputs.NUGET_API_KEY }}'
           working-directory: 'packages'
           fail-if-exists: false
-        
