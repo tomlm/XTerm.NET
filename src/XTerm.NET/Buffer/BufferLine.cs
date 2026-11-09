@@ -822,7 +822,8 @@ public class BufferLine : IEnumerable<BufferCell>
     /// only the printer knows what sizing was in force for the text it just wrote.</para>
     /// <para>Adjacent columns with identical sizing are joined into one span. Where one scaled block
     /// ends and the next begins is recoverable from the cells — the first cell of a block carries its
-    /// full width and the rest are zero-width — so the span does not have to say it twice.</para>
+    /// full width and the rest are zero-width — so the span does not have to say it twice. Erasing
+    /// reads those edges back, so overwriting one block of a span erases that block alone.</para>
     /// </remarks>
     internal void NoteSizedRun(int column, int count, Common.TextSizing sizing)
     {
@@ -904,11 +905,23 @@ public class BufferLine : IEnumerable<BufferCell>
             if (run.Rows <= reachingRows)
                 continue;
 
+            // The span may hold several blocks that only share a sizing, and only the ones the range
+            // touches are erased. Their edges come from the cells, which the caller may already have
+            // overwritten inside the range -- so each edge is found from the outside of it.
+            var eraseStart = BlockStartAt(run, column);
+            var eraseEnd = BlockEndAt(run, end);
+
             _sizedRuns.RemoveAt(i);
+
+            // Back in place, so the list stays left to right.
+            if (eraseEnd < run.EndColumn)
+                _sizedRuns.Insert(i, new LineSizedRun(eraseEnd, run.EndColumn - eraseEnd, run.Sizing));
+            if (eraseStart > run.Column)
+                _sizedRuns.Insert(i, new LineSizedRun(run.Column, eraseStart - run.Column, run.Sizing));
 
             // What is left of the block becomes spaces. Its own attributes are kept, so a run erased
             // out of a coloured background does not punch a hole in it.
-            for (int c = Math.Max(0, run.Column); c < run.EndColumn && c < _length; c++)
+            for (int c = Math.Max(0, eraseStart); c < eraseEnd && c < _length; c++)
             {
                 if (!blankAll && c >= column && c < end)
                     continue;
@@ -923,6 +936,72 @@ public class BufferLine : IEnumerable<BufferCell>
 
         if (_sizedRuns.Count == 0)
             _sizedRuns = null;
+    }
+
+    /// <summary>
+    /// The first column of the block in <paramref name="run"/> that covers <paramref name="column"/>,
+    /// or <paramref name="column"/> itself when it begins one.
+    /// </summary>
+    /// <remarks>
+    /// <para>With an explicit <c>w</c> every block in the span is <c>s * w</c> columns, since they
+    /// share a sizing, so the edge is arithmetic. With <c>w=0</c> each grapheme is its own block of
+    /// <c>s</c> times its width, and the edge is read from the cells LEFT of the range: the block's
+    /// first cell carries its full width and the rest are zero-width continuations.</para>
+    /// <para>The cells are read past one that is not a multiple of <c>s</c> wide, because the print
+    /// path's wide-cell repair has already turned the other half of a two-column cell into a
+    /// one-column space by the time this runs. At <c>s=1</c> that space cannot be told from a block,
+    /// and stays in the span as one -- a blank either way.</para>
+    /// </remarks>
+    private int BlockStartAt(LineSizedRun run, int column)
+    {
+        if (column <= run.Column)
+            return run.Column;
+
+        var sizing = run.Sizing;
+        if (sizing.Width > 0)
+        {
+            var cols = sizing.Scale * sizing.Width;
+            return column - (column - run.Column) % cols;
+        }
+
+        for (int c = Math.Min(column, _length) - 1; c >= run.Column; c--)
+        {
+            var width = _cells[c].Width;
+            // A block ending short of the column means the cells between hold no first cell of
+            // their own: they are the block whose first cell the repair took, and it starts where
+            // this one ends.
+            if (width > 0 && width % sizing.Scale == 0)
+                return c + width > column ? c : c + width;
+        }
+
+        return run.Column;
+    }
+
+    /// <summary>
+    /// One past the last column of the block in <paramref name="run"/> that covers
+    /// <c><paramref name="end"/> - 1</c>. The mirror of <see cref="BlockStartAt"/>, reading the cells
+    /// from <paramref name="end"/> on: what is there before the next block's first cell belongs to a
+    /// block that started inside the range.
+    /// </summary>
+    private int BlockEndAt(LineSizedRun run, int end)
+    {
+        if (end >= run.EndColumn)
+            return run.EndColumn;
+
+        var sizing = run.Sizing;
+        if (sizing.Width > 0)
+        {
+            var cols = sizing.Scale * sizing.Width;
+            var into = (end - run.Column) % cols;
+            return into == 0 ? end : end + cols - into;
+        }
+
+        var c = end;
+        while (c < run.EndColumn && c < _length
+               && (_cells[c].Width == 0 || _cells[c].Width % sizing.Scale != 0))
+            c++;
+
+        return c < _length ? c : run.EndColumn;
     }
 
     /// <summary>
