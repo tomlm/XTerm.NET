@@ -672,4 +672,30 @@ public static class TerminalEvents
             Blink = blink;
         }
     }
+
+    /// <summary>
+    /// Shell state changed event - fired when <see cref="Terminal.ShellState"/> takes a new value.
+    /// </summary>
+    public class ShellStateChangedEventArgs : EventArgs
+    {
+        public ShellStateChangedEventArgs(ShellState oldState, ShellState newState, int? exitCode)
+        {
+            OldState = oldState;
+            NewState = newState;
+            ExitCode = exitCode;
+        }
+
+        /// <summary>The state before the change.</summary>
+        public ShellState OldState { get; }
+
+        /// <summary>The state after the change, which <see cref="Terminal.ShellState"/> now reports.</summary>
+        public ShellState NewState { get; }
+
+        /// <summary>
+        /// The exit code the shell reported with the <c>133;D</c> that caused this change, or null when
+        /// something else caused it or the shell sent a bare D. Null means "not reported", never
+        /// "succeeded".
+        /// </summary>
+        public int? ExitCode { get; }
+    }
 }

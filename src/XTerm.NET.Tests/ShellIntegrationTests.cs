@@ -177,6 +177,261 @@ public class ShellIntegrationTests
         Assert.Null(terminal.ShellIntegrationState);
     }
 
+    // ---- OSC 133 : derived shell state -------------------------------------------------------
+
+    private static List<(ShellState Old, ShellState New, int? Exit)> RecordShellStates(Terminal terminal)
+    {
+        var changes = new List<(ShellState, ShellState, int?)>();
+        terminal.ShellStateChanged += (_, e) => changes.Add((e.OldState, e.NewState, e.ExitCode));
+        return changes;
+    }
+
+    [Fact]
+    public void ShellState_IsUnknownBeforeAnyMark()
+    {
+        var terminal = CreateTerminal();
+
+        Assert.Equal(ShellState.Unknown, terminal.ShellState);
+    }
+
+    [Theory]
+    [InlineData("A", ShellState.Prompt)]
+    [InlineData("B", ShellState.Input)]
+    [InlineData("C", ShellState.Running)]
+    [InlineData("D;0", ShellState.Prompt)]
+    public void ShellState_FollowsEachMark(string mark, ShellState expected)
+    {
+        var terminal = CreateTerminal();
+        var changes = RecordShellStates(terminal);
+
+        terminal.Write($"\x1B]133;{mark}\x07");
+
+        Assert.Equal(expected, terminal.ShellState);
+        Assert.Equal(new[] { (ShellState.Unknown, expected, mark == "D;0" ? 0 : (int?)null) }, changes);
+    }
+
+    [Fact]
+    public void ShellState_TracksAFullCycle_AndReportsTheExitCodeOnlyWhenTheCommandEnds()
+    {
+        var terminal = CreateTerminal();
+        var changes = RecordShellStates(terminal);
+
+        terminal.Write("\x1B]133;A\x07$ \x1B]133;B\x07");
+        Assert.Equal(ShellState.Input, terminal.ShellState);
+
+        terminal.Write("make\r\n\x1B]133;C\x07");
+        Assert.Equal(ShellState.Running, terminal.ShellState);
+
+        terminal.Write("error\r\n\x1B]133;D;2\x07");
+        Assert.Equal(ShellState.Prompt, terminal.ShellState);
+        Assert.Equal(2, terminal.LastCommandExitCode);
+
+        // The next prompt's A leaves the state where D put it, so it raises nothing.
+        terminal.Write("\x1B]133;A\x07");
+
+        Assert.Equal(
+            new (ShellState, ShellState, int?)[]
+            {
+                (ShellState.Unknown, ShellState.Prompt, null),
+                (ShellState.Prompt, ShellState.Input, null),
+                (ShellState.Input, ShellState.Running, null),
+                (ShellState.Running, ShellState.Prompt, 2),
+            },
+            changes);
+    }
+
+    [Fact]
+    public void ShellState_ReportsNoExitCode_ForABareD()
+    {
+        // cmd.exe always sends a bare D. Null must not read as success.
+        var terminal = CreateTerminal();
+        terminal.Write("\x1B]133;C\x07");
+        var changes = RecordShellStates(terminal);
+
+        terminal.Write("\x1B]133;D\x07");
+
+        Assert.Equal(new[] { (ShellState.Running, ShellState.Prompt, (int?)null) }, changes);
+    }
+
+    [Fact]
+    public void ShellState_RepeatedMarksRaiseNothing()
+    {
+        var terminal = CreateTerminal();
+        terminal.Write("\x1B]133;C\x07");
+        var changes = RecordShellStates(terminal);
+
+        terminal.Write("\x1B]133;C\x07\x1B]133;C\x07");
+
+        Assert.Equal(ShellState.Running, terminal.ShellState);
+        Assert.Empty(changes);
+    }
+
+    [Fact]
+    public void ShellState_FullReset_ReturnsToUnknown()
+    {
+        // RIS while a command runs is what `reset` itself produces: the state goes to Unknown, and
+        // the D that follows when `reset` exits brings it back to Prompt.
+        var terminal = CreateTerminal();
+        terminal.Write("\x1B]133;C\x07");
+        var changes = RecordShellStates(terminal);
+
+        terminal.Write("\u001bc");
+        Assert.Equal(ShellState.Unknown, terminal.ShellState);
+
+        terminal.Write("\x1B]133;D;0\x07");
+        Assert.Equal(ShellState.Prompt, terminal.ShellState);
+
+        Assert.Equal(
+            new (ShellState, ShellState, int?)[]
+            {
+                (ShellState.Running, ShellState.Unknown, null),
+                (ShellState.Unknown, ShellState.Prompt, 0),
+            },
+            changes);
+    }
+
+    [Fact]
+    public void ShellState_FullResetWithNoState_RaisesNothing()
+    {
+        var terminal = CreateTerminal();
+        var changes = RecordShellStates(terminal);
+
+        terminal.Write("\u001bc");
+
+        Assert.Empty(changes);
+    }
+
+    [Fact]
+    public void ResetShellState_ForgetsTheStateAndNothingElse()
+    {
+        // A host connecting the terminal to a new process: the old shell's state must go, its screen
+        // must not.
+        var terminal = CreateTerminal();
+        terminal.Write("old output\r\n\x1B]133;C\x07");
+        var changes = RecordShellStates(terminal);
+
+        terminal.ResetShellState();
+
+        Assert.Equal(ShellState.Unknown, terminal.ShellState);
+        Assert.Equal(new[] { (ShellState.Running, ShellState.Unknown, (int?)null) }, changes);
+        Assert.StartsWith("old output", terminal.Buffer.Lines[0]!.TranslateToString(true));
+
+        // And the next shell's marks are heard from scratch, even a B the old shell had also sent last.
+        terminal.ResetShellState();
+        terminal.Write("\x1B]133;B\x07");
+        Assert.Equal(ShellState.Input, terminal.ShellState);
+        Assert.Equal(2, changes.Count);
+    }
+
+    [Fact]
+    public void ShellState_SoftResetLeavesItAlone()
+    {
+        // DECSTR resets modes for the program that asked; it says nothing about the shell.
+        var terminal = CreateTerminal();
+        terminal.Write("\x1B]133;C\x07");
+
+        terminal.Write("\x1B[!p");
+
+        Assert.Equal(ShellState.Running, terminal.ShellState);
+    }
+
+    [Fact]
+    public void ShellState_RecoversFromAMissingD_AtTheNextPrompt()
+    {
+        // The shell crashed mid-command, or the command was killed before D: a new prompt's A is
+        // evidence enough that nothing is running any more.
+        var terminal = CreateTerminal();
+        terminal.Write("\x1B]133;D;5\x07\x1B]133;A\x07\x1B]133;B\x07\x1B]133;C\x07");
+        var changes = RecordShellStates(terminal);
+
+        terminal.Write("\x1B]133;A\x07");
+
+        Assert.Equal(ShellState.Prompt, terminal.ShellState);
+        Assert.Equal(new[] { (ShellState.Running, ShellState.Prompt, (int?)null) }, changes);
+        // The last exit code is still the last one REPORTED; a missing D reports nothing.
+        Assert.Equal(5, terminal.LastCommandExitCode);
+    }
+
+    [Fact]
+    public void ShellState_FollowsTheLatestMark_WhenMarksArriveOutOfOrder()
+    {
+        var terminal = CreateTerminal();
+
+        // C with no A or B before it: a shell whose integration starts mid-session.
+        terminal.Write("\x1B]133;C\x07");
+        Assert.Equal(ShellState.Running, terminal.ShellState);
+
+        // B with no A after a D: the prompt mark was dropped.
+        terminal.Write("\x1B]133;D\x07\x1B]133;B\x07");
+        Assert.Equal(ShellState.Input, terminal.ShellState);
+
+        // A while waiting for input: the prompt was redrawn (Ctrl+C, a resize).
+        terminal.Write("\x1B]133;A\x07");
+        Assert.Equal(ShellState.Prompt, terminal.ShellState);
+    }
+
+    [Fact]
+    public void ShellState_FollowsTheInnerShell_WhenShellsNest()
+    {
+        // `bash` run from bash: the outer shell's C, then the inner shell's own cycle, then the
+        // outer shell's D when the inner one exits. The terminal follows whoever spoke last.
+        var terminal = CreateTerminal();
+        terminal.Write("\x1B]133;A\x07\x1B]133;B\x07\x1B]133;C\x07");
+
+        terminal.Write("\x1B]133;A\x07\x1B]133;B\x07");
+        Assert.Equal(ShellState.Input, terminal.ShellState);
+
+        terminal.Write("\x1B]133;C\x07");
+        Assert.Equal(ShellState.Running, terminal.ShellState);
+
+        terminal.Write("\x1B]133;D;0\x07\x1B]133;A\x07\x1B]133;B\x07");
+        Assert.Equal(ShellState.Input, terminal.ShellState);
+
+        // `exit` in the inner shell: the outer shell's D and its next prompt.
+        terminal.Write("\x1B]133;C\x07\x1B]133;D;0\x07\x1B]133;A\x07");
+        Assert.Equal(ShellState.Prompt, terminal.ShellState);
+    }
+
+    [Fact]
+    public void ShellState_IsUnchangedByTheAlternateScreen()
+    {
+        // vim takes the alternate screen inside a running command; neither switch is a shell mark.
+        var terminal = CreateTerminal();
+        terminal.Write("\x1B]133;C\x07");
+        var changes = RecordShellStates(terminal);
+
+        terminal.Write("\x1B[?1049h");
+        Assert.Equal(ShellState.Running, terminal.ShellState);
+        terminal.Write("\x1B[2J~\x1B[?1049l");
+
+        Assert.Equal(ShellState.Running, terminal.ShellState);
+        Assert.Empty(changes);
+    }
+
+    [Fact]
+    public void ShellState_IgnoresUnknownMarks()
+    {
+        var terminal = CreateTerminal();
+        terminal.Write("\x1B]133;C\x07");
+
+        terminal.Write("\x1B]133;Z\x07\x1B]133\x07");
+
+        Assert.Equal(ShellState.Running, terminal.ShellState);
+    }
+
+    [Fact]
+    public void ShellState_IsCurrent_WhenTheMarkEventIsRaised()
+    {
+        // A handler of the raw mark event reading ShellState sees the state that mark produced.
+        var terminal = CreateTerminal();
+        ShellState? seen = null;
+        terminal.ShellIntegrationMarkReceived += (_, _) => seen = terminal.ShellState;
+
+        terminal.Write("\x1B]133;C\x07");
+
+        Assert.Equal(ShellState.Running, seen);
+    }
+
     // ---- OSC 9 ; 9 : working directory -------------------------------------------------------
 
     [Fact]
