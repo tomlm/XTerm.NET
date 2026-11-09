@@ -427,12 +427,18 @@ public static class TerminalEvents
     public class OscReceivedEventArgs : EventArgs
     {
         public OscReceivedEventArgs(string identifier, int code, string data, string raw, bool recognized)
+            : this(identifier, code, data, raw, recognized, endedWithBel: false)
+        {
+        }
+
+        public OscReceivedEventArgs(string identifier, int code, string data, string raw, bool recognized, bool endedWithBel)
         {
             Identifier = identifier;
             Code = code;
             Data = data;
             Raw = raw;
             Recognized = recognized;
+            EndedWithBel = endedWithBel;
         }
 
         /// <summary>
@@ -460,6 +466,15 @@ public static class TerminalEvents
         /// handler is the only thing that will act on it.
         /// </summary>
         public bool Recognized { get; }
+
+        /// <summary>
+        /// Whether the program ended the sequence with BEL (0x07) rather than ST (<c>ESC \</c>).
+        /// </summary>
+        /// <remarks>
+        /// For a handler that replies: answering in the terminator the program used is what xterm
+        /// does, and what the terminal's own replies do.
+        /// </remarks>
+        public bool EndedWithBel { get; }
     }
 
     /// <summary>
