@@ -481,6 +481,7 @@ public partial class InputHandler
         line?.AddMark(new Buffer.LineMark(_buffer.X, mark, exitCode));
 
         _terminal.ShellIntegrationState = mark;
+        _terminal.SetShellState(Terminal.ShellStateAfter(mark), exitCode);
         _terminal.RaiseShellIntegrationMark(mark, exitCode);
     }
 

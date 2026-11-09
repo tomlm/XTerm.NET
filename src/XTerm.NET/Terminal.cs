@@ -1448,6 +1448,9 @@ public class Terminal : IDisposable
         _altPointerShapes.Clear();
         RaisePointerShapeChanged(shapeBefore);
 
+        // Whatever the shell last said no longer describes this session; it has to say again.
+        ResetShellState();
+
         // Reset cursor
         _buffer.SetCursor(0, 0);
         _buffer.ResetScrollRegion();
@@ -2538,6 +2541,7 @@ public class Terminal : IDisposable
         DirectoryChanged = null;
         HyperlinkChanged = null;
         ShellIntegrationMarkReceived = null;
+        ShellStateChanged = null;
         PointerShapeChanged = null;
         ProgressChanged = null;
         NotificationReceived = null;
@@ -2739,6 +2743,56 @@ public class Terminal : IDisposable
     }
 
     internal void InvalidatePendingPaste() => _pendingPaste = null;
+
+    // ---- Shell state (OSC 133) --------------------------------------------------------------
+
+    /// <summary>
+    /// Where the shell is in its prompt/command cycle, derived from its OSC 133 marks.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ShellState.Running"/> is the one a host acts on: a command owns the terminal, so
+    /// closing it should ask first. <see cref="ShellState.Unknown"/> is what a shell without
+    /// integration reports forever, and means "cannot say". The transitions are documented on
+    /// <see cref="Common.ShellState"/>. The raw last mark is <see cref="ShellIntegrationState"/>.
+    /// </remarks>
+    public ShellState ShellState { get; private set; }
+
+    /// <summary>
+    /// Fired when <see cref="ShellState"/> changes; repeating a mark that leaves it where it was
+    /// fires nothing. Raised synchronously on the thread calling <see cref="Write(string)"/>.
+    /// </summary>
+    public event EventHandler<TerminalEvents.ShellStateChangedEventArgs>? ShellStateChanged;
+
+    /// <summary>
+    /// Returns <see cref="ShellState"/> to <see cref="ShellState.Unknown"/> without touching anything
+    /// else: the screen, the scrollback and the marks anchored in it all stay.
+    /// </summary>
+    /// <remarks>
+    /// For a host that connects this terminal to a different process. The state describes the shell
+    /// that sent the last mark, and a new process that never sends one - a shell without integration -
+    /// would otherwise inherit it for good: idle from the old shell's B, or running from its C. Raises
+    /// <see cref="ShellStateChanged"/> when the state was known. A full reset (RIS) does this too.
+    /// </remarks>
+    public void ResetShellState() => SetShellState(ShellState.Unknown, null);
+
+    internal void SetShellState(ShellState state, int? exitCode)
+    {
+        var old = ShellState;
+        if (old == state)
+            return;
+
+        ShellState = state;
+        ShellStateChanged?.Invoke(this, new TerminalEvents.ShellStateChangedEventArgs(old, state, exitCode));
+    }
+
+    // Each mark sets the state outright rather than stepping from the current one, which is what
+    // keeps a lost D or an out-of-order mark from wedging it: the next A is always a prompt.
+    internal static ShellState ShellStateAfter(ShellIntegrationMark mark) => mark switch
+    {
+        ShellIntegrationMark.CommandStart => ShellState.Input,
+        ShellIntegrationMark.CommandExecuted => ShellState.Running,
+        _ => ShellState.Prompt,
+    };
 }
 
 /// <summary>
