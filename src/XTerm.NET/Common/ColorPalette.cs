@@ -486,6 +486,29 @@ public sealed class ColorSnapshot
         };
     }
 
+    /// <summary>
+    /// Resolves the colour a cell's underline is drawn in, from its underline colour (SGR 58), as
+    /// 0xRRGGBB, or null when the underline follows the text colour.
+    /// </summary>
+    /// <param name="attributes">The cell's attributes.</param>
+    /// <remarks>
+    /// <para>SGR 58;5;n resolves through this palette and SGR 58;2;r;g;b comes through as named;
+    /// bold changes neither. SGR 59, or no SGR 58 at all, is null: draw the underline in whatever
+    /// <see cref="ResolveForeground"/> gave the text, after the host's inverse and dim -- which is
+    /// why this does not answer with the foreground itself. An index past the palette, which only
+    /// a direct <see cref="AttributeData.SetUnderlineColor"/> can store, is null too.</para>
+    /// </remarks>
+    public int? ResolveUnderline(in AttributeData attributes)
+    {
+        if (!attributes.TryGetUnderlineColor(out var color, out var mode))
+            return null;
+
+        if (mode == (int)ColorMode.RGB)
+            return color & 0xFFFFFF;
+
+        return (uint)color < (uint)colors.Length ? colors[color] : null;
+    }
+
     /// <summary>Gets whether the background is light enough that dark text belongs on it.</summary>
     public bool IsLightBackground => ColorPalette.IsLight(Background);
 
