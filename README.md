@@ -47,6 +47,23 @@ line falls out of the scrollback — and a resize does nothing to it at all. See
 ## Compliance
 ![Compliance](https://raw.githubusercontent.com/tomlm/Iciclecreek.Avalonia.Terminal/main/compliance.png)
 
+## Behaviour changes
+
+**DECRQCRA is off by default.** `CSI Pid ; Pp ; Pt ; Pl ; Pb ; Pr * y` asks for a checksum of a
+rectangle of the screen. Asked one cell at a time, it gives back the text, so a program, or a remote
+host you've just ssh'd to, can read what was on screen before it started, alternate screen included.
+WezTerm turned it off for the same reason, xterm gates it behind `allowWindowOps`, and iTerm2 asks
+first. While it is off the request is ignored and nothing is sent back, which is what xterm and
+WezTerm do.
+
+esctest reads every cell back through DECRQCRA, so turn it back on for a conformance run:
+
+```csharp
+var terminal = new Terminal(new TerminalOptions { ChecksumReportsEnabled = true });
+// or, on a running terminal:
+terminal.Options.ChecksumReportsEnabled = true;
+```
+
 ## Upgrading to 3.0
 
 **3.0 changes how Sixel is stored.** If you only host a terminal and draw text, or draw only Kitty
