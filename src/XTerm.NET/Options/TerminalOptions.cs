@@ -255,6 +255,22 @@ public class TerminalOptions : ICloneable
     public bool ClipboardReadEnabled { get; set; } = false;
 
     /// <summary>
+    /// Whether DECRQCRA (<c>CSI Pid ; Pp ; Pt ; Pl ; Pb ; Pr * y</c>), the checksum of a
+    /// rectangular area, is answered.
+    /// </summary>
+    /// <remarks>
+    /// <para>Disabled by default for the same reason as <see cref="ClipboardReadEnabled"/>: it is a
+    /// read-back. Checksumming one cell at a time recovers the screen's text, so a program -- or a
+    /// remote host the user has just ssh'd to -- can read what was displayed before it started,
+    /// including the alternate screen the last full-screen application left behind. WezTerm turned
+    /// it off for this reason, xterm gates it behind <c>allowWindowOps</c>, and iTerm2 asks first.</para>
+    /// <para>While off the request is ignored and nothing is sent, which is what xterm and WezTerm
+    /// do when it is disallowed. esctest reads every cell back through this, so a conformance run
+    /// needs it set true.</para>
+    /// </remarks>
+    public bool ChecksumReportsEnabled { get; set; } = false;
+
+    /// <summary>
     /// Whether control characters survive <see cref="Terminal.Paste(TerminalPaste)"/>.
     /// </summary>
     /// <remarks>
@@ -564,6 +580,7 @@ public class TerminalOptions : ICloneable
         KittyNotificationsEnabled = other.KittyNotificationsEnabled;
         ClipboardWriteEnabled = other.ClipboardWriteEnabled;
         ClipboardReadEnabled = other.ClipboardReadEnabled;
+        ChecksumReportsEnabled = other.ChecksumReportsEnabled;
         AllowPasteControls = other.AllowPasteControls;
         MaxClipboardBytes = other.MaxClipboardBytes;
         KittyKeyboardEnabled = other.KittyKeyboardEnabled;

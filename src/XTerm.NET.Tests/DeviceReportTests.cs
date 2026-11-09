@@ -144,6 +144,7 @@ public class DeviceReportTests
     public void Decrqcra_IsSilentBelowLevel64()
     {
         var (terminal, replies) = Create();
+        terminal.Options.ChecksumReportsEnabled = true;     // opt-in; the level gate is what's tested
         terminal.Write(Esc + "[64\"p");
         terminal.Write(Esc + "[1;0;1;1;1;1*y");
         Assert.Single(replies);                 // answered at VT400

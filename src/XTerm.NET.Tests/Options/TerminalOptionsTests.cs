@@ -39,6 +39,7 @@ public class TerminalOptionsTests
         Assert.Equal(RendererType.Canvas, options.RendererType);
         Assert.True(options.ClipboardWriteEnabled);
         Assert.False(options.ClipboardReadEnabled);
+        Assert.False(options.ChecksumReportsEnabled);    // DECRQCRA reads the screen back: opt-in
         Assert.NotNull(options.WindowOptions);
         Assert.NotNull(options.Theme);
         Assert.Equal(1, options.MinimumContrastRatio);
