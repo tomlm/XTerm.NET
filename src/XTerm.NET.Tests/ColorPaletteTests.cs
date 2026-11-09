@@ -713,6 +713,55 @@ public class ColorPaletteTests
         Assert.Equal(expected, terminal.Colors.Take().ResolveBackground(attributes));
     }
 
+    /// <summary>
+    /// Every underline colour encoding, through real SGR. Bold and a red foreground are set
+    /// throughout, so an underline that took the foreground or bold's brightening would show.
+    /// </summary>
+    [Theory]
+    [InlineData("4", null)]                      // no SGR 58: follows the text
+    [InlineData("4;58;5;1;59", null)]            // SGR 59 clears it again
+    [InlineData("4;58;5;1", 0xCD0000)]
+    [InlineData("4:3;58:5:1", 0xCD0000)]         // curly underline, colon form
+    [InlineData("4;58;5;9", 0xFF0000)]
+    [InlineData("4;58;5;100", 0x878700)]
+    [InlineData("4;58;2;1;2;3", 0x010203)]
+    [InlineData("4;58:2::1:2:3", 0x010203)]
+    [InlineData("4;58;2;0;1;1", 0x000101)]       // numerically 257, and still RGB
+    [InlineData("4;58;2;255;255;255", 0xFFFFFF)]
+    public void ResolveUnderline_EachSgrEncoding_ResolvesToTheColourNamed(string sgr, int? expected)
+    {
+        var terminal = CreateTerminal(new ThemeOptions { Foreground = "#102030" });
+        terminal.Write(Esc.Csi($"1;31;{sgr}m") + "X");
+
+        var attributes = terminal.Buffer.Lines[terminal.Buffer.YBase]![0].Attributes;
+        Assert.Equal(expected, terminal.Colors.Take().ResolveUnderline(attributes));
+    }
+
+    [Fact]
+    public void ResolveUnderline_ReadsThePaletteAsItStands()
+    {
+        var snapshot = new ColorPalette(new ThemeOptions { Red = "#ff8800" }).Take();
+        var attributes = AttributeData.Default;
+
+        attributes.SetUnderlineColor(1, (int)ColorMode.Palette256);
+        Assert.Equal(0xFF8800, snapshot.ResolveUnderline(attributes));
+
+        attributes.ResetUnderlineColor();
+        Assert.Null(snapshot.ResolveUnderline(attributes));
+    }
+
+    [Fact]
+    public void ResolveUnderline_IndexPastThePalette_FollowsTheText()
+    {
+        var snapshot = new ColorPalette(new ThemeOptions()).Take();
+        var attributes = AttributeData.Default;
+
+        // Only the direct setter can store one; SGR 58;5 ignores an index past 255.
+        attributes.SetUnderlineColor(ColorPalette.Size, (int)ColorMode.Palette256);
+
+        Assert.Null(snapshot.ResolveUnderline(attributes));
+    }
+
     [Fact]
     public void ResolveBackground_ReadsThePaletteAsItStands()
     {

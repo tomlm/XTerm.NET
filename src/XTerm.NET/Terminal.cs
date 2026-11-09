@@ -13,7 +13,7 @@ namespace XTerm;
 /// Main terminal class - the core of xterm.js functionality.
 /// Manages buffer, parser, input handler, and terminal state.
 /// </summary>
-public class Terminal : IDisposable
+public partial class Terminal : IDisposable
 {
     private readonly EscapeSequenceParser _parser;
     private readonly InputHandler _inputHandler;

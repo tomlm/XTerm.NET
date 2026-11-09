@@ -7,7 +7,7 @@ namespace XTerm.Buffer;
 /// Represents a single line in the terminal buffer.
 /// Contains an array of cells and metadata about the line.
 /// </summary>
-public class BufferLine : IEnumerable<BufferCell>
+public partial class BufferLine : IEnumerable<BufferCell>
 {
     private BufferCell[] _cells;
 
@@ -85,7 +85,7 @@ public class BufferLine : IEnumerable<BufferCell>
         set
         {
             _lineAttribute = value;
-            Cache = null;
+            MarkChanged();
         }
     }
 
@@ -137,7 +137,7 @@ public class BufferLine : IEnumerable<BufferCell>
                     HasWideCells = true;
 
                 _cells[index] = value;
-                Cache = null;
+                MarkChanged();
             }
         }
     }
@@ -199,7 +199,7 @@ public class BufferLine : IEnumerable<BufferCell>
             if (_sixel is not null)
                 ClearSixel(index, 1);
 
-            Cache = null;
+            MarkChanged();
         }
     }
 
@@ -237,7 +237,7 @@ public class BufferLine : IEnumerable<BufferCell>
         if (_sixel is not null)
             ClearSixel(index, text.Length);
 
-        Cache = null;
+        MarkChanged();
     }
 
     /// <summary>
@@ -265,7 +265,7 @@ public class BufferLine : IEnumerable<BufferCell>
         if (_sixel is not null)
             ClearSixel(index, ascii.Length);
 
-        Cache = null;
+        MarkChanged();
     }
 
     /// <summary>
@@ -304,7 +304,7 @@ public class BufferLine : IEnumerable<BufferCell>
             Array.Copy(_cells, newCells, cols);
             _cells = newCells;
         }
-        Cache = null;
+        MarkChanged();
         _length = cols;
 
         // A block cut in half by a narrowing does not survive it: the run says which columns hold
@@ -363,7 +363,7 @@ public class BufferLine : IEnumerable<BufferCell>
         if (_sizedRuns is not null)
             EraseSizedRunsOver(startCol, Math.Max(0, Math.Min(endCol, _length) - startCol));
 
-        Cache = null;
+        MarkChanged();
     }
 
     /// <summary>
@@ -413,7 +413,7 @@ public class BufferLine : IEnumerable<BufferCell>
         if (src._sixel is not null || _sixel is not null)
             CopySixelCells(src, srcCol, destCol, length);
 
-        Cache = null;
+        MarkChanged();
     }
 
     private void CopySixelCells(BufferLine src, int srcCol, int destCol, int length)
@@ -495,7 +495,7 @@ public class BufferLine : IEnumerable<BufferCell>
         {
             _cells[startCol++] = fillCell;
         }
-        Cache = null;
+        MarkChanged();
     }
 
     /// <summary>
@@ -513,7 +513,7 @@ public class BufferLine : IEnumerable<BufferCell>
         _images = null;
         _sixel = null;
         _sixelShared = false;
-        Cache = null;
+        MarkChanged();
         return true;
     }
 
@@ -535,7 +535,7 @@ public class BufferLine : IEnumerable<BufferCell>
     {
         var strip = WritableSixel(null, image.CellWidth, image.CellHeight);
         strip.Paint(image, sourceY, column);
-        Cache = null;
+        MarkChanged();
     }
 
     /// <summary>Drops this line's Sixel pixels altogether. What the image budget reclaims through.</summary>
@@ -548,7 +548,7 @@ public class BufferLine : IEnumerable<BufferCell>
         var bytes = _sixel.ByteCount;
         _sixel = null;
         _sixelShared = false;
-        Cache = null;
+        MarkChanged();
         return bytes;
     }
 
@@ -931,7 +931,7 @@ public class BufferLine : IEnumerable<BufferCell>
                 _cells[c] = blank;
             }
 
-            Cache = null;
+            MarkChanged();
         }
 
         if (_sizedRuns.Count == 0)
@@ -1141,7 +1141,7 @@ public class BufferLine : IEnumerable<BufferCell>
             _placements = null;
 
         PruneImages();
-        Cache = null;
+        MarkChanged();
         return true;
     }
 
@@ -1159,13 +1159,13 @@ public class BufferLine : IEnumerable<BufferCell>
         {
             if (ReferenceEquals(held, image))
             {
-                Cache = null;
+                MarkChanged();
                 return;
             }
         }
 
         _images.Add(image);
-        Cache = null;
+        MarkChanged();
     }
 
     /// <summary>
@@ -1190,7 +1190,7 @@ public class BufferLine : IEnumerable<BufferCell>
             _placements = null;
 
         PruneImages();
-        Cache = null;
+        MarkChanged();
         return true;
     }
 
@@ -1330,7 +1330,7 @@ public class BufferLine : IEnumerable<BufferCell>
         // marked in the middle of a program's output.
         ClearMarks();
 
-        Cache = null;
+        MarkChanged();
     }
 
     /// <summary>
@@ -1406,6 +1406,7 @@ public class BufferLine : IEnumerable<BufferCell>
         // wide character would otherwise carry that latch forever.
         HasWideCells = line.HasWideCells;
         this.Cache = line.Cache;
+        _version++;
     }
 
     public IEnumerator<BufferCell> GetEnumerator()
