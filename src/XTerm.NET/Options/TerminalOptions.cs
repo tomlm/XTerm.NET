@@ -312,6 +312,23 @@ public class TerminalOptions : ICloneable
     public string EnquiryResponse { get; set; } = string.Empty;
 
     /// <summary>
+    /// The characters that end a word when a double-click selects one. Null, the default, keeps the
+    /// built-in rule: letters, digits and <c>_</c> are word characters and everything else ends a word.
+    /// </summary>
+    /// <remarks>
+    /// <para>Given a string, every character NOT in it is part of a word, so <c>.</c>, <c>-</c> and
+    /// <c>/</c> join a path or a URL unless listed. This is Ghostty's <c>selection-word-chars</c>, whose
+    /// default is <c>"\t '\"│`|:;,()[]{}&lt;&gt;$"</c>. Each code point counts on its own, so characters
+    /// outside the Basic Multilingual Plane work; a sequence of several code points (an emoji with a
+    /// modifier, say) cannot be one separator.</para>
+    /// <para>A cell with no content (code point 0, as NUL is in Ghostty) is always a boundary. Blank
+    /// cells hold a space rather than nothing, though, so a list without the space joins words across a
+    /// gap. A cell is judged by its first code point.</para>
+    /// <para>Read on every expansion, so a change applies to the next double-click.</para>
+    /// </remarks>
+    public string? WordSeparators { get; set; }
+
+    /// <summary>
     /// How OSC colour queries (OSC 4, 5, 10, 11 and 12 with <c>?</c>) are answered.
     /// </summary>
     /// <remarks>
@@ -552,6 +569,7 @@ public class TerminalOptions : ICloneable
         KittyKeyboardEnabled = other.KittyKeyboardEnabled;
         PointerShapesEnabled = other.PointerShapesEnabled;
         EnquiryResponse = other.EnquiryResponse;
+        WordSeparators = other.WordSeparators;
         ColorReportFormat = other.ColorReportFormat;
         KeyboardActionModeAllowed = other.KeyboardActionModeAllowed;
         MaxImageRegistryBytes = other.MaxImageRegistryBytes;
